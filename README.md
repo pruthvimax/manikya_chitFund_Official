@@ -284,7 +284,7 @@ If you found this project helpful:
 
 ## 📄 License
 
-This project is for educational and production use.
+This project is not for educational and production use.
 
 ---
 >>>>>>> 42caa219aadc012a9f4a72835467045809483ae4
