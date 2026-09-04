@@ -49,3 +49,17 @@ node_modules
 .env
 npm-debug.log
 
+
+.git_disabled/
+.history/
+node_modules/
+.env
+.env.*
+!.env.example
+
+.git_disabled/
+.history/
+node_modules/
+.env
+.env.*
+!.env.example
