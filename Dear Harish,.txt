@@ -1,0 +1,33 @@
+Dear Harish,
+
+Payment received successfully.
+
+Amount: ₹1,000
+Type: Installment
+Month: M3
+Payment Mode: UPI
+Date: 13/08/2026
+Group: ABC123
+
+Thank you,
+MANIKYA CHITS PVT LTD
+
+
+
+
+
+
+
+
+
+
+Live chit auction & bidding
+Real-time auction countdown
+Easy bid placement and tracking
+Auction end date & time notifications
+Improved member & group management
+Enhanced payment & collection tracking
+Improved payment receipts
+Employee work tracking improvements
+Improved UI and navigation
+Performance improvements and bug fixes

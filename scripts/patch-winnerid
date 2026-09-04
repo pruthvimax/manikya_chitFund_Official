@@ -1,0 +1,129 @@
+const fs = require("fs");
+const NL = String.fromCharCode(10);
+const CRLF = String.fromCharCode(13) + NL;
+
+// ---------- app/admin/notifications.tsx ----------
+{
+  const path = "app/admin/notifications.tsx";
+  let s = fs.readFileSync(path, "utf8").split(CRLF).join(NL);
+
+  function rep(from, to) {
+    if (!s.includes(from)) {
+      console.error("ADMIN NOT FOUND:" + NL + from);
+      process.exit(1);
+    }
+    s = s.replace(from, to);
+  }
+
+  // 1) state
+  rep(
+    '  const [modalHighestBid, setModalHighestBid] = useState(0);',
+    '  const [modalHighestBid, setModalHighestBid] = useState(0);' + NL +
+    '  const [modalWinnerId, setModalWinnerId] = useState("");'
+  );
+
+  // 2) openWinnerModal prefill
+  rep(
+    '    setModalWinnerName(item.winnerName || "");',
+    '    setModalWinnerName(item.winnerName || "");' + NL +
+    '    setModalWinnerId(item.winnerId || "");'
+  );
+
+  // 3) Winner ID input in modal (after Winner Name input)
+  rep(
+    '          {/* WINNER GROUP (taken automatically from this notification) */}',
+    '          {/* WINNER ID */}' + NL +
+    '          <Text className="text-gray-700 font-medium mb-2">Winner ID</Text>' + NL +
+    '          <TextInput' + NL +
+    '            placeholder="Enter winner member / user ID..."' + NL +
+    '            value={modalWinnerId}' + NL +
+    '            onChangeText={setModalWinnerId}' + NL +
+    '            className="border border-gray-300 px-4 py-3 rounded-xl bg-white text-gray-800 mb-4"' + NL +
+    '          />' + NL +
+    '' + NL +
+    '          {/* WINNER GROUP (taken automatically from this notification) */}'
+  );
+
+  // 4) include winnerId in PUT payload
+  rep(
+    '                winnerName: modalWinnerName.trim(),' + NL +
+    '                winnerGroupId: modalWinnerGroupId.trim(),',
+    '                winnerName: modalWinnerName.trim(),' + NL +
+    '                winnerId: modalWinnerId.trim(),' + NL +
+    '                winnerGroupId: modalWinnerGroupId.trim(),'
+  );
+
+  // 5) show winner id in confirm message
+  rep(
+    '        `Name: ${modalWinnerName.trim()}\
+` +',
+    '        `Name: ${modalWinnerName.trim()}\
+` +' + NL +
+    '        (modalWinnerId.trim() ? `Winner ID: ${modalWinnerId.trim()}\
+` : "") +'
+  );
+
+  fs.writeFileSync(path, s);
+  console.log("Admin tsx patched.");
+}
+
+// ---------- app/bidroom.tsx: show Winner ID in winner card ----------
+{
+  const path = "app/bidroom.tsx";
+  let s = fs.readFileSync(path, "utf8").split(CRLF).join(NL);
+
+  function rep(from, to) {
+    if (!s.includes(from)) {
+      console.error("BIDROOM NOT FOUND:" + NL + from);
+      process.exit(1);
+    }
+    s = s.replace(from, to);
+  }
+
+  // In the card winner section
+  rep(
+    '                          <View className="flex-row mt-1">' + NL +
+    '                            <Text className="text-gray-700 flex-1 text-xs">' + NL +
+    '                              <Text className="font-medium">Name:</Text> {item.winnerName}' + NL +
+    '                            </Text>' + NL +
+    '                          </View>',
+    '                          <View className="flex-row mt-1">' + NL +
+    '                            <Text className="text-gray-700 flex-1 text-xs">' + NL +
+    '                              <Text className="font-medium">Name:</Text> {item.winnerName}' + NL +
+    '                            </Text>' + NL +
+    '                          </View>' + NL +
+    '' + NL +
+    '                          {!!item.winnerId && (' + NL +
+    '                            <View className="flex-row mt-0.5">' + NL +
+    '                              <Text className="text-gray-700 flex-1 text-xs">' + NL +
+    '                                <Text className="font-medium">Winner ID:</Text> {item.winnerId}' + NL +
+    '                              </Text>' + NL +
+    '                            </View>' + NL +
+    '                          )}'
+  );
+
+  // In the ended popup winner section
+  rep(
+    '                <View className="flex-row mt-1">' + NL +
+    '                  <Text className="text-gray-700 flex-1">' + NL +
+    '                    <Text className="font-medium">Name:</Text> {endedPopupData.winnerName}' + NL +
+    '                  </Text>' + NL +
+    '                </View>',
+    '                <View className="flex-row mt-1">' + NL +
+    '                  <Text className="text-gray-700 flex-1">' + NL +
+    '                    <Text className="font-medium">Name:</Text> {endedPopupData.winnerName}' + NL +
+    '                  </Text>' + NL +
+    '                </View>' + NL +
+    '' + NL +
+    '                {!!endedPopupData.winnerId && (' + NL +
+    '                  <View className="flex-row mt-1">' + NL +
+    '                    <Text className="text-gray-700 flex-1">' + NL +
+    '                      <Text className="font-medium">Winner ID:</Text> {endedPopupData.winnerId}' + NL +
+    '                    </Text>' + NL +
+    '                  </View>' + NL +
+    '                )}'
+  );
+
+  fs.writeFileSync(path, s);
+  console.log("Bidroom tsx patched.");
+}

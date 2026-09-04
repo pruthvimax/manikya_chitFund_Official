@@ -1,0 +1,94 @@
+{
+  "expo": {
+    "name": "Manikya Chits",
+    "slug": "manikya-chits",
+    "version": "1.1.2",
+    "orientation": "portrait",
+    "icon": "./assets/images/maxxxxx.png",
+    "scheme": "manikya-chits",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+
+    "splash": {
+      "image": "./assets/images/manikyaChits.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+
+    "ios": {
+      "supportsTablet": true,
+      "deploymentTarget": "16.4",
+      "bundleIdentifier": "com.manikya.chitfund",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "This app needs Bluetooth to connect to thermal printers",
+        "NSBluetoothPeripheralUsageDescription": "This app needs Bluetooth to connect to thermal printers",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+
+    "android": {
+      "versionCode": 9,
+      "package": "com.manikya.chitfund",
+
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/maxxxxx.png",
+        "backgroundColor": "#ffffff"
+      },
+
+      "permissions": [
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
+      ]
+    },
+
+    "web": {
+      "favicon": "./assets/images/maxxxxx.png"
+    },
+
+    "plugins": [
+      "expo-router",
+      "@react-native-community/datetimepicker",
+      "expo-web-browser",
+
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0",
+            "minSdkVersion": 24,
+            "enableProguardInReleaseBuilds": false,
+            "enableMinifyInReleaseBuilds": false,
+            "extraMavenRepos": [
+              "../../node_modules/react-native-bluetooth-escpos-printer/android/libs"
+            ]
+          },
+
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+
+      "expo-video",
+      "expo-font",
+      "react-native-ble-plx"
+    ],
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "30ef0b27-0815-4855-9798-cfee2a4f4d94"
+      }
+    }
+  }
+}

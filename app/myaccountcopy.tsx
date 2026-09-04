@@ -1,0 +1,1429 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import {
+  Animated,
+  Modal,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+  Platform,
+  Alert,
+} from "react-native";
+import BACKEND_URL from "../config";
+
+// =========================================================
+// SCREENSHOT PREVENTION FOR ALL PLATFORMS
+// =========================================================
+
+// For Android & iOS using expo-screen-capture
+let ScreenCapture: any = null;
+
+try {
+  const module = require("expo-screen-capture");
+  ScreenCapture = module.default || module;
+} catch (error) {
+  console.log("expo-screen-capture not available, using fallback");
+}
+
+const preventScreenshot = async () => {
+  try {
+    // Admin exemption. While an admin session is active on this
+    // device the app leaves screen capture ENABLED, so only an
+    // admin can screenshot. Every other user stays blocked.
+    if ((await AsyncStorage.getItem("adminSession")) === "true") {
+      await allowScreenshot();
+      return;
+    }
+
+    if (ScreenCapture && typeof ScreenCapture.preventScreenCaptureAsync === 'function') {
+      await ScreenCapture.preventScreenCaptureAsync();
+      console.log("✅ Screenshots prevented (expo-screen-capture)");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+        
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(true);
+          console.log("✅ Screenshots prevented (native)");
+        }
+      } catch (error) {
+        console.log("Native SecureViewManager not available");
+      }
+    }
+  } catch (error) {
+    console.log("Screenshot prevention error:", error);
+  }
+};
+
+const allowScreenshot = async () => {
+  try {
+    if (ScreenCapture && typeof ScreenCapture.allowScreenCaptureAsync === 'function') {
+      await ScreenCapture.allowScreenCaptureAsync();
+      console.log("✅ Screenshots allowed (expo-screen-capture)");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+        
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(false);
+          console.log("✅ Screenshots allowed (native)");
+        }
+      } catch (error) {
+        console.log("Native SecureViewManager not available");
+      }
+    }
+  } catch (error) {
+    console.log("Screenshot allow error:", error);
+  }
+};
+
+/* =========================================================================
+   ✅ FIX: "Nothing Phone" text truncation issue
+   ✅ PERF: memoized so it doesn't re-render on every parent state change
+   ========================================================================= */
+const SkeletonBox = React.memo(function SkeletonBox({
+  width,
+  height = 14,
+  radius = 6,
+  style = {},
+}: {
+  width: number | string;
+  height?: number;
+  radius?: number;
+  style?: any;
+}) {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: width as any,
+          height,
+          borderRadius: radius,
+          backgroundColor: "#e3e8e6",
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+});
+
+const SkeletonGroupsScreen = () => (
+  <SafeAreaView className="flex-1 bg-white">
+    <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+      <View className="flex-row items-center">
+        <TouchableOpacity className="mt-1" disabled>
+          <MaterialIcons name="arrow-back" size={26} color="white" />
+        </TouchableOpacity>
+        <Text
+          className="text-white text-2xl font-bold ml-4 mt-1 flex-1"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.3}
+          style={{ flexShrink: 1 }}
+        >
+          Account Copy
+        </Text>
+      </View>
+    </View>
+    <View className="p-5">
+      <SkeletonBox width={110} height={14} style={{ marginBottom: 10 }} />
+      <SkeletonBox width={"100%" as any} height={50} radius={16} />
+      <View className="mt-6 grid grid-cols-2 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <View key={i} className="bg-white p-4 rounded-2xl border border-gray-200">
+            <SkeletonBox width={80} height={10} style={{ marginBottom: 8 }} />
+            <SkeletonBox width={60} height={18} />
+          </View>
+        ))}
+      </View>
+    </View>
+    <View className="px-5">
+      <Footer />
+    </View>
+  </SafeAreaView>
+);
+
+const SkeletonLedgerBlock = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) => (
+  <View>
+    <View className="mb-6 grid grid-cols-2 gap-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <View key={i} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+          <SkeletonBox width={90} height={10} style={{ marginBottom: 8 }} />
+          <SkeletonBox width={70} height={20} />
+        </View>
+      ))}
+    </View>
+
+    <View className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+      <View className="bg-[#024e32] flex-row px-3 py-3">
+        {Array.from({ length: isDesktopOrLaptop ? 7 : 4 }).map((_, i) => (
+          <SkeletonBox
+            key={i}
+            width={isDesktopOrLaptop ? 100 : 70}
+            height={12}
+            style={{ marginRight: 12, backgroundColor: "#0d6b46" }}
+          />
+        ))}
+      </View>
+      {Array.from({ length: 6 }).map((_, row) => (
+        <View
+          key={row}
+          className={`flex-row items-center px-3 py-4 border-b border-gray-100 ${
+            row % 2 === 0 ? "bg-white" : "bg-gray-50"
+          }`}
+        >
+          {Array.from({ length: isDesktopOrLaptop ? 7 : 4 }).map((_, col) => (
+            <SkeletonBox
+              key={col}
+              width={isDesktopOrLaptop ? 90 : 60}
+              height={12}
+              style={{ marginRight: 12 }}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  </View>
+);
+
+const Footer = () => (
+  <View className="mt-6 mb-6">
+    <View className="border-t border-gray-200 pt-4 items-center">
+      <Text className="text-[#024e32] font-bold text-base">
+        MANIKYA CHITS PVT LTD
+      </Text>
+      <Text className="text-gray-500 text-xs mt-1 text-center">
+        My Account Copy
+      </Text>
+      <Text className="text-gray-400 text-xs mt-1 text-center">
+        © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+      </Text>
+    </View>
+  </View>
+);
+
+export default function MyAccountCopy() {
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isDesktopOrLaptop = width >= 768;
+
+  // =========================================================
+  // SCREENSHOT PREVENTION
+  // =========================================================
+
+  useEffect(() => {
+    preventScreenshot();
+    return () => {
+      allowScreenshot();
+    };
+  }, []);
+
+  // =========================================================
+  // WEB SCREENSHOT DETECTION
+  // =========================================================
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "PrintScreen") {
+          e.preventDefault();
+          Alert.alert(
+            "Screenshot Blocked",
+            "Screenshots are not allowed for security reasons."
+          );
+        }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        Alert.alert(
+          "Action Blocked",
+          "Right-click is disabled for security reasons."
+        );
+      };
+
+      const handleDevTools = (e: KeyboardEvent) => {
+        if (
+          (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i")) ||
+          (e.ctrlKey && e.shiftKey && (e.key === "J" || e.key === "j")) ||
+          (e.ctrlKey && e.key === "U") ||
+          (e.ctrlKey && e.key === "u")
+        ) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Developer tools are disabled for security reasons."
+          );
+        }
+      };
+
+      const handleSave = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Save is disabled for security reasons."
+          );
+        }
+      };
+
+      const handlePrint = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Print is disabled for security reasons."
+          );
+        }
+      };
+
+      const handleCopy = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Copy is disabled for security reasons."
+          );
+        }
+      };
+
+      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("contextmenu", handleContextMenu);
+      document.addEventListener("keydown", handleDevTools);
+      document.addEventListener("keydown", handleSave);
+      document.addEventListener("keydown", handlePrint);
+      document.addEventListener("keydown", handleCopy);
+
+      // Add CSS to prevent selection and screenshots
+      const style = document.createElement("style");
+      style.textContent = `
+        body {
+          user-select: none !important;
+          -webkit-user-select: none !important;
+          -moz-user-select: none !important;
+          -ms-user-select: none !important;
+        }
+        img {
+          -webkit-user-drag: none !important;
+          user-drag: none !important;
+        }
+        @media print {
+          body { display: none !important; }
+        }
+        * {
+          -webkit-touch-callout: none !important;
+          -webkit-user-select: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("contextmenu", handleContextMenu);
+        document.removeEventListener("keydown", handleDevTools);
+        document.removeEventListener("keydown", handleSave);
+        document.removeEventListener("keydown", handlePrint);
+        document.removeEventListener("keydown", handleCopy);
+        document.head.removeChild(style);
+      };
+    }
+  }, []);
+
+  /* ================= SESSION GUARD ================= */
+  useEffect(() => {
+    const checkSession = async () => {
+      const stored = await AsyncStorage.getItem("loggedUser");
+      if (!stored) {
+        router.replace("/");
+      }
+    };
+    checkSession();
+  }, []);
+
+  const [groups, setGroups] = useState([]);
+  const [selectedGroupKey, setSelectedGroupKey] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [selectedGroupMemberId, setSelectedGroupMemberId] = useState("");
+  const [ledger, setLedger] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedGroupData, setSelectedGroupData] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dividendMap, setDividendMap] = useState<Record<number, number>>({});
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  // ✅ Custom cross-platform dropdown state
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+
+  // ========== HISTORY MODAL STATES ==========
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [selectedHistoryMonth, setSelectedHistoryMonth] = useState<any>(null);
+  const [historyPayments, setHistoryPayments] = useState<any[]>([]);
+  const [historyMemberInfo, setHistoryMemberInfo] = useState<any>(null);
+
+  // ✅ PERFORMANCE: cache ledger + dividend data
+  const [ledgerCache, setLedgerCache] = useState<Record<string, any[]>>({});
+  const [dividendCache, setDividendCache] = useState<Record<string, Record<number, number>>>({});
+
+  const didInitialLoad = useRef(false);
+  useEffect(() => {
+    if (!didInitialLoad.current) {
+      didInitialLoad.current = true;
+      loadGroups();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedGroupId && selectedGroupMemberId) {
+      loadAccountCopy(selectedGroupId, selectedGroupMemberId);
+    }
+  }, [selectedGroupId, selectedGroupMemberId]);
+
+  /* ================= LOAD USER GROUPS ================= */
+  // ✅ PERF: useCallback so this stable reference isn't recreated every render
+  const loadGroups = useCallback(async (preserveSelection = false) => {
+    if (isLoadingGroups) return;
+
+    try {
+      setIsLoadingGroups(true);
+      if (!preserveSelection) setLoading(true);
+
+      const storedUser = await AsyncStorage.getItem("loggedUser");
+      if (!storedUser) {
+        setLoading(false);
+        setIsLoadingGroups(false);
+        return;
+      }
+
+      const { userid } = JSON.parse(storedUser);
+
+      const res = await fetch(`${BACKEND_URL}/groups/my-chits/${userid}`);
+      const data = await res.json();
+
+      if (Array.isArray(data) && data.length > 0) {
+        setGroups(data);
+
+        if (preserveSelection && selectedGroupKey) {
+          const stillExists = data.find((g: any) => g.uniqueKey === selectedGroupKey);
+          if (stillExists) {
+            setSelectedGroupData(stillExists);
+            await loadAccountCopy(stillExists.groupId, stillExists.groupMemberId || "", true);
+            return;
+          }
+        }
+
+        const firstGroup = data[0];
+        setSelectedGroupKey(firstGroup.uniqueKey);
+        setSelectedGroupId(firstGroup.groupId);
+        setSelectedGroupMemberId(firstGroup.groupMemberId || "");
+        setSelectedGroupData(firstGroup);
+      } else {
+        setGroups([]);
+        setSelectedGroupKey("");
+        setSelectedGroupId("");
+        setSelectedGroupMemberId("");
+        setSelectedGroupData(null);
+        setLedger([]);
+      }
+    } catch (err) {
+      console.log("❌ Load groups error:", err);
+    } finally {
+      setLoading(false);
+      setIsLoadingGroups(false);
+      setRefreshing(false);
+    }
+  }, [isLoadingGroups, selectedGroupKey]);
+
+  /* ================= LOAD ACCOUNT COPY ================= */
+  const loadAccountCopy = useCallback(async (
+    groupId: string,
+    groupMemberId: string,
+    forceRefresh = false
+  ) => {
+    const cacheKey = `${groupId}_${groupMemberId}`;
+
+    if (!forceRefresh && ledgerCache[cacheKey]) {
+      setLedger(ledgerCache[cacheKey]);
+      setDividendMap(dividendCache[cacheKey] || {});
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const storedUser = await AsyncStorage.getItem("loggedUser");
+      if (!storedUser) return;
+
+      const { userid } = JSON.parse(storedUser);
+
+      const res = await fetch(
+        `${BACKEND_URL}/groups/account-copy/${userid}/${groupId}?groupMemberId=${groupMemberId}`
+      );
+
+      const data = await res.json();
+      if (Array.isArray(data.ledger)) {
+        setLedger(data.ledger);
+        setLedgerCache((prev) => ({ ...prev, [cacheKey]: data.ledger }));
+        await loadDividends(groupId, data.ledger, cacheKey);
+      } else {
+        setLedger([]);
+      }
+
+      const group = groups.find((g: any) => g.uniqueKey === selectedGroupKey);
+      if (group) {
+        setSelectedGroupData(group);
+      }
+    } catch (err) {
+      console.log("❌ Account copy error:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [ledgerCache, dividendCache, groups, selectedGroupKey]);
+
+  const loadDividends = useCallback(async (groupId: string, ledgerData: any[], cacheKey: string) => {
+    try {
+      const map: Record<number, number> = {};
+      await Promise.all(
+        ledgerData.map(async (row) => {
+          try {
+            const res = await fetch(
+              `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
+            );
+            const plan = await res.json();
+            map[row.monthIndex] = plan?.dividend || 0;
+          } catch (err) {
+            console.log("Dividend fetch error for month", row.monthIndex);
+            map[row.monthIndex] = 0;
+          }
+        })
+      );
+      setDividendMap(map);
+      setDividendCache((prev) => ({ ...prev, [cacheKey]: map }));
+    } catch (err) {
+      console.log("❌ Dividend load error:", err);
+      setDividendMap({});
+    }
+  }, []);
+
+  /* ================= HANDLE REFRESH ================= */
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    const cacheKey = `${selectedGroupId}_${selectedGroupMemberId}`;
+    setLedgerCache((prev) => {
+      const copy = { ...prev };
+      delete copy[cacheKey];
+      return copy;
+    });
+    setDividendCache((prev) => {
+      const copy = { ...prev };
+      delete copy[cacheKey];
+      return copy;
+    });
+    loadGroups(true);
+  }, [selectedGroupId, selectedGroupMemberId, loadGroups]);
+
+  /* ================= HANDLE GROUP CHANGE ================= */
+  const handleGroupChange = useCallback((uniqueKey: string) => {
+    if (uniqueKey === selectedGroupKey) return;
+
+    const selected: any = groups.find((g: any) => g.uniqueKey === uniqueKey);
+    if (selected) {
+      setSelectedGroupKey(uniqueKey);
+      setSelectedGroupId(selected.groupId);
+      setSelectedGroupMemberId(selected.groupMemberId || "");
+      setSelectedGroupData(selected);
+    }
+  }, [groups, selectedGroupKey]);
+
+  /* ================= GET USER PAID AMOUNT ================= */
+  const getUserPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType !== "DIVIDEND")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  /* ================= OPEN HISTORY MODAL ================= */
+  const openHistoryModal = useCallback((row: any) => {
+    const payments = row.payments || [];
+    const dividend = dividendMap[row.monthIndex] || 0;
+    const hasDividendPayment = payments.some((p: any) => p.paymentType === "DIVIDEND");
+
+    let allPayments = [...payments];
+
+    if (dividend > 0 && !hasDividendPayment) {
+      const dividendPayment = {
+        amount: dividend,
+        paidAt: row.dueDate || new Date(),
+        paymentType: "DIVIDEND",
+        collectedBy: "System",
+      };
+      allPayments = [dividendPayment, ...payments];
+    }
+
+    setSelectedHistoryMonth(row);
+    setHistoryPayments(allPayments);
+    setHistoryMemberInfo({
+      memberName: selectedGroupData?.groupId || "Member",
+      groupMemberId: selectedGroupMemberId,
+    });
+    setHistoryVisible(true);
+  }, [dividendMap, selectedGroupData, selectedGroupMemberId]);
+
+  // ✅ PERF: only recompute totals when ledger or dividendMap actually change,
+  // instead of on every render (dropdown open/close, modal state, etc.)
+  const totals = useMemo(() => {
+    if (!Array.isArray(ledger) || ledger.length === 0) {
+      return {
+        totalInstallment: 0,
+        totalPaid: 0,
+        totalPenalty: 0,
+        totalDue: 0,
+        totalInstallmentPaid: 0,
+        totalPenaltyPaid: 0,
+        totalDividend: 0,
+        totalUserPaid: 0,
+      };
+    }
+
+    const totalInstallment = ledger.reduce(
+      (sum, row) => sum + (row.installmentAmount || 0) + (dividendMap[row.monthIndex] || 0),
+      0
+    );
+
+    const totalPenalty = ledger.reduce((sum, row) => sum + (row.penaltyAmount || 0), 0);
+
+    const totalUserPaid = ledger.reduce((sum, row) => {
+      const userPaid = getUserPaidAmount(row.payments || []);
+      return sum + userPaid;
+    }, 0);
+
+    const totalDividend = ledger.reduce((sum, row) => {
+      return sum + (dividendMap[row.monthIndex] || 0);
+    }, 0);
+
+    const totalPaid = totalUserPaid + totalDividend;
+
+    const totalPenaltyPaid = ledger.reduce((sum, row) => {
+      const penaltyPaid = (row.payments || [])
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s, p) => s + (p.amount || 0), 0);
+      return sum + penaltyPaid;
+    }, 0);
+
+    const totalInstallmentPaid = totalUserPaid;
+    const totalDue = totalInstallment + totalPenalty - totalPaid;
+
+    return {
+      totalInstallment,
+      totalPaid,
+      totalPenalty,
+      totalDue,
+      totalInstallmentPaid,
+      totalPenaltyPaid,
+      totalDividend,
+      totalUserPaid,
+    };
+  }, [ledger, dividendMap, getUserPaidAmount]);
+
+  if (loading && groups.length === 0) {
+    return <SkeletonGroupsScreen />;
+  }
+
+  const getColumnWidth = () => {
+    return isDesktopOrLaptop ? 120 : 90;
+  };
+
+  const selectedLabel =
+    selectedGroupData?.displayLabel ||
+    (selectedGroupData ? `${selectedGroupData.groupId} - ${selectedGroupData.chitId}` : "Select a group");
+
+  return (
+    <SafeAreaView className="flex-1 bg-white">
+      {/* HEADER */}
+      <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={() => router.back()} className="mt-1">
+            <MaterialIcons name="arrow-back" size={26} color="white" />
+          </TouchableOpacity>
+
+          <Text
+            className="text-white text-2xl font-bold ml-4 mt-1 flex-1"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            maxFontSizeMultiplier={1.3}
+            style={{ flexShrink: 1 }}
+          >
+            My Account Copy
+          </Text>
+        </View>
+      </View>
+
+      <ScrollView
+        className="flex-1 bg-[#f7f9f8]"
+        contentContainerStyle={{ paddingTop: 110 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#024e32"]}
+            tintColor="#024e32"
+          />
+        }
+      >
+        <View className="p-5">
+          {/* Group Selector */}
+          <View className="mb-6">
+            <Text className="text-gray-600 font-medium mb-2">Select Group</Text>
+
+            <TouchableOpacity
+              onPress={() => setDropdownVisible(true)}
+              activeOpacity={0.7}
+              className="bg-white rounded-2xl border border-gray-300 px-4 py-3 flex-row justify-between items-center"
+              style={{ height: 60 }}
+            >
+              <Text
+                className="text-gray-800 text-base flex-1 mr-2"
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                maxFontSizeMultiplier={1.2}
+              >
+                {groups.length === 0 ? "No groups found" : selectedLabel}
+              </Text>
+              <MaterialIcons name="arrow-drop-down" size={26} color="gray" />
+            </TouchableOpacity>
+
+            {/* Dropdown Modal */}
+            <Modal
+              visible={dropdownVisible}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setDropdownVisible(false)}
+            >
+              <TouchableOpacity
+                style={{ flex: 1 }}
+                activeOpacity={1}
+                onPress={() => setDropdownVisible(false)}
+                className="bg-black/40 justify-center items-center px-6"
+              >
+                <TouchableOpacity activeOpacity={1} onPress={() => {}} className="w-full">
+                  <View className="bg-white rounded-2xl overflow-hidden max-h-[70%] self-center w-full">
+                    <View className="bg-[#024e32] px-4 py-3">
+                      <Text className="text-white font-semibold text-base" maxFontSizeMultiplier={1.3}>
+                        Select Group
+                      </Text>
+                    </View>
+                    <ScrollView>
+                      {groups.length === 0 ? (
+                        <Text className="text-gray-400 text-center py-6">No groups found</Text>
+                      ) : (
+                        groups.map((g: any, i: number) => (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => {
+                              handleGroupChange(g.uniqueKey);
+                              setDropdownVisible(false);
+                            }}
+                            className={`px-4 py-3 border-b border-gray-100 ${
+                              g.uniqueKey === selectedGroupKey ? "bg-green-50" : ""
+                            }`}
+                          >
+                            <Text
+                              className={`text-base ${
+                                g.uniqueKey === selectedGroupKey
+                                  ? "text-[#024e32] font-semibold"
+                                  : "text-gray-800"
+                              }`}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                              maxFontSizeMultiplier={1.2}
+                            >
+                              {g.displayLabel || `${g.groupId} - ${g.chitId}`}
+                            </Text>
+                            {g.groupMemberId ? (
+                              <Text className="text-gray-400 text-xs mt-0.5">
+                                Member ID: {g.groupMemberId}
+                              </Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </ScrollView>
+                  </View>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* Group Info */}
+            {selectedGroupData && (
+              <View className="mt-3 bg-blue-50 rounded-xl p-3">
+                <Text className="text-blue-700 text-sm">
+                  <Text className="font-semibold">Group:</Text> {selectedGroupData.groupId}
+                </Text>
+                <Text className="text-blue-700 text-sm mt-1">
+                  <Text className="font-semibold">Member ID:</Text> {selectedGroupData.groupMemberId || "N/A"}
+                </Text>
+                <Text className="text-blue-700 text-sm mt-1">
+                  <Text className="font-semibold">Status:</Text> {selectedGroupData.status || "Active"}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {loading && groups.length > 0 ? (
+            <SkeletonLedgerBlock isDesktopOrLaptop={isDesktopOrLaptop} />
+          ) : ledger.length === 0 ? (
+            <View className="bg-white rounded-2xl p-8 items-center justify-center border border-gray-200 shadow-sm">
+              <View className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center mb-4">
+                <MaterialIcons name="receipt" size={30} color="#9ca3af" />
+              </View>
+              <Text className="text-gray-500 text-lg font-medium text-center">
+                No ledger entries found
+              </Text>
+              <Text className="text-gray-400 text-sm text-center mt-2">
+                Payment records will appear here
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* Summary Cards */}
+              <View className="mb-6 grid grid-cols-2 gap-3">
+                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                  <Text className="text-gray-500 text-xs">Total Installment</Text>
+                  <Text
+                    className="text-[#024e32] text-xl font-bold mt-1"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    ₹{totals.totalInstallment}
+                  </Text>
+                </View>
+
+                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                  <Text className="text-gray-500 text-xs">Total Dividend</Text>
+                  <Text
+                    className="text-blue-600 text-xl font-bold mt-1"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    ₹{totals.totalDividend}
+                  </Text>
+                </View>
+
+                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                  <Text className="text-gray-500 text-xs">User Paid</Text>
+                  <Text
+                    className="text-green-600 text-xl font-bold mt-1"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    ₹{totals.totalUserPaid}
+                  </Text>
+                </View>
+
+                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                  <Text className="text-gray-500 text-xs">Total Penalty</Text>
+                  <Text
+                    className="text-red-600 text-xl font-bold mt-1"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    ₹{totals.totalPenalty}
+                  </Text>
+                </View>
+
+                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                  <Text className="text-gray-500 text-xs">Total Due</Text>
+                  <Text
+                    className={`text-xl font-bold mt-1 ${
+                      totals.totalDue > 0 ? "text-red-600" : "text-green-600"
+                    }`}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    ₹{Math.max(totals.totalDue, 0)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* About Account Copy Card */}
+              <View className="mb-6 bg-blue-50 rounded-2xl p-4 border border-blue-200">
+                <View className="flex-row items-center mb-2">
+                  <MaterialIcons name="info-outline" size={20} color="#1e40af" />
+                  <Text
+                    className="text-blue-800 font-semibold ml-2 text-base"
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    maxFontSizeMultiplier={1.3}
+                    style={{ flexShrink: 1 }}
+                  >
+                    About Account Copy
+                  </Text>
+                </View>
+                <Text className="text-blue-700 text-sm leading-5">
+                  This statement shows your complete payment history for the selected chit group.
+                  It includes monthly installments, dividends credited, penalties applied (if any),
+                  and your current balance. The dividend amount is paid by the admin and automatically
+                  adjusted against your dues. Pull down to refresh for the latest updates.
+                </Text>
+              </View>
+
+              {/* Ledger Table */}
+              <View className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View>
+                    {/* Table Header */}
+                    <View className="bg-[#024e32] flex-row border-b border-gray-300">
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Month
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Installment
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          User Paid
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Dividend
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Penalty
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Status
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          History
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Table Rows */}
+                    {ledger.map((row: any, index: number) => {
+                      const dividend = dividendMap?.[row.monthIndex] || 0;
+                      const userPaid = getUserPaidAmount(row.payments || []);
+                      const grossInstallment = (row.installmentAmount || 0) + dividend;
+
+                      return (
+                        <View
+                          key={index}
+                          className={`flex-row border-b border-gray-100 ${
+                            index % 2 === 0 ? "bg-white" : "bg-gray-50"
+                          }`}
+                        >
+                          <View style={{ width: getColumnWidth() }} className="p-3">
+                            <Text
+                              className="font-medium text-gray-800 text-center"
+                              numberOfLines={1}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              M{row.monthIndex}
+                            </Text>
+                            {row.dueDate && (
+                              <Text
+                                className="text-gray-500 text-xs text-center mt-1"
+                                numberOfLines={1}
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                {new Date(row.dueDate).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                })}
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <Text
+                              className="text-gray-800 text-center font-medium"
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.7}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              ₹{grossInstallment}
+                            </Text>
+                            {dividend > 0 && (
+                              <Text
+                                className="text-gray-400 text-xs text-center mt-1"
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.6}
+                                ellipsizeMode="tail"
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                (net ₹{row.installmentAmount})
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <Text
+                              className="font-medium text-gray-800 text-center"
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.7}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              ₹{userPaid}
+                            </Text>
+                            <Text
+                              className="text-gray-500 text-xs text-center mt-1"
+                              numberOfLines={1}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              {userPaid >= grossInstallment ? "Fully paid" : "Partial"}
+                            </Text>
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            {dividend > 0 ? (
+                              <>
+                                <Text
+                                  className="text-blue-600 font-medium text-center"
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.7}
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  ₹{dividend}
+                                </Text>
+                                <Text className="text-blue-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  Applied
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Text className="text-gray-400 text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹0
+                                </Text>
+                                <Text className="text-gray-400 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  None
+                                </Text>
+                              </>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            {row.penaltyAmount > 0 ? (
+                              <>
+                                <Text
+                                  className="text-red-600 font-medium text-center"
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.7}
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  ₹{row.penaltyAmount}
+                                </Text>
+                                <Text
+                                  className="text-red-500 text-xs text-center mt-1"
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Penalty applied
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Text className="text-gray-400 text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹0
+                                </Text>
+                                <Text className="text-green-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  No penalty
+                                </Text>
+                              </>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <View
+                              className={`px-2 py-1 rounded-full items-center ${
+                                row.status === "PAID"
+                                  ? "bg-green-100"
+                                  : row.status === "OVERDUE"
+                                  ? "bg-red-100"
+                                  : "bg-yellow-100"
+                              }`}
+                            >
+                              <Text
+                                className={`text-xs font-semibold ${
+                                  row.status === "PAID"
+                                    ? "text-green-700"
+                                    : row.status === "OVERDUE"
+                                    ? "text-red-700"
+                                    : "text-yellow-700"
+                                }`}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.7}
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                {row.status}
+                              </Text>
+                            </View>
+                            {row.penaltyAmount > 0 && row.status !== "PAID" && (
+                              <Text
+                                className="text-red-500 text-xs text-center mt-1"
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                Includes penalty
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center justify-center">
+                            <TouchableOpacity
+                              onPress={() => openHistoryModal(row)}
+                              className="bg-[#024e32]/10 p-2 rounded-full"
+                            >
+                              <MaterialIcons name="history" size={22} color="#024e32" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Scroll hint */}
+              {!isDesktopOrLaptop && ledger.length > 0 && (
+                <View className="flex-row items-center justify-center mt-2">
+                  <MaterialIcons name="chevron-left" size={16} color="#9ca3af" />
+                  <Text className="text-gray-400 text-xs mx-2">Swipe to see more →</Text>
+                  <MaterialIcons name="chevron-right" size={16} color="#9ca3af" />
+                </View>
+              )}
+
+              {/* Detailed View */}
+              <View className="mt-6 bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                <Text className="font-semibold text-gray-700 mb-2">Payment Summary</Text>
+                <View className="space-y-2">
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Total Months:</Text>
+                    <Text className="font-medium">{ledger.length}</Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Paid Months:</Text>
+                    <Text className="font-medium text-green-600">
+                      {ledger.filter((row: any) => row.status === "PAID").length}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Months with Penalty:</Text>
+                    <Text className="font-medium text-red-600">
+                      {ledger.filter((row: any) => row.penaltyAmount > 0).length}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Total Penalty Amount:</Text>
+                    <Text className="font-medium text-red-600">
+                      ₹{totals.totalPenalty}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Pending Months:</Text>
+                    <Text className="font-medium text-red-600">
+                      {ledger.filter((row: any) => row.status !== "PAID").length}
+                    </Text>
+                  </View>
+
+                  <View className="pt-2 border-t border-gray-300">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-700 font-semibold">Installment Total (Gross):</Text>
+                      <Text className="font-bold text-[#024e32]">
+                        ₹{totals.totalInstallment}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Dividend Total:</Text>
+                      <Text className="font-bold text-blue-600">
+                        ₹{totals.totalDividend}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Penalty Total:</Text>
+                      <Text className="font-bold text-red-600">
+                        ₹{totals.totalPenalty}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View className="pt-2 border-t border-gray-300">
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">User Paid:</Text>
+                      <Text className="font-bold text-green-600">
+                        ₹{totals.totalUserPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Total Paid (incl. Dividend):</Text>
+                      <Text className="font-bold text-green-600">
+                        ₹{totals.totalPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Installment Paid:</Text>
+                      <Text className="font-bold text-[#024e32]">
+                        ₹{totals.totalInstallmentPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Penalty Paid:</Text>
+                      <Text className="font-bold text-red-600">
+                        ₹{totals.totalPenaltyPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between pt-2 mt-2 border-t border-gray-300">
+                      <Text className="text-gray-800 font-bold">Net Balance:</Text>
+                      <Text
+                        className={`font-bold text-lg ${
+                          totals.totalDue > 0 ? "text-red-600" : "text-green-600"
+                        }`}
+                      >
+                        ₹{Math.max(totals.totalDue, 0)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </>
+          )}
+
+          <Footer />
+        </View>
+      </ScrollView>
+
+      {/* Payment History Modal */}
+      <Modal visible={historyVisible} transparent animationType="slide">
+        <View className="flex-1 bg-black/50 justify-center items-center">
+          <View className="bg-white w-[90%] max-h-[80%] rounded-2xl p-5">
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-bold">
+                  Payment History - {historyMemberInfo?.memberName || "Member"}
+                </Text>
+                {selectedHistoryMonth && (
+                  <Text className="text-gray-500 text-sm mt-1">
+                    Month M{selectedHistoryMonth.monthIndex} -
+                    Gross ₹{(selectedHistoryMonth.installmentAmount || 0) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => setHistoryVisible(false)}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView>
+              {historyPayments.length === 0 ? (
+                <Text className="text-gray-400 text-center py-8">
+                  No payments recorded for this month
+                </Text>
+              ) : (
+                historyPayments.map((p: any, i: number) => {
+                  const paymentType = p?.paymentType || "INSTALLMENT";
+
+                  return (
+                    <View
+                      key={i}
+                      className="flex-row justify-between items-center mb-3 p-3 bg-gray-50 rounded-xl"
+                    >
+                      <View>
+                        <View className="flex-row items-center">
+                          <Text className="text-gray-700 font-medium">₹{p.amount}</Text>
+                          <Text
+                            className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              paymentType === "PENALTY"
+                                ? "bg-red-100 text-red-600"
+                                : paymentType === "DIVIDEND"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-green-100 text-green-700"
+                            }`}
+                          >
+                            {paymentType}
+                          </Text>
+                        </View>
+                        <Text className="text-gray-500 text-sm">
+                          {new Date(p.paidAt).toLocaleDateString("en-IN")}
+                        </Text>
+                        <Text className="text-gray-400 text-xs mt-1">
+                          Collected by: {p.collectedBy || "System"}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+
+              {selectedHistoryMonth && (
+                <View className="mt-4 pt-4 border-t border-gray-200">
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600 font-medium">Gross Installment:</Text>
+                    <Text className="font-semibold">
+                      ₹{(selectedHistoryMonth.installmentAmount || 0) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600 font-medium">Net Installment:</Text>
+                    <Text className="font-semibold">₹{selectedHistoryMonth.installmentAmount}</Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600 font-medium">Penalty:</Text>
+                    <Text className="font-semibold text-red-600">
+                      ₹{selectedHistoryMonth.penaltyAmount || 0}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600 font-medium">Dividend:</Text>
+                    <Text className="font-semibold text-blue-600">
+                      ₹{dividendMap[selectedHistoryMonth.monthIndex] || 0}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600 font-medium">User Paid:</Text>
+                    <Text className="font-semibold text-green-600">
+                      ₹{getUserPaidAmount(selectedHistoryMonth.payments || [])}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600 font-medium">Total Paid (incl. Dividend):</Text>
+                    <Text className="font-semibold text-green-600">
+                      ₹{getUserPaidAmount(selectedHistoryMonth.payments || []) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between mt-2 pt-2 border-t border-gray-200">
+                    <Text className="text-gray-700 font-semibold">Status:</Text>
+                    <Text
+                      className={`font-semibold ${
+                        selectedHistoryMonth.status === "PAID"
+                          ? "text-green-600"
+                          : selectedHistoryMonth.status === "OVERDUE"
+                          ? "text-red-600"
+                          : "text-yellow-600"
+                      }`}
+                    >
+                      {selectedHistoryMonth.status || "PENDING"}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={() => setHistoryVisible(false)}
+              className="mt-4 bg-[#024e32] py-3 rounded-xl"
+            >
+              <Text className="text-white text-center font-semibold">Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
