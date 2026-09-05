@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   Animated,
+  Modal,
+  Alert,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -129,6 +131,9 @@ export default function NewlyCommencedGroups() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
+const [showContactConfirm, setShowContactConfirm] = useState(false);
+const [selectedScheme, setSelectedScheme] = useState<any | null>(null);
+const [sendingContactRequest, setSendingContactRequest] = useState(false);
   /* ================= SESSION GUARD ================= */
   useEffect(() => {
     const checkSession = async () => {
@@ -185,12 +190,255 @@ export default function NewlyCommencedGroups() {
     fetchSchemes();
   };
 
-  const goToAboutPage = () => {
-    router.push("/contact");
-  };
+const confirmContactRequest = (scheme: any) => {
+  setSelectedScheme(scheme);
+  setShowContactConfirm(true);
+};
+
+const sendContactRequest = async (scheme: any) => {
+  try {
+    const storedUser = await AsyncStorage.getItem("loggedUser");
+
+    if (!storedUser) {
+      Alert.alert("Error", "Please login again.");
+      return;
+    }
+
+    const user = JSON.parse(storedUser);
+
+    const userid = String(
+      user?.userid ||
+      user?.memberId ||
+      user?.id ||
+      ""
+    );
+
+    if (!userid) {
+      Alert.alert("Error", "Member information not found.");
+      return;
+    }
+
+    const response = await fetch(
+      `${BACKEND_URL}/contact-requests`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userid,
+
+          chitSchemeId:
+            scheme?._id ||
+            scheme?.id ||
+            "",
+
+          chitId:
+            scheme?.chitId ||
+            "",
+
+          chitAmount:
+            scheme?.chitAmount ||
+            scheme?.amount ||
+            0,
+
+          durationMonths:
+            scheme?.durationMonths ||
+            scheme?.duration ||
+            0,
+
+          dailyAmount:
+            scheme?.dailyAmount ||
+            0,
+
+          weeklyAmount:
+            scheme?.weeklyAmount ||
+            0,
+
+          monthlyAmount:
+            scheme?.monthlyAmount ||
+            0,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data?.message || "Unable to send contact request"
+      );
+    }
+
+    Alert.alert(
+      "Request Sent",
+      "Your request has been sent to admin. Admin will contact you for details."
+    );
+  } catch (error: any) {
+    console.error("❌ CONTACT REQUEST ERROR:", error);
+
+    Alert.alert(
+      "Request Failed",
+      error?.message || "Unable to send request."
+    );
+  }
+};
 
   return (
     <SafeAreaView className="flex-1 bg-white">
+      <Modal
+  visible={showContactConfirm}
+  transparent
+  animationType="fade"
+  onRequestClose={() => {
+    if (!sendingContactRequest) {
+      setShowContactConfirm(false);
+      setSelectedScheme(null);
+    }
+  }}
+>
+  <View className="flex-1 bg-black/50 items-center justify-center px-5">
+    <View className="bg-white w-full max-w-[430px] rounded-3xl overflow-hidden">
+
+      {/* TOP ICON */}
+      <View className="items-center pt-7">
+        <View className="w-16 h-16 rounded-full bg-green-50 items-center justify-center">
+          <MaterialIcons
+            name="support-agent"
+            size={34}
+            color="#024e32"
+          />
+        </View>
+      </View>
+
+      {/* TITLE */}
+      <View className="px-6 pt-5 items-center">
+        <Text className="text-gray-900 text-xl font-bold text-center">
+          Contact for Details?
+        </Text>
+
+        <Text className="text-gray-500 text-sm text-center mt-2 leading-5">
+          Would you like to send a request to our admin
+          for more details about this chit scheme?
+        </Text>
+      </View>
+
+      {/* SCHEME DETAILS */}
+      {selectedScheme && (
+        <View className="mx-5 mt-5 bg-gray-50 rounded-2xl p-4">
+
+          <View className="flex-row justify-between mb-3">
+            <Text className="text-gray-500 text-sm">
+              Chit ID
+            </Text>
+
+            <Text className="text-gray-900 font-bold text-sm">
+              {selectedScheme?.chitId || "-"}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between mb-3">
+            <Text className="text-gray-500 text-sm">
+              Chit Amount
+            </Text>
+
+            <Text className="text-gray-900 font-bold text-sm">
+              ₹
+              {Number(
+                selectedScheme?.chitAmount ||
+                selectedScheme?.amount ||
+                0
+              ).toLocaleString("en-IN")}
+            </Text>
+          </View>
+
+          <View className="flex-row justify-between">
+            <Text className="text-gray-500 text-sm">
+              Duration
+            </Text>
+
+            <Text className="text-gray-900 font-bold text-sm">
+              {selectedScheme?.durationMonths ||
+                selectedScheme?.duration ||
+                0}{" "}
+              months
+            </Text>
+          </View>
+
+        </View>
+      )}
+
+      {/* INFORMATION */}
+      <View className="mx-5 mt-4 flex-row bg-green-50 rounded-xl p-3">
+        <MaterialIcons
+          name="info-outline"
+          size={20}
+          color="#024e32"
+        />
+
+        <Text className="flex-1 ml-2 text-green-800 text-xs leading-5">
+          After confirming, your details will be shared
+          with the admin so they can contact you regarding
+          this chit scheme.
+        </Text>
+      </View>
+
+      {/* BUTTONS */}
+      <View className="px-5 pt-5 pb-6">
+
+        {/* CONFIRM */}
+        <TouchableOpacity
+          disabled={sendingContactRequest}
+          onPress={() => {
+            if (selectedScheme) {
+              sendContactRequest(selectedScheme);
+            }
+          }}
+          className={`w-full py-3.5 rounded-xl items-center ${
+            sendingContactRequest
+              ? "bg-gray-400"
+              : "bg-[#024e32]"
+          }`}
+        >
+          {sendingContactRequest ? (
+            <View className="flex-row items-center">
+              <Text className="text-white font-bold">
+                Sending...
+              </Text>
+            </View>
+          ) : (
+            <View className="flex-row items-center">
+              <MaterialIcons
+                name="send"
+                size={19}
+                color="white"
+              />
+
+              <Text className="text-white font-bold ml-2">
+                Yes, Contact Me
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* CANCEL */}
+        <TouchableOpacity
+          disabled={sendingContactRequest}
+          onPress={() => {
+            setShowContactConfirm(false);
+            setSelectedScheme(null);
+          }}
+          className="w-full py-3.5 rounded-xl items-center mt-3 border border-gray-200"
+        >
+          <Text className="text-gray-700 font-semibold">
+            Cancel
+          </Text>
+        </TouchableOpacity>
+
+      </View>
+    </View>
+  </View>
+</Modal>
       {/* HEADER - SAME STANDARD EMPLOYEE HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
@@ -310,7 +558,7 @@ export default function NewlyCommencedGroups() {
 
                     {/* Action Button */}
                     <TouchableOpacity
-                      onPress={goToAboutPage}
+                     onPress={() => confirmContactRequest(s)}
                       className="bg-[#024e32] mt-4 py-3 rounded-xl w-full"
                     >
                       <Text className="text-white text-center font-semibold">
@@ -363,7 +611,7 @@ export default function NewlyCommencedGroups() {
                         </Text>
                         <View className="w-28 items-center justify-center">
                           <TouchableOpacity
-                            onPress={goToAboutPage}
+                            onPress={() => confirmContactRequest(s)}
                             className="bg-[#024e32] px-4 py-2.5 rounded-lg w-24"
                           >
                             <Text className="text-white text-sm font-medium text-center">
@@ -419,7 +667,7 @@ export default function NewlyCommencedGroups() {
                       </Text>
                       <View className="flex-1 items-center justify-center">
                         <TouchableOpacity
-                          onPress={goToAboutPage}
+                          onPress={() => confirmContactRequest(s)}
                           className="bg-[#024e32] hover:bg-[#013825] px-6 py-3 rounded-lg transition-colors"
                         >
                           <Text className="text-white text-lg font-medium">Contact</Text>

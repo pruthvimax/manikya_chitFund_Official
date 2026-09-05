@@ -778,6 +778,110 @@ const openWinnerModal = async (item: any) => {
     );
   };
 
+
+  /* =========================================================
+   DELETE WINNER ONLY
+   Keeps the auction notification
+========================================================= */
+
+const handleDeleteWinner = (item: any) => {
+  if (!item?._id || !item?.winnerName) return;
+
+  showPopup(
+    "confirm",
+    "🗑️ Delete Winner",
+    `Are you sure you want to remove the winner?\n\n` +
+      `Winner: ${item.winnerName}\n` +
+      `Group: ${item.winnerGroupId || "N/A"}\n\n` +
+      `The auction notification will NOT be deleted.`,
+    async () => {
+      try {
+        setPopupVisible(false);
+
+        const response = await fetch(
+          `${BACKEND_URL}/notifications/${item._id}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              groupId: item.groupId?._id || item.groupId,
+              auctionEndDate: item.auctionEndDate,
+              auctionEndTime: item.auctionEndTime,
+              minBidAmount: Number(item.minBidAmount || 0),
+              maxBidAmount: Number(item.maxBidAmount || 0),
+              message: item.message,
+              status: item.status,
+
+              // CLEAR WINNER ONLY
+              winnerName: "",
+              winnerId: "",
+              winnerGroupId: "",
+              winnerBidAmount: 0,
+            }),
+          }
+        );
+
+        const rawResponse = await response.text();
+
+        let data: any = {};
+
+        try {
+          data = rawResponse ? JSON.parse(rawResponse) : {};
+        } catch {
+          console.log("Delete winner returned non-JSON response");
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              `Server returned ${response.status}`
+          );
+        }
+
+        // Update screen immediately
+        setNotifications((prev) =>
+          prev.map((notification) =>
+            notification._id === item._id
+              ? {
+                  ...notification,
+                  winnerName: "",
+                  winnerId: "",
+                  winnerGroupId: "",
+                  winnerBidAmount: 0,
+                }
+              : notification
+          )
+        );
+
+        showPopup(
+          "success",
+          "✅ Winner Deleted!",
+          "Winner details have been removed successfully. The auction notification is still available."
+        );
+
+        // Reload from backend
+        await loadNotifications();
+
+      } catch (err: any) {
+        console.error("❌ DELETE WINNER ERROR:", err);
+
+        showPopup(
+          "error",
+          "❌ Failed to Delete Winner",
+          err?.message ||
+            "Unable to delete winner details. Please try again."
+        );
+      }
+    },
+    () => {
+      setPopupVisible(false);
+    },
+    "Delete Winner",
+    "Cancel"
+  );
+};
   /* =========================================================
      RENDER ADD WINNER MODAL
   ========================================================= */
@@ -1962,6 +2066,27 @@ const handleSelectGroup = (group: any) => {
                           {item.winnerName ? "Edit Winner" : "🏆 Add Winner"}
                         </Text>
                       </TouchableOpacity>
+
+
+{/* DELETE WINNER BUTTON */}
+{item.winnerName && (
+  <TouchableOpacity
+    onPress={() => handleDeleteWinner(item)}
+    className="mt-2 py-1.5 rounded-lg border border-red-200 bg-red-50 flex-row items-center justify-center"
+    activeOpacity={0.8}
+  >
+    <MaterialIcons
+      name="delete-outline"
+      size={14}
+      color="#dc2626"
+    />
+
+    <Text className="text-red-700 font-semibold text-xs ml-1">
+      Delete Winner
+    </Text>
+  </TouchableOpacity>
+)}
+
 
                       {/* BUTTONS */}
                       <View className="flex-row justify-end mt-3 flex-wrap">

@@ -114,6 +114,7 @@ export default function AdminBidRoom() {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerHistory | null>(null);
   const [selectedBid, setSelectedBid] = useState<Bid | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
   const [backendAuctionDate, setBackendAuctionDate] = useState("");
   const [backendAuctionEndDate, setBackendAuctionEndDate] = useState("");
   const [backendAuctionEndTime, setBackendAuctionEndTime] = useState("");
@@ -253,6 +254,95 @@ export default function AdminBidRoom() {
     }
   };
 
+    /* =========================================================
+     DELETE BID
+  ========================================================= */
+
+  const deleteBid = (bid: Bid) => {
+    Alert.alert(
+      "Delete Bid",
+      `Are you sure you want to delete the bid from ${
+        bid.customerName || bid.memberId || "this member"
+      }?\n\nBid Amount: ${formatAmount(Number(bid.bidAmount || 0))}`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setDeletingBidId(String(bid._id));
+
+              const url = `${BACKEND_URL}/bids/${encodeURIComponent(
+                String(bid._id)
+              )}`;
+
+              console.log("========== DELETE BID ==========");
+              console.log("Bid ID:", bid._id);
+              console.log("Delete URL:", url);
+
+              const response = await fetch(url, {
+                method: "DELETE",
+              });
+
+              const rawResponse = await response.text();
+
+              console.log("DELETE BID STATUS:", response.status);
+              console.log("DELETE BID RESPONSE:", rawResponse);
+
+              let data: any;
+
+              try {
+                data = JSON.parse(rawResponse);
+              } catch {
+                throw new Error(
+                  `Server returned invalid response (${response.status})`
+                );
+              }
+
+              if (!response.ok) {
+                throw new Error(
+                  data?.message || "Failed to delete bid"
+                );
+              }
+
+              // Remove deleted bid immediately from the screen
+              setBids((currentBids) =>
+                currentBids.filter(
+                  (item) => String(item._id) !== String(bid._id)
+                )
+              );
+
+              // Close member details modal if this bid was selected
+              if (
+                selectedBid &&
+                String(selectedBid._id) === String(bid._id)
+              ) {
+                closeCustomerHistory();
+              }
+
+              Alert.alert(
+                "Bid Deleted",
+                "The bid has been deleted successfully."
+              );
+            } catch (error: any) {
+              console.error("❌ DELETE BID ERROR:", error);
+
+              Alert.alert(
+                "Delete Failed",
+                error?.message || "Unable to delete the bid."
+              );
+            } finally {
+              setDeletingBidId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
   /* =========================================================
      PAGE FOCUS
   ========================================================= */
@@ -664,7 +754,7 @@ export default function AdminBidRoom() {
                         Ticket No
                       </Text>
                       <Text className="text-[#024E32] font-bold mt-1">
-                        {`#${getTicketNumber(String(bid._id || ""))}`}
+                        {`#${getTicketNumber(String(bid._id || ""))}`} - {bid.groupMemberId || "-"}
                       </Text>
                     </View>
                     <View className="flex-1">
@@ -688,34 +778,56 @@ export default function AdminBidRoom() {
                   {/* ====================================
                       BID AMOUNT
                   ==================================== */}
-                  <View className="flex-row items-end mt-5">
-                    <View className="flex-1">
-                      <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
-                        Bid Amount
-                      </Text>
-                      <Text className="text-[#024E32] text-2xl font-extrabold mt-1">
-                        {formatAmount(amount)}
-                      </Text>
-                    </View>
-                    <View className="items-end">
-                      <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
-                        Bid Time
-                      </Text>
-                      <Text className="text-gray-700 text-xs font-semibold mt-1">
-                        {formatTime(bid.bidTime)}
-                      </Text>
-                    </View>
-                    <MaterialIcons
-                      name="chevron-right"
-                      size={25}
-                      color="#9CA3AF"
-                      style={{ marginLeft: 8 }}
-                    />
-                  </View>
-                </TouchableOpacity>
+                 <View className="flex-row items-end mt-5">
+  <View className="flex-1">
+    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+      Bid Amount
+    </Text>
+
+    <Text className="text-[#024E32] text-2xl font-extrabold mt-1">
+      {formatAmount(amount)}
+    </Text>
+  </View>
+
+  <View className="items-end mr-3">
+    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+      Bid Time
+    </Text>
+
+    <Text className="text-gray-700 text-xs font-semibold mt-1">
+      {formatTime(bid.bidTime)}
+    </Text>
+  </View>
+
+  {/* DELETE BID */}
+  <TouchableOpacity
+    onPress={(event) => {
+      event.stopPropagation();
+      deleteBid(bid);
+    }}
+    disabled={deletingBidId === String(bid._id)}
+    activeOpacity={0.8}
+    className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 items-center justify-center"
+  >
+    {deletingBidId === String(bid._id) ? (
+      <ActivityIndicator
+        size="small"
+        color="#DC2626"
+      />
+    ) : (
+      <MaterialIcons
+        name="delete-outline"
+        size={21}
+        color="#DC2626"
+      />
+    )}
+  </TouchableOpacity>
+</View>                </TouchableOpacity>
               );
             })
           )}
+
+          
 
           {/* ===================================================
               FOOTER - SAME AS CHIT SCHEMES PAGE

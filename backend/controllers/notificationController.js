@@ -778,6 +778,70 @@ export const deleteNotification = async (
 };
 
 /* ============================================================
+   ADMIN: DELETE WINNER ONLY
+   ============================================================ */
+
+export const deleteWinner = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("========== DELETE WINNER ==========");
+    console.log("notification id:", id);
+
+    // Validate notification ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID",
+      });
+    }
+
+    // Find the auction notification
+    const notification = await Notification.findById(id);
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
+    // Clear ONLY winner information
+    notification.winnerName = "";
+    notification.winnerId = "";
+    notification.winnerGroupId = "";
+    notification.winnerBidAmount = 0;
+
+    await notification.save();
+
+    console.log("✅ Winner deleted successfully");
+    console.log("Notification:", id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Winner deleted successfully",
+
+      data: {
+        _id: notification._id,
+        winnerName: notification.winnerName,
+        winnerId: notification.winnerId,
+        winnerGroupId: notification.winnerGroupId,
+        winnerBidAmount: notification.winnerBidAmount,
+      },
+    });
+
+  } catch (error) {
+    console.error("❌ Delete winner error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete winner",
+      error: error.message,
+    });
+  }
+};
+
+/* ============================================================
    USER: GET NOTIFICATIONS FOR SPECIFIC USER
 ============================================================ */
 

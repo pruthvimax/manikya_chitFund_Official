@@ -22,32 +22,70 @@ export default function AdminIndex() {
 
   /* =========================================================
      VACANCY SUBSCRIPTION REQUEST BADGE
-
-     Red badge on the Vacancies card whenever a member has
-     tapped Subscribe and the admin has not opened the Vacancy
-     Notifications page yet. Reads the same count the
-     notifications page already uses - nothing new is stored.
   ========================================================= */
 
   const [newRequestCount, setNewRequestCount] = useState(0);
 
-  const loadRequestCount = useCallback(async () => {
+  /* =========================================================
+     CONTACT REQUEST BADGE
+  ========================================================= */
+
+  const [contactRequestCount, setContactRequestCount] = useState(0);
+
+  const loadContactRequestCount = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/vacancy/requests/count`);
+      const res = await fetch(
+        `${BACKEND_URL}/contact-requests/unread-count`
+      );
 
       if (!res.ok) return;
 
       const data = await res.json();
-      setNewRequestCount(Number(data?.unseenCount || 0));
+
+      setContactRequestCount(
+        Number(data?.unreadCount || 0)
+      );
     } catch (error) {
-      console.log("Vacancy request count load error:", error);
+      console.log(
+        "Contact request count load error:",
+        error
+      );
     }
   }, []);
+
+  const loadRequestCount = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/vacancy/requests/count`
+      );
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+
+      setNewRequestCount(
+        Number(data?.unseenCount || 0)
+      );
+    } catch (error) {
+      console.log(
+        "Vacancy request count load error:",
+        error
+      );
+    }
+  }, []);
+
+  /* =========================================================
+     LOAD BADGES WHEN ADMIN DASHBOARD IS OPENED/FOCUSED
+  ========================================================= */
 
   useFocusEffect(
     useCallback(() => {
       loadRequestCount();
-    }, [loadRequestCount])
+      loadContactRequestCount();
+    }, [
+      loadRequestCount,
+      loadContactRequestCount,
+    ])
   );
 
   // ✅ FINAL LOGOUT FUNCTION (ALL DEVICES)
@@ -73,7 +111,6 @@ export default function AdminIndex() {
 
       {/* =====================================================
           HEADER
-          ⚠️ YOUR ORIGINAL HEADER — DO NOT CHANGE
       ===================================================== */}
 
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
@@ -82,8 +119,6 @@ export default function AdminIndex() {
           <Text className="text-white text-2xl font-bold">
             MANIKYA CHITS - ADMIN
           </Text>
-
-          {/* ✅ LOGOUT BUTTON */}
 
           <TouchableOpacity
             onPress={() => setLogoutVisible(true)}
@@ -123,8 +158,6 @@ export default function AdminIndex() {
 
             <View className="flex-row mt-6">
 
-              {/* CANCEL */}
-
               <TouchableOpacity
                 onPress={() => setLogoutVisible(false)}
                 className="flex-1 bg-gray-200 py-3 rounded-xl mr-2"
@@ -133,8 +166,6 @@ export default function AdminIndex() {
                   Cancel
                 </Text>
               </TouchableOpacity>
-
-              {/* LOGOUT */}
 
               <TouchableOpacity
                 onPress={confirmLogout}
@@ -213,8 +244,6 @@ export default function AdminIndex() {
             route="/admin/vacancyNotifications"
           />
 
-          {/* ✅ INTERESTED MEMBERS TAB */}
-
           <MenuCard
             title="Intrested Members"
             icon="person-add"
@@ -252,6 +281,14 @@ export default function AdminIndex() {
           />
 
           <MenuCard
+            title="Contact Requests"
+            subtitle="Newly commenced Groups Requests"
+            icon="support-agent"
+            route="/admin/contactRequests"
+            badgeCount={contactRequestCount}
+          />
+
+          <MenuCard
             title="Profile"
             icon="person"
             route="/admin/profile"
@@ -261,7 +298,6 @@ export default function AdminIndex() {
 
         {/* ===================================================
             COMPANY FOOTER
-            ✅ ONLY NEW PART
         =================================================== */}
 
         <View className="mt-2 mb-6 px-5">
@@ -291,17 +327,18 @@ export default function AdminIndex() {
 }
 
 /* =========================================================
-   MENU CARD
-   ORIGINAL CODE
+   MENU CARD – UPDATED with subtitle support
 ========================================================= */
 
 function MenuCard({
   title,
+  subtitle,
   icon,
   route,
   badgeCount = 0,
 }: {
   title: string;
+  subtitle?: string;        // NEW
   icon: any;
   route: string;
   badgeCount?: number;
@@ -334,9 +371,17 @@ function MenuCard({
 
       </View>
 
+      {/* Main Title */}
       <Text className="text-[#024e32] text-base font-semibold text-center">
         {title}
       </Text>
+
+      {/* Subtitle – small, gray, centered */}
+      {subtitle && (
+        <Text className="text-gray-400 text-xs text-center mt-0.5">
+          {subtitle}
+        </Text>
+      )}
 
     </TouchableOpacity>
   );

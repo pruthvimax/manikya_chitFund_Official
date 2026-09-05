@@ -277,7 +277,7 @@ export default function MemberVacancy() {
 
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 110, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingTop: 120, paddingBottom: 24 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -404,6 +404,27 @@ export default function MemberVacancy() {
                 value={formatAmount(confirmTarget?.subscriptionAmount)}
               />
               <DetailRow
+  label="Previous instalments"
+  value={formatAmount(
+    confirmTarget?.previousInstalmentsAmount
+  )}
+/>
+
+<DetailRow
+  label="Current instalment"
+  value={formatAmount(
+    confirmTarget?.currentPayableAmount
+  )}
+/>
+
+<DetailRow
+  label="You paying now"
+  value={formatAmount(
+    confirmTarget?.joiningPayNowAmount ??
+      confirmTarget?.payNowAmount
+  )}
+/>
+              <DetailRow
                 label="Seats left"
                 value={`${confirmTarget?.availableSeats}`}
               />
@@ -472,19 +493,14 @@ function VacancyCard({
   const fillRate = capacity > 0 ? filled / capacity : 0;
   const ribbon = fillRate >= 0.8 ? "Trending" : "Popular";
 
-  const alreadyRequested =
-    vacancy.myRequestStatus === "Pending" ||
-    vacancy.myRequestStatus === "Approved";
+const disabled =
+  vacancy.myRequestStatus === "Pending";
 
-  const disabled = vacancy.alreadyInGroup || alreadyRequested;
-
-  const buttonLabel = vacancy.alreadyInGroup
-    ? "Already in group"
-    : vacancy.myRequestStatus === "Pending"
+const buttonLabel =
+  vacancy.myRequestStatus === "Pending"
     ? "Request pending"
-    : vacancy.myRequestStatus === "Approved"
-    ? "Approved"
     : "Subscribe";
+
 
   return (
     <View className="bg-white rounded-2xl mb-4 shadow-sm border border-gray-100 overflow-hidden">
@@ -558,10 +574,17 @@ function VacancyCard({
         <View className="w-px bg-gray-200 my-1" />
 
         <View className="flex-1 pl-2 items-end">
-          <Text className="text-gray-500 text-xs">You paying now</Text>
-          <Text className="text-gray-900 text-lg font-bold mt-1">
-            {formatAmount(vacancy.payNowAmount)}
-          </Text>
+<View className="flex-1 pl-2 items-end">
+  <Text className="text-gray-500 text-xs">
+    You paying now
+  </Text>
+
+  <Text className="text-gray-900 text-lg font-bold mt-1">
+    {formatAmount(
+      vacancy.joiningPayNowAmount ?? vacancy.payNowAmount
+    )}
+  </Text>
+</View>
         </View>
       </View>
 
@@ -625,6 +648,11 @@ function VacancyCard({
           Currently there {filled === 1 ? "is" : "are"} {filled} subscriber
           {filled === 1 ? "" : "s"} out of {capacity}.
         </Text>
+        {vacancy.alreadyInGroup && (
+  <Text className="mt-1 text-[10px] text-green-600">
+    You are already in a group
+  </Text>
+)}
       </View>
 
       {vacancy.details ? (

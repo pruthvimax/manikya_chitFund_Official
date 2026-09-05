@@ -63,6 +63,7 @@ const seatsFor = (group) => {
  */
 const instalmentInfoFor = (group, fallbackAmount) => {
   const total = Number(group?.totalCollections || 0);
+
   const plans = Array.isArray(group?.collectionPlans)
     ? group.collectionPlans
     : [];
@@ -74,7 +75,9 @@ const instalmentInfoFor = (group, fallbackAmount) => {
 
   plans.forEach((p) => {
     const index = Number(p?.monthIndex || 0);
-    const started = p?.startDate ? new Date(p.startDate) <= now : false;
+    const started = p?.startDate
+      ? new Date(p.startDate) <= now
+      : false;
 
     if (started && index > current) {
       current = index;
@@ -82,8 +85,7 @@ const instalmentInfoFor = (group, fallbackAmount) => {
     }
   });
 
-  /* Nothing started yet -> quote the first planned month if there
-     is one, otherwise fall back to the chit subscription. */
+  /* Nothing started yet */
   if (!currentPlan && plans.length > 0) {
     currentPlan = plans.reduce((a, b) =>
       Number(a.monthIndex) <= Number(b.monthIndex) ? a : b
@@ -96,12 +98,70 @@ const instalmentInfoFor = (group, fallbackAmount) => {
 
   const dividend = Number(currentPlan?.dividend || 0);
 
+  /*
+   * ============================================================
+   * NEW SUBSCRIBER JOINING PAYMENT
+   *
+   * If Month 3 is running:
+   *
+   * Month 1 -> full instalment
+   * Month 2 -> full instalment
+   * Month 3 -> current payable amount
+   *
+   * Example:
+   * Month 1 = ₹10,000
+   * Month 2 = ₹10,000
+   * Month 3 = ₹8,000 after dividend
+   *
+   * Joining amount = ₹28,000
+   * ============================================================
+   */
+
+  let previousInstalmentsAmount = 0;
+
+  if (current > 1 && plans.length > 0) {
+    plans.forEach((p) => {
+      const monthIndex = Number(p?.monthIndex || 0);
+
+      if (monthIndex > 0 && monthIndex < current) {
+        previousInstalmentsAmount += Number(
+          p?.installmentAmount ?? fallbackAmount ?? 0
+        );
+      }
+    });
+  }
+
+  /*
+   * Current month's actual payable amount.
+   * Same calculation already used by the existing vacancy system.
+   */
+  const currentPayableAmount = Math.max(
+    installmentAmount - dividend,
+    0
+  );
+
+  const joiningPayNowAmount =
+    previousInstalmentsAmount + currentPayableAmount;
+
   return {
     currentInstalment: current,
     totalInstalments: total,
+
     dividend,
-    payNowAmount: Math.max(installmentAmount - dividend, 0),
+
+    /* Existing current-month amount */
+    payNowAmount: currentPayableAmount,
+
     baseInstalmentAmount: installmentAmount,
+
+    /* NEW */
+    previousInstalmentsAmount,
+
+    /* NEW */
+    currentPayableAmount,
+
+    /* NEW */
+    joiningPayNowAmount,
   };
 };
 
@@ -140,11 +200,16 @@ const buildVacancyView = (vacancy, chit, group) => {
     availableSeats: seats.available,
 
     /* live from Group.collectionPlans - NOT stored on the vacancy */
-    currentInstalment: instalment.currentInstalment,
-    totalInstalments: instalment.totalInstalments,
-    dividend: instalment.dividend,
-    payNowAmount: instalment.payNowAmount,
-    baseInstalmentAmount: instalment.baseInstalmentAmount,
+currentInstalment: instalment.currentInstalment,
+totalInstalments: instalment.totalInstalments,
+dividend: instalment.dividend,
+payNowAmount: instalment.payNowAmount,
+baseInstalmentAmount: instalment.baseInstalmentAmount,
+
+/* NEW JOINING PAYMENT */
+previousInstalmentsAmount: instalment.previousInstalmentsAmount,
+currentPayableAmount: instalment.currentPayableAmount,
+joiningPayNowAmount: instalment.joiningPayNowAmount,
 
     createdAt: vacancy.createdAt,
     updatedAt: vacancy.updatedAt,
@@ -527,15 +592,7 @@ export const createVacancyRequest = async (req, res) => {
       });
     }
 
-    const alreadyInGroup = (group.members || []).some(
-      (m) => String(m.memberId) === String(member.userid)
-    );
 
-    if (alreadyInGroup) {
-      return res.status(400).json({
-        message: "You are already a member of this group",
-      });
-    }
 
     const existing = await VacancyRequest.findOne({
       vacancyId: vacancy._id,

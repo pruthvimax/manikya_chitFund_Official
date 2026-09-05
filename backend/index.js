@@ -19,6 +19,7 @@ import memberHistoryRoutes from "./routes/memberHistoryRoutes.js";
 import memberInterestRoutes from "./routes/memberInterestRoutes.js";
 import memberRoutes from "./routes/memberRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import contactRequestRoutes from "./routes/contactRequestRoutes.js";
 import outstandingRoutes from "./routes/outstandingRoutes.js";
 import targetRoutes from "./routes/targetRoutes.js";
 import workSheetRoutes from "./routes/workSheetRoutes.js";
@@ -56,6 +57,7 @@ app.use("/api/member-interest", memberInterestRoutes); // Make sure this line ex
 app.use("/api/member-history", memberHistoryRoutes);
 app.use("/api/groups", groupRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/contact-requests", contactRequestRoutes);
 app.use("/api/outstanding", outstandingRoutes);
 app.use("/api/leave-request", leaveRequestRoutes);
 app.use("/api/meeting", meetingRoutes);

@@ -5,6 +5,7 @@ import {
   getNotifications,
   updateNotification,
   deleteNotification,
+  deleteWinner,
   getUserNotifications,
 } from "../controllers/notificationController.js";
 
@@ -29,10 +30,13 @@ router.put(
   updateNotification
 );
 
+router.delete("/winner/:id", deleteWinner);
+
 router.delete(
   "/:id",
   deleteNotification
 );
+
 
 
 /* =========================================================

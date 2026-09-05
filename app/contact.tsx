@@ -329,7 +329,7 @@ export default function Contact() {
 >
   <Text className="text-base text-gray-700 ml-2">
     <Text className="font-medium text-[#c64900] underline">
-      +91 7899698083</Text> [Pruthvi G]
+      +91 7899698083</Text> [Mr. Pruthvi G]
     
   </Text>
 </TouchableOpacity>
@@ -340,7 +340,19 @@ export default function Contact() {
 >
   <Text className="text-base text-gray-700 ml-2">
     <Text className="font-medium text-[#c64900] underline">
-      +91 9731975121</Text> [Harish Patil]
+      +91 9731975121</Text> [Mr. Harish Patil]
+    
+  </Text>
+</TouchableOpacity>
+
+
+<TouchableOpacity
+  onPress={() => Linking.openURL("tel:+917899698083")}
+  className="mb-2"
+>
+  <Text className="text-base text-gray-700 ml-2">
+    <Text className="font-medium text-[#c64900] underline">
+      +91 7259201729</Text> [Mr. Mohan]
     
   </Text>
 </TouchableOpacity>

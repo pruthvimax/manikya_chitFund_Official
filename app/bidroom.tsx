@@ -1075,12 +1075,16 @@
                             </View>
 
                             {item.winnerId && (
-                              <View className="flex-row mt-0.5">
-                                <Text className="text-gray-700 flex-1 text-xs">
-                                  <Text className="font-medium">Member ID:</Text> {item.winnerId}
-                                </Text>
-                              </View>
-                            )}
+  <View className="flex-row mt-0.5">
+    <Text className="text-gray-700 flex-1 text-xs">
+      <Text className="font-medium">Group Member ID:</Text>{" "}
+      {notifBids.find(
+        (bid: any) =>
+          String(bid.memberId) === String(item.winnerId)
+      )?.groupMemberId || "-"}
+    </Text>
+  </View>
+)}
 
                             {item.winnerGroupId && (
                               <View className="flex-row mt-0.5">
@@ -1192,14 +1196,21 @@
                       </Text>
                     </View>
 
-                    {endedPopupData.winnerId ? (
-                      <View className="flex-row justify-between mt-1">
-                        <Text className="text-gray-500 text-xs">Member ID</Text>
-                        <Text className="text-gray-800 font-semibold text-xs">
-                          {endedPopupData.winnerId}
-                        </Text>
-                      </View>
-                    ) : null}
+{endedPopupData.winnerId ? (
+  <View className="flex-row justify-between mt-1">
+    <Text className="text-gray-500 text-xs">
+      Group Member ID
+    </Text>
+
+    <Text className="text-gray-800 font-semibold text-xs">
+      {endedPopupBids.find(
+        (bid: any) =>
+          String(bid.memberId) ===
+          String(endedPopupData.winnerId)
+      )?.groupMemberId || "-"}
+    </Text>
+  </View>
+) : null}
 
                     {endedPopupData.winnerBidAmount > 0 ? (
                       <View className="flex-row justify-between mt-1">
@@ -1279,8 +1290,8 @@
                       ...chronological.map((b: any) => Number(b.bidAmount || 0))
                     );
 
-                    return chronological.map((bid: any, index: number) => {
-                      const ticketNo = index + 1;
+                  return chronological.map((bid: any, index: number) => {
+                      const groupMemberId = bid.groupMemberId || "-";
                       const amount = Number(bid.bidAmount || 0);
                       const isHighestBid = amount === highestAmount;
                       const isUserBid = String(bid.memberId) === String(userid);
@@ -1316,18 +1327,18 @@
                                       : "text-[#024e32]"
                                   }`}
                                 >
-                                  {ticketNo}
+                                 {groupMemberId}
                                 </Text>
                               </View>
                               <View className="flex-1">
                                 <Text className="text-gray-800 font-semibold text-sm">
-                                  {isUserBid ? "Your Bid" : `Bidder ${ticketNo}`}
+                                  {isUserBid ? "Your Bid" : `Bidder ${groupMemberId}`}
                                   {isUserBid && (
                                     <Text className="text-blue-600 text-xs"> (You)</Text>
                                   )}
                                 </Text>
                                 <Text className="text-gray-400 text-[10px]">
-                                  Ticket #{ticketNo}
+                                  Ticket #{groupMemberId}
                                   {bid.bidTime
                                     ? ` • ${new Date(bid.bidTime).toLocaleTimeString("en-IN", {
                                         hour: "2-digit",

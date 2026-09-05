@@ -64,7 +64,7 @@ export default function EmployeeGroupMembers() {
   }, []);
 
   /* =====================================================
-      FETCH MEMBERS
+      FETCH MEMBERS – SORT BY groupMemberId
   ===================================================== */
 
   useEffect(() => {
@@ -76,7 +76,25 @@ export default function EmployeeGroupMembers() {
 
         const data = await res.json();
 
-        setMembers(data.groupMembers || []);
+// ✅ Sort by Group Member ID (GM001, GM002, GM003... GM010...)
+const sorted = (data.groupMembers || []).sort((a: any, b: any) => {
+  const idA = String(a.groupMemberId || "").trim();
+  const idB = String(b.groupMemberId || "").trim();
+
+  const numA = Number(idA.replace(/\D/g, ""));
+  const numB = Number(idB.replace(/\D/g, ""));
+
+  if (!isNaN(numA) && !isNaN(numB)) {
+    return numA - numB;
+  }
+
+  return idA.localeCompare(idB, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+});
+
+        setMembers(sorted);
       } catch (err) {
         console.log(
           "❌ Failed to load members",
@@ -93,7 +111,7 @@ export default function EmployeeGroupMembers() {
   }, [groupId]);
 
   /* =====================================================
-      FILTERED MEMBERS
+      FILTERED MEMBERS – search by name OR member ID OR phone
   ===================================================== */
 
   const filteredMembers = members.filter((item) => {
@@ -104,11 +122,16 @@ export default function EmployeeGroupMembers() {
       item.groupMemberId || ""
     ).toLowerCase();
 
+    const phone = String(
+      item.phone || ""
+    ).toLowerCase();
+
     const text = search.toLowerCase();
 
     return (
       name.includes(text) ||
-      id.includes(text)
+      id.includes(text) ||
+      phone.includes(text)
     );
   });
 
@@ -244,7 +267,7 @@ export default function EmployeeGroupMembers() {
       <View
         className="flex-1"
         style={{
-          paddingTop: 50,
+          paddingTop: 110,
         }}
       >
 
@@ -264,7 +287,7 @@ export default function EmployeeGroupMembers() {
             />
 
             <TextInput
-              placeholder="Search by name or member ID..."
+              placeholder="Search by name, Group Member ID or phone..."
               value={search}
               onChangeText={setSearch}
               className="flex-1 px-3 py-2 text-base text-gray-800"

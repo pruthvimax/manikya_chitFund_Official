@@ -223,7 +223,7 @@ const handleRegistration = async () => {
             
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
-                <Text style={styles.statNumber}>2+</Text>
+                <Text style={styles.statNumber}>5+</Text>
                 <Text style={styles.statLabel}>Years Experience</Text>
               </View>
               

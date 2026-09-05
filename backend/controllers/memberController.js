@@ -87,6 +87,7 @@ export const updateMember = async (req, res) => {
     member.username = req.body.username ?? member.username;
     member.email = req.body.email ?? member.email;
     member.phone = req.body.phone ?? member.phone;
+    member.aadhaar = req.body.aadhaar ?? member.aadhaar;
     member.address = req.body.address ?? member.address;
     member.status = req.body.status ?? member.status;
 
