@@ -41,7 +41,7 @@
     "expo-system-ui": "~57.0.3",
     "expo-video": "~57.0.3",
     "expo-web-browser": "~57.0.2",
-    "lightningcss": "^1.32.0",
+    "lightningcss": "^1.33.0",
     "nativewind": "^4.2.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -63,5 +63,8 @@
     "eslint-config-expo": "^57.0.2",
     "typescript": "^6.0.3"
   },
-  "private": true
+  "private": true,
+  "optionalDependencies": {
+    "lightningcss-linux-x64-gnu": "^1.27.0"
+  }
 }
