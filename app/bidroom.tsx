@@ -1,4 +1,4 @@
-  import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
   import {
     View,
@@ -86,6 +86,18 @@
       // Silent fail
     }
   };
+
+  /* =========================================================
+    GROUP CODE HELPER
+    Single source of truth for the readable group code.
+    item.groupId is a populated group document, so .groupId
+    holds the readable code. winnerGroupId is a separate raw
+    field and does NOT always match, so it is no longer shown.
+  ========================================================= */
+  const getGroupCode = (n: any) =>
+    n?.groupId?.groupId ||
+    (typeof n?.groupId === "string" ? n.groupId : "") ||
+    "N/A";
 
   /* ================= SKELETON HELPERS ================= */
   function useSkeletonPulse() {
@@ -862,7 +874,7 @@
                             Auction Notice
                           </Text>
                           <Text className="text-xs text-gray-500">
-                            Group: {item.groupId?.groupId || "N/A"}
+                            Group: {getGroupCode(item)}
                           </Text>
                         </View>
                       </View>
@@ -902,7 +914,7 @@
                               Group ID
                             </Text>
                             <Text className="text-gray-800 font-semibold mt-0.5 text-xs">
-                              {item.groupId?.groupId || "N/A"}
+                              {getGroupCode(item)}
                             </Text>
                           </View>
 
@@ -1081,18 +1093,23 @@
       {notifBids.find(
         (bid: any) =>
           String(bid.memberId) === String(item.winnerId)
-      )?.groupMemberId || "-"}
+      )?.groupMemberId || item.winnerGroupMemberId || "-"}
     </Text>
   </View>
 )}
 
-                            {item.winnerGroupId && (
-                              <View className="flex-row mt-0.5">
-                                <Text className="text-gray-700 flex-1 text-xs">
-                                  <Text className="font-medium">Group ID:</Text> {item.winnerGroupId}
-                                </Text>
-                              </View>
-                            )}
+                            {/*
+                              GROUP ID
+                              Read from the auction itself (same source as the
+                              card header and Auction Summary), so this can
+                              never mismatch. item.winnerGroupId is no longer
+                              used here because it holds a different value.
+                            */}
+                            <View className="flex-row mt-0.5">
+                              <Text className="text-gray-700 flex-1 text-xs">
+                                <Text className="font-medium">Group ID:</Text> {getGroupCode(item)}
+                              </Text>
+                            </View>
 
                             {item.winnerBidAmount > 0 && (
                               <View className="flex-row mt-0.5">
@@ -1155,7 +1172,7 @@
                     Auction Results
                   </Text>
                   <Text className="text-gray-500 text-xs">
-                    Group: {endedPopupData?.groupId?.groupId || "N/A"} •{" "}
+                    Group: {getGroupCode(endedPopupData)} •{" "}
                     {endedPopupData?.auctionEndDate || "-"}
                   </Text>
                 </View>
@@ -1207,10 +1224,22 @@
         (bid: any) =>
           String(bid.memberId) ===
           String(endedPopupData.winnerId)
-      )?.groupMemberId || "-"}
+      )?.groupMemberId || endedPopupData.winnerGroupMemberId || "-"}
     </Text>
   </View>
 ) : null}
+
+                    {/*
+                      GROUP ID
+                      Same source as the modal header, so the winner's
+                      group always matches the auction's group.
+                    */}
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-xs">Group ID</Text>
+                      <Text className="text-gray-800 font-semibold text-xs">
+                        {getGroupCode(endedPopupData)}
+                      </Text>
+                    </View>
 
                     {endedPopupData.winnerBidAmount > 0 ? (
                       <View className="flex-row justify-between mt-1">

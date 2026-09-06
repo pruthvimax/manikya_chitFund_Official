@@ -259,6 +259,10 @@ export default function MemberVacancy() {
     }
   };
 
+  /* Total the member pays on joining */
+  const payNow =
+    confirmTarget?.joiningPayNowAmount ?? confirmTarget?.payNowAmount;
+
   /* ================= UI ================= */
   return (
     <SafeAreaView className="flex-1 bg-[#f6f7f9]">
@@ -375,91 +379,157 @@ export default function MemberVacancy() {
         </View>
       </ScrollView>
 
-      {/* ================= CONFIRM SUBSCRIBE ================= */}
-      <Modal visible={!!confirmTarget} transparent animationType="fade">
-        <View className="flex-1 bg-black/50 justify-center items-center px-4">
-          <View className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
-            <View className="items-center mb-4">
-              <View className="bg-[#024e32]/10 p-3 rounded-full">
-                <MaterialIcons name="how-to-reg" size={46} color="#024e32" />
+      {/* =====================================================
+          CONFIRM SUBSCRIBE
+      ===================================================== */}
+      <Modal
+        visible={!!confirmTarget}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!subscribing) setConfirmTarget(null);
+        }}
+      >
+        <View className="flex-1 bg-black/60 justify-center items-center px-4">
+          <View className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl">
+            {/* ============ HERO ============ */}
+            <View className="bg-[#024e32] px-6 pt-7 pb-6 items-center">
+              <View className="w-16 h-16 rounded-full bg-white/15 items-center justify-center">
+                <MaterialIcons name="how-to-reg" size={34} color="white" />
               </View>
-              <Text className="text-xl font-bold text-gray-800 mt-3">
+
+              <Text className="text-white text-lg font-bold mt-3">
                 Confirm Subscription
+              </Text>
+
+              <Text className="text-green-100 text-xs mt-1 text-center">
+                Group {confirmTarget?.groupId} ·{" "}
+                {confirmTarget?.availableSeats} seat
+                {confirmTarget?.availableSeats === 1 ? "" : "s"} left
+              </Text>
+
+              <Text className="text-white text-3xl font-extrabold mt-4">
+                {formatAmount(confirmTarget?.chitAmount)}
+              </Text>
+
+              <Text className="text-green-100 text-[11px] mt-0.5">
+                Chit value
               </Text>
             </View>
 
-            <View className="bg-gray-50 rounded-xl p-4 mb-4">
-              <DetailRow
-                label="Chit"
-                value={formatAmount(confirmTarget?.chitAmount)}
-              />
-              <DetailRow label="Group ID" value={confirmTarget?.groupId} />
-              <DetailRow
-                label="Max Bid %"
-                value={`${confirmTarget?.maxBidPercent}%`}
-              />
-              <DetailRow label="Frequency" value={confirmTarget?.frequency} />
-              <DetailRow
-                label="Subscription"
-                value={formatAmount(confirmTarget?.subscriptionAmount)}
-              />
-              <DetailRow
-  label="Previous instalments"
-  value={formatAmount(
-    confirmTarget?.previousInstalmentsAmount
-  )}
-/>
-
-<DetailRow
-  label="Current instalment"
-  value={formatAmount(
-    confirmTarget?.currentPayableAmount
-  )}
-/>
-
-<DetailRow
-  label="You paying now"
-  value={formatAmount(
-    confirmTarget?.joiningPayNowAmount ??
-      confirmTarget?.payNowAmount
-  )}
-/>
-              <DetailRow
-                label="Seats left"
-                value={`${confirmTarget?.availableSeats}`}
-              />
-            </View>
-
-            <Text className="text-gray-500 text-xs text-center mb-5">
-              This sends a request to the admin. You are not added to the group
-              until the admin approves it.
-            </Text>
-
-            <View className="flex-row">
-              <TouchableOpacity
-                onPress={() => setConfirmTarget(null)}
-                disabled={subscribing}
-                className="flex-1 bg-gray-200 py-3.5 rounded-xl mr-2"
-              >
-                <Text className="text-gray-700 text-center font-semibold">
-                  Cancel
+            <ScrollView
+              className="max-h-[45%]"
+              showsVerticalScrollIndicator={false}
+            >
+              <View className="px-6 pt-5">
+                {/* ============ PLAN ============ */}
+                <Text className="text-gray-400 text-[10px] font-bold tracking-wider uppercase mb-2">
+                  Plan
                 </Text>
-              </TouchableOpacity>
 
+                <View className="bg-gray-50 rounded-2xl px-4 py-2 mb-4">
+                  <DetailRow
+                    label="Frequency"
+                    value={confirmTarget?.frequency}
+                  />
+                  <DetailRow
+                    label="Subscription"
+                    value={`${formatAmount(
+                      confirmTarget?.subscriptionAmount
+                    )}${frequencySuffix(confirmTarget?.frequency)}`}
+                  />
+                  <DetailRow
+                    label="Max bid"
+                    value={`${confirmTarget?.maxBidPercent}%`}
+                  />
+                </View>
+
+                {/* ============ PAYMENT ============ */}
+                <Text className="text-gray-400 text-[10px] font-bold tracking-wider uppercase mb-2">
+                  Payment on joining
+                </Text>
+
+                <View className="bg-gray-50 rounded-2xl px-4 py-2">
+                  <DetailRow
+                    label="Previous instalments"
+                    value={formatAmount(
+                      confirmTarget?.previousInstalmentsAmount
+                    )}
+                  />
+                  <DetailRow
+                    label="Current instalment"
+                    value={formatAmount(confirmTarget?.currentPayableAmount)}
+                  />
+                </View>
+
+                {/* PAYABLE HIGHLIGHT */}
+                <View className="flex-row items-center justify-between bg-[#fff1eb] border border-[#f6c5b0] rounded-2xl px-4 py-3.5 mt-3">
+                  <View>
+                    <Text className="text-[#a2570f] text-[11px] font-semibold">
+                      You pay now
+                    </Text>
+                    <Text className="text-[#a2570f]/70 text-[10px] mt-0.5">
+                      Payable to join this group
+                    </Text>
+                  </View>
+
+                  <Text className="text-[#e8501f] text-2xl font-extrabold">
+                    {formatAmount(payNow)}
+                  </Text>
+                </View>
+
+                {/* NOTE */}
+                <View className="flex-row bg-blue-50 border border-blue-200 rounded-2xl p-3 mt-4">
+                  <MaterialIcons
+                    name="info-outline"
+                    size={18}
+                    color="#1d4ed8"
+                  />
+                  <Text className="flex-1 ml-2 text-blue-800 text-[11px] leading-4">
+                    This only sends a request to the admin. You are not added to
+                    the group and nothing is charged until the admin approves it.
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* ============ BUTTONS ============ */}
+            <View className="px-6 pt-4 pb-6">
               <TouchableOpacity
                 onPress={submitSubscribe}
                 disabled={subscribing}
-                className={`flex-1 py-3.5 rounded-xl ml-2 ${
+                activeOpacity={0.85}
+                className={`py-4 rounded-2xl ${
                   subscribing ? "bg-gray-400" : "bg-[#024e32]"
                 }`}
               >
                 {subscribing ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <View className="flex-row items-center justify-center">
+                    <ActivityIndicator size="small" color="white" />
+                    <Text className="text-white font-bold ml-2">
+                      Sending request...
+                    </Text>
+                  </View>
                 ) : (
-                  <Text className="text-white text-center font-semibold">
-                    Send Request
-                  </Text>
+                  <View className="flex-row items-center justify-center">
+                    <MaterialIcons name="send" size={19} color="white" />
+                    <Text className="text-white text-center font-bold text-base ml-2">
+                      Yes, send request
+                    </Text>
+                  </View>
                 )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setConfirmTarget(null)}
+                disabled={subscribing}
+                activeOpacity={0.85}
+                className="py-4 rounded-2xl mt-3 bg-gray-100"
+              >
+                <Text className="text-gray-700 text-center font-semibold text-base">
+                  Cancel
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -493,14 +563,10 @@ function VacancyCard({
   const fillRate = capacity > 0 ? filled / capacity : 0;
   const ribbon = fillRate >= 0.8 ? "Trending" : "Popular";
 
-const disabled =
-  vacancy.myRequestStatus === "Pending";
+  const disabled = vacancy.myRequestStatus === "Pending";
 
-const buttonLabel =
-  vacancy.myRequestStatus === "Pending"
-    ? "Request pending"
-    : "Subscribe";
-
+  const buttonLabel =
+    vacancy.myRequestStatus === "Pending" ? "Request pending" : "Subscribe";
 
   return (
     <View className="bg-white rounded-2xl mb-4 shadow-sm border border-gray-100 overflow-hidden">
@@ -573,18 +639,15 @@ const buttonLabel =
 
         <View className="w-px bg-gray-200 my-1" />
 
+        {/* was double-nested, flattened to one View */}
         <View className="flex-1 pl-2 items-end">
-<View className="flex-1 pl-2 items-end">
-  <Text className="text-gray-500 text-xs">
-    You paying now
-  </Text>
+          <Text className="text-gray-500 text-xs">You paying now</Text>
 
-  <Text className="text-gray-900 text-lg font-bold mt-1">
-    {formatAmount(
-      vacancy.joiningPayNowAmount ?? vacancy.payNowAmount
-    )}
-  </Text>
-</View>
+          <Text className="text-gray-900 text-lg font-bold mt-1">
+            {formatAmount(
+              vacancy.joiningPayNowAmount ?? vacancy.payNowAmount
+            )}
+          </Text>
         </View>
       </View>
 
@@ -648,11 +711,12 @@ const buttonLabel =
           Currently there {filled === 1 ? "is" : "are"} {filled} subscriber
           {filled === 1 ? "" : "s"} out of {capacity}.
         </Text>
-        {vacancy.alreadyInGroup && (
-  <Text className="mt-1 text-[10px] text-green-600">
-    You are already in a group
-  </Text>
-)}
+
+        {vacancy.alreadyInGroup ? (
+          <Text className="mt-1 text-[10px] text-green-600">
+            You are already in a group
+          </Text>
+        ) : null}
       </View>
 
       {vacancy.details ? (
@@ -674,9 +738,11 @@ function Chip({ text }: { text: any }) {
 
 function DetailRow({ label, value }: { label: string; value: any }) {
   return (
-    <View className="flex-row justify-between items-center py-1.5">
-      <Text className="text-gray-600">{label}</Text>
-      <Text className="text-gray-900 font-semibold">{value}</Text>
+    <View className="flex-row justify-between items-center py-2">
+      <Text className="text-gray-600 text-sm">{label}</Text>
+      <Text className="text-gray-900 font-semibold text-sm">
+        {value === undefined || value === null || value === "" ? "-" : value}
+      </Text>
     </View>
   );
 }

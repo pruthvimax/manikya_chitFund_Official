@@ -4,14 +4,15 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   RefreshControl,
   Animated,
   Alert,
   Modal,
   FlatList,
   Platform,
+  StatusBar,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
@@ -232,6 +233,14 @@ function OutstandingSkeleton() {
 
 export default function MyOutstanding() {
   const router = useRouter();
+
+  /*
+    Real device safe-area insets.
+    On iOS this is the notch / dynamic island height.
+    On Android it is 0 (or the status bar height), so the
+    header keeps looking exactly the same as before.
+  */
+  const insets = useSafeAreaInsets();
 
   // =========================================================
   // SCREENSHOT PREVENTION
@@ -1193,6 +1202,7 @@ export default function MyOutstanding() {
       visible={dropdownVisible}
       transparent={true}
       animationType="fade"
+      statusBarTranslucent
       onRequestClose={() =>
         setDropdownVisible(false)
       }
@@ -1366,10 +1376,35 @@ export default function MyOutstanding() {
   /* ================= UI ================= */
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f5f6fa]">
+    /*
+      Plain View instead of SafeAreaView.
+      SafeAreaView pushed the whole screen down on iOS, which
+      left the notch area grey and made the green header look
+      cut off / missing. The inset is now applied INSIDE the
+      header itself, so the green colour reaches the top edge.
+    */
+    <View className="flex-1 bg-[#f5f6fa]">
+      <StatusBar
+        backgroundColor="#024e32"
+        barStyle="light-content"
+        translucent={false}
+      />
+
       {/* ================= HEADER ================= */}
 
-      <View className="bg-[#024e32] px-5 pt-14 pb-5">
+      <View
+        className="bg-[#024e32] px-5 pb-5"
+        style={{
+          /*
+            iOS  -> notch height + 12
+            Android -> 0 + 56 (same as the old pt-14)
+          */
+          paddingTop:
+            Platform.OS === "ios"
+              ? insets.top + 12
+              : 56,
+        }}
+      >
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={() => router.back()}
@@ -1393,7 +1428,10 @@ export default function MyOutstanding() {
       <ScrollView
         className="flex-1 px-4"
         contentContainerStyle={{
-          paddingBottom: 20,
+          /*
+            Keep the last card clear of the iOS home indicator.
+          */
+          paddingBottom: 20 + insets.bottom,
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1646,6 +1684,6 @@ export default function MyOutstanding() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

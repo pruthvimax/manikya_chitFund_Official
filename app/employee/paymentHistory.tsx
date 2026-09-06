@@ -329,8 +329,14 @@ export default function PaymentHistory() {
 
         const employee = JSON.parse(stored);
 
+        /*
+          FIXED:
+          was `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/employee/...`
+          which resolved to "undefined/api/..." and always failed.
+          BACKEND_URL already ends with /api, so no /api here.
+        */
         const res = await fetch(
-          `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/employee/check-status/${employee.emp_id}`
+          `${BACKEND_URL}/employee/check-status/${employee.emp_id}`
         );
 
         const data = await res.json();

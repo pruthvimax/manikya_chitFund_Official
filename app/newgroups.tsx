@@ -195,11 +195,21 @@ const confirmContactRequest = (scheme: any) => {
   setShowContactConfirm(true);
 };
 
+/* Close the confirm popup */
+const closeContactPopup = () => {
+  setSendingContactRequest(false);
+  setShowContactConfirm(false);
+  setSelectedScheme(null);
+};
+
 const sendContactRequest = async (scheme: any) => {
   try {
+    setSendingContactRequest(true);
+
     const storedUser = await AsyncStorage.getItem("loggedUser");
 
     if (!storedUser) {
+      closeContactPopup();
       Alert.alert("Error", "Please login again.");
       return;
     }
@@ -214,6 +224,7 @@ const sendContactRequest = async (scheme: any) => {
     );
 
     if (!userid) {
+      closeContactPopup();
       Alert.alert("Error", "Member information not found.");
       return;
     }
@@ -270,12 +281,17 @@ const sendContactRequest = async (scheme: any) => {
       );
     }
 
+    // Popup disappears first, then the success message shows
+    closeContactPopup();
+
     Alert.alert(
       "Request Sent",
       "Your request has been sent to admin. Admin will contact you for details."
     );
   } catch (error: any) {
     console.error("❌ CONTACT REQUEST ERROR:", error);
+
+    closeContactPopup();
 
     Alert.alert(
       "Request Failed",

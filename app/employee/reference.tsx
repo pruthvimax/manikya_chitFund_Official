@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect } from "react";
+import Constants from "expo-constants";
 
 import {
   BackHandler,
@@ -406,40 +407,35 @@ export default function Reference() {
         {/* =====================================================
             CURRENT VERSION
         ===================================================== */}
+<View style={styles.versionCard}>
 
-        <View style={styles.section}>
+  <Text style={styles.versionTitle}>
+    Current Version
+  </Text>
 
-          <View style={styles.versionCard}>
+  <Text style={styles.versionNumber}>
+    v{Constants.expoConfig?.version || "1.0.0"}
+  </Text>
 
-            <Text style={styles.versionTitle}>
-              Current Version
-            </Text>
+  <Text style={styles.versionInfo}>
+    Stable Release
+  </Text>
 
-            <Text style={styles.versionNumber}>
-              V1.0.5
-            </Text>
+  <View style={styles.updateInfo}>
 
-            <Text style={styles.versionInfo}>
-              Stable Release - December 2024
-            </Text>
+    <MaterialIcons
+      name="info"
+      size={18}
+      color="#6b7280"
+    />
 
-            <View style={styles.updateInfo}>
+    <Text style={styles.updateText}>
+      New features are added regularly. Check back for updates.
+    </Text>
 
-              <MaterialIcons
-                name="info"
-                size={18}
-                color="#6b7280"
-              />
+  </View>
 
-              <Text style={styles.updateText}>
-                Next major update planned for Q1 2025
-              </Text>
-
-            </View>
-
-          </View>
-
-        </View>
+</View>
 
         {/* =====================================================
             FEEDBACK

@@ -490,8 +490,14 @@ export default function EmployeeCollection() {
       }
 
       try {
+        /*
+          FIXED:
+          was `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/employee/...`
+          which resolved to "undefined/api/..." and always failed.
+          BACKEND_URL already ends with /api, so no /api here.
+        */
         const res = await fetch(
-          `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/employee/check-status/${empId}`,
+          `${BACKEND_URL}/employee/check-status/${empId}`,
           { signal }
         );
 
