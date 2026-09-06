@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import {
   Animated,
   Modal,
+  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -240,7 +241,7 @@ const Footer = () => (
 
 export default function MyAccountCopy() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
 
   // =========================================================
@@ -673,6 +674,11 @@ export default function MyAccountCopy() {
     selectedGroupData?.displayLabel ||
     (selectedGroupData ? `${selectedGroupData.groupId} - ${selectedGroupData.chitId}` : "Select a group");
 
+  /* Dropdown sizing - centered card on laptop/tablet,
+     near-full-width sheet on phones, always capped by screen height */
+  const dropdownMaxWidth = isDesktopOrLaptop ? 520 : 460;
+  const dropdownMaxHeight = Math.min(height * 0.75, 620);
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       {/* HEADER */}
@@ -708,86 +714,255 @@ export default function MyAccountCopy() {
         }
       >
         <View className="p-5">
-          {/* Group Selector */}
+          {/* =====================================================
+              GROUP SELECTOR
+          ===================================================== */}
           <View className="mb-6">
-            <Text className="text-gray-600 font-medium mb-2">Select Group</Text>
+            <Text className="text-gray-500 text-xs font-bold tracking-wider uppercase mb-2 ml-1">
+              Select Group
+            </Text>
 
+            {/* TRIGGER */}
             <TouchableOpacity
               onPress={() => setDropdownVisible(true)}
-              activeOpacity={0.7}
-              className="bg-white rounded-2xl border border-gray-300 px-4 py-3 flex-row justify-between items-center"
-              style={{ height: 60 }}
+              activeOpacity={0.8}
+              disabled={groups.length === 0}
+              className={`bg-white rounded-2xl border px-4 py-3 flex-row items-center ${
+                dropdownVisible ? "border-[#024e32]" : "border-gray-200"
+              }`}
+              style={{
+                minHeight: 64,
+                shadowColor: "#000",
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 2,
+              }}
             >
-              <Text
-                className="text-gray-800 text-base flex-1 mr-2"
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                maxFontSizeMultiplier={1.2}
-              >
-                {groups.length === 0 ? "No groups found" : selectedLabel}
-              </Text>
-              <MaterialIcons name="arrow-drop-down" size={26} color="gray" />
+              <View className="w-10 h-10 rounded-xl bg-[#024e32]/10 items-center justify-center mr-3">
+                <MaterialIcons name="account-balance" size={20} color="#024e32" />
+              </View>
+
+              <View className="flex-1 mr-2">
+                <Text
+                  className="text-gray-900 text-base font-semibold"
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {groups.length === 0 ? "No groups found" : selectedLabel}
+                </Text>
+
+                {selectedGroupData?.groupMemberId ? (
+                  <Text
+                    className="text-gray-400 text-xs mt-0.5"
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    Member ID: {selectedGroupData.groupMemberId}
+                  </Text>
+                ) : null}
+              </View>
+
+              {groups.length > 1 ? (
+                <View className="bg-gray-100 rounded-full px-2 py-0.5 mr-1">
+                  <Text className="text-gray-600 text-[11px] font-bold">
+                    {groups.length}
+                  </Text>
+                </View>
+              ) : null}
+
+              <MaterialIcons
+                name={dropdownVisible ? "arrow-drop-up" : "arrow-drop-down"}
+                size={28}
+                color="#6b7280"
+              />
             </TouchableOpacity>
 
-            {/* Dropdown Modal */}
+            {/* =====================================================
+                DROPDOWN MODAL
+                Centered card on laptop / tablet, wide sheet on
+                phones. Height is capped so a long group list always
+                scrolls inside the card instead of overflowing.
+            ===================================================== */}
             <Modal
               visible={dropdownVisible}
               transparent
               animationType="fade"
+              statusBarTranslucent
               onRequestClose={() => setDropdownVisible(false)}
             >
-              <TouchableOpacity
-                style={{ flex: 1 }}
-                activeOpacity={1}
+              <Pressable
                 onPress={() => setDropdownVisible(false)}
-                className="bg-black/40 justify-center items-center px-6"
+                style={{
+                  flex: 1,
+                  backgroundColor: "rgba(15, 23, 42, 0.55)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  padding: 20,
+                }}
               >
-                <TouchableOpacity activeOpacity={1} onPress={() => {}} className="w-full">
-                  <View className="bg-white rounded-2xl overflow-hidden max-h-[70%] self-center w-full">
-                    <View className="bg-[#024e32] px-4 py-3">
-                      <Text className="text-white font-semibold text-base" maxFontSizeMultiplier={1.3}>
-                        Select Group
-                      </Text>
+                {/* stops a tap inside the card from closing it */}
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{ width: "100%", maxWidth: dropdownMaxWidth }}
+                >
+                  <View
+                    className="bg-white rounded-3xl overflow-hidden"
+                    style={{
+                      maxHeight: dropdownMaxHeight,
+                      shadowColor: "#000",
+                      shadowOpacity: 0.25,
+                      shadowRadius: 30,
+                      shadowOffset: { width: 0, height: 12 },
+                      elevation: 14,
+                    }}
+                  >
+                    {/* HEADER */}
+                    <View className="bg-[#024e32] px-5 py-4 flex-row items-center">
+                      <View className="w-9 h-9 rounded-full bg-white/15 items-center justify-center mr-3">
+                        <MaterialIcons name="groups" size={20} color="white" />
+                      </View>
+
+                      <View className="flex-1">
+                        <Text
+                          className="text-white font-bold text-base"
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={1.2}
+                        >
+                          Select Group
+                        </Text>
+                        <Text className="text-green-100 text-xs mt-0.5">
+                          {groups.length} group{groups.length === 1 ? "" : "s"} available
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => setDropdownVisible(false)}
+                        activeOpacity={0.8}
+                        className="w-9 h-9 rounded-full bg-white/15 items-center justify-center"
+                      >
+                        <MaterialIcons name="close" size={20} color="white" />
+                      </TouchableOpacity>
                     </View>
-                    <ScrollView>
+
+                    {/* LIST */}
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={{ padding: 12 }}
+                      bounces={false}
+                    >
                       {groups.length === 0 ? (
-                        <Text className="text-gray-400 text-center py-6">No groups found</Text>
+                        <View className="items-center py-12">
+                          <MaterialIcons name="folder-open" size={44} color="#d1d5db" />
+                          <Text className="text-gray-500 mt-3 font-medium">
+                            No groups found
+                          </Text>
+                          <Text className="text-gray-400 text-xs mt-1 text-center px-6">
+                            You are not part of any chit group yet
+                          </Text>
+                        </View>
                       ) : (
-                        groups.map((g: any, i: number) => (
-                          <TouchableOpacity
-                            key={i}
-                            onPress={() => {
-                              handleGroupChange(g.uniqueKey);
-                              setDropdownVisible(false);
-                            }}
-                            className={`px-4 py-3 border-b border-gray-100 ${
-                              g.uniqueKey === selectedGroupKey ? "bg-green-50" : ""
-                            }`}
-                          >
-                            <Text
-                              className={`text-base ${
-                                g.uniqueKey === selectedGroupKey
-                                  ? "text-[#024e32] font-semibold"
-                                  : "text-gray-800"
+                        groups.map((g: any, i: number) => {
+                          const isSelected = g.uniqueKey === selectedGroupKey;
+
+                          const label =
+                            g.displayLabel || `${g.groupId} - ${g.chitId}`;
+
+                          return (
+                            <TouchableOpacity
+                              key={i}
+                              onPress={() => {
+                                handleGroupChange(g.uniqueKey);
+                                setDropdownVisible(false);
+                              }}
+                              activeOpacity={0.8}
+                              className={`flex-row items-center rounded-2xl px-3 py-3 mb-2 border ${
+                                isSelected
+                                  ? "bg-[#024e32]/5 border-[#024e32]/30"
+                                  : "bg-white border-gray-100"
                               }`}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                              maxFontSizeMultiplier={1.2}
                             >
-                              {g.displayLabel || `${g.groupId} - ${g.chitId}`}
-                            </Text>
-                            {g.groupMemberId ? (
-                              <Text className="text-gray-400 text-xs mt-0.5">
-                                Member ID: {g.groupMemberId}
-                              </Text>
-                            ) : null}
-                          </TouchableOpacity>
-                        ))
+                              {/* AVATAR */}
+                              <View
+                                className={`w-11 h-11 rounded-xl items-center justify-center mr-3 ${
+                                  isSelected ? "bg-[#024e32]" : "bg-gray-100"
+                                }`}
+                              >
+                                <Text
+                                  className={`font-extrabold text-base ${
+                                    isSelected ? "text-white" : "text-[#024e32]"
+                                  }`}
+                                  maxFontSizeMultiplier={1.2}
+                                >
+                                  {String(g.groupId || "G").charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+
+                              <View className="flex-1 mr-2">
+                                <Text
+                                  className={`text-base ${
+                                    isSelected
+                                      ? "text-[#024e32] font-bold"
+                                      : "text-gray-800 font-semibold"
+                                  }`}
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.2}
+                                >
+                                  {label}
+                                </Text>
+
+                                <View className="flex-row flex-wrap items-center mt-1">
+                                  {g.groupMemberId ? (
+                                    <View className="bg-amber-100 rounded-md px-2 py-0.5 mr-2">
+                                      <Text className="text-amber-800 text-[11px] font-bold">
+                                        {g.groupMemberId}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+
+                                  {g.status ? (
+                                    <Text className="text-gray-400 text-[11px]">
+                                      {g.status}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              </View>
+
+                              {/* RADIO */}
+                              <View
+                                className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                                  isSelected
+                                    ? "border-[#024e32] bg-[#024e32]"
+                                    : "border-gray-300"
+                                }`}
+                              >
+                                {isSelected ? (
+                                  <MaterialIcons name="check" size={16} color="white" />
+                                ) : null}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })
                       )}
                     </ScrollView>
+
+                    {/* FOOTER */}
+                    <View className="px-4 py-3 border-t border-gray-100 bg-white">
+                      <TouchableOpacity
+                        onPress={() => setDropdownVisible(false)}
+                        activeOpacity={0.8}
+                        className="bg-gray-100 py-3 rounded-2xl"
+                      >
+                        <Text className="text-gray-700 text-center font-semibold">
+                          Close
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </TouchableOpacity>
-              </TouchableOpacity>
+                </Pressable>
+              </Pressable>
             </Modal>
 
             {/* Group Info */}

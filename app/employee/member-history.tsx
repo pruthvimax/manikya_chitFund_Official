@@ -5,7 +5,6 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
     ActivityIndicator,
     Alert,
-    SafeAreaView,
     ScrollView,
     Text,
     TextInput,
@@ -15,6 +14,7 @@ import {
     StatusBar,
     Animated,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BACKEND_URL from "../../config";
 
 interface PaymentRecord {
@@ -119,6 +119,14 @@ const SkeletonLoader = () => {
 
 export default function EmployeeMemberHistoryScreen() {
   const router = useRouter();
+
+  /*
+    Real device safe-area insets.
+    iOS  -> notch / dynamic island height
+    Android -> 0, so the header keeps the same look as before.
+  */
+  const insets = useSafeAreaInsets();
+
   const [memberId, setMemberId] = useState("");
   const [memberName, setMemberName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -300,10 +308,25 @@ export default function EmployeeMemberHistoryScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f5f6fa]">
-      <StatusBar barStyle="light-content" backgroundColor="#024e32" />
-      
-      <View className="bg-[#024e32] px-5 pt-14 pb-5">
+    /*
+      Plain View instead of SafeAreaView.
+      SafeAreaView pushed the whole screen down on iOS, leaving the
+      notch area grey above the green header. The inset is now applied
+      INSIDE the header, so the green reaches the top edge.
+    */
+    <View className="flex-1 bg-[#f5f6fa]">
+      <StatusBar barStyle="light-content" backgroundColor="#024e32" translucent={false} />
+
+      <View
+        className="bg-[#024e32] px-5 pb-5"
+        style={{
+          /*
+            iOS     -> notch height + 12
+            Android -> 56 (same as the old pt-14)
+          */
+          paddingTop: Platform.OS === "ios" ? insets.top + 12 : 56,
+        }}
+      >
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()} 
@@ -320,7 +343,7 @@ export default function EmployeeMemberHistoryScreen() {
 
       <ScrollView 
         className="flex-1" 
-        contentContainerStyle={{ paddingBottom: 30 }}
+        contentContainerStyle={{ paddingBottom: 30 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
         <View className="px-4 pt-5">
@@ -621,6 +644,6 @@ export default function EmployeeMemberHistoryScreen() {
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -100,6 +100,10 @@ const allowScreenshot = async () => {
 
 const GROUPS_CACHE_KEY = "employee:groups:cache:v1";
 
+// NEW: cached member index so member search is instant on
+// the second visit, same stale-while-revalidate idea as groups.
+const MEMBERS_CACHE_KEY = "employee:members:cache:v1";
+
 // Was 3000. Every tick is a network round-trip; 15s is still
 // near-instant for an admin toggle but ~5x less traffic and wake-ups.
 const FEATURE_POLL_MS = 15000;
@@ -260,6 +264,89 @@ const GroupCard = memo(function GroupCard({ item, onPress }: GroupCardProps) {
         <MaterialIcons
           name="chevron-right"
           size={28}
+          color="#024e32"
+        />
+
+      </View>
+
+    </TouchableOpacity>
+  );
+});
+
+/* =====================================================
+    MEMBER RESULT CARD  (NEW)
+
+    Shown when the employee searches by member name,
+    Group Member ID or phone. Every card states which
+    GROUP the member belongs to plus the Group Member ID,
+    so two members with the same name are never confused.
+===================================================== */
+
+type MemberCardProps = {
+  item: any;
+  onPress: (groupId: string, groupMemberId: string) => void;
+};
+
+const MemberCard = memo(function MemberCard({ item, onPress }: MemberCardProps) {
+  const handlePress = useCallback(
+    () => onPress(item.groupId, item.groupMemberId),
+    [item.groupId, item.groupMemberId, onPress]
+  );
+
+  return (
+    <TouchableOpacity
+      onPress={handlePress}
+      className="bg-white rounded-2xl p-4 mb-3 border border-[#024e32]/20"
+      activeOpacity={0.9}
+    >
+
+      <View className="flex-row items-center">
+
+        {/* AVATAR */}
+        <View className="w-11 h-11 rounded-full bg-[#024e32]/10 items-center justify-center mr-3">
+          <MaterialIcons name="person" size={22} color="#024e32" />
+        </View>
+
+        <View className="flex-1">
+
+          <Text className="text-base font-bold text-gray-800">
+            {item.memberName || "Unknown"}
+          </Text>
+
+          {/* WHICH GROUP + WHICH TICKET - this is what avoids confusion */}
+          <View className="flex-row flex-wrap items-center mt-1">
+
+            <View className="bg-[#024e32] rounded-md px-2 py-0.5 mr-2 mb-1">
+              <Text className="text-white text-[11px] font-bold">
+                {item.groupId}
+              </Text>
+            </View>
+
+            <View className="bg-amber-100 rounded-md px-2 py-0.5 mr-2 mb-1">
+              <Text className="text-amber-800 text-[11px] font-bold">
+                {item.groupMemberId}
+              </Text>
+            </View>
+
+            {item.chitId ? (
+              <View className="bg-gray-100 rounded-md px-2 py-0.5 mb-1">
+                <Text className="text-gray-700 text-[11px] font-medium">
+                  Chit {item.chitId}
+                </Text>
+              </View>
+            ) : null}
+
+          </View>
+
+          <Text className="text-gray-500 text-xs mt-0.5">
+            Phone: {item.phone || "-"}
+          </Text>
+
+        </View>
+
+        <MaterialIcons
+          name="chevron-right"
+          size={26}
           color="#024e32"
         />
 
@@ -454,6 +541,10 @@ export default function EmployeeCollection() {
   const [groups, setGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // NEW: flat list of every member of every group, used only for search
+  const [memberIndex, setMemberIndex] = useState<any[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+
   // `search` drives the input (instant feedback).
   // `query` is the debounced value that actually filters.
   const [search, setSearch] = useState("");
@@ -634,6 +725,109 @@ export default function EmployeeCollection() {
     };
   }, []);
 
+  /* =====================================================
+      BUILD MEMBER SEARCH INDEX  (NEW)
+
+      There is no "all members" endpoint, so this calls the
+      SAME endpoint groupMembers.tsx uses -
+      /groups/:groupId/members - once per group, and flattens
+      the results into one searchable list.
+
+      Cached, and refreshed quietly in the background, so the
+      group list never waits for it.
+  ===================================================== */
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+
+    const loadMembers = async () => {
+      // 1. instant index from cache
+      try {
+        const cached = await AsyncStorage.getItem(MEMBERS_CACHE_KEY);
+
+        if (cached && alive) {
+          const parsed = JSON.parse(cached);
+
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMemberIndex(parsed);
+          }
+        }
+      } catch {
+        // bad cache is never fatal
+      }
+
+      if (!groups.length) return;
+
+      // 2. refresh from the network, one request per group
+      setMembersLoading(true);
+
+      try {
+        const results = await Promise.all(
+          groups.map(async (group: any) => {
+            try {
+              const res = await fetch(
+                `${BACKEND_URL}/groups/${group.groupId}/members`,
+                { signal: controller.signal }
+              );
+
+              const data = await res.json();
+
+              const list = Array.isArray(data?.groupMembers)
+                ? data.groupMembers
+                : [];
+
+              return list.map((m: any) => ({
+                key: `${group.groupId}-${m.groupMemberId}`,
+                groupId: group.groupId,
+                chitId: group.chitId,
+                groupMemberId: String(m.groupMemberId || ""),
+                memberName: m.memberName || "",
+                phone: String(m.phone || ""),
+
+                // lowercased once here instead of on every keystroke
+                searchText: [
+                  m.memberName || "",
+                  m.groupMemberId || "",
+                  m.phone || "",
+                  m.memberId || "",
+                ]
+                  .join(" ")
+                  .toLowerCase(),
+              }));
+            } catch {
+              return [];
+            }
+          })
+        );
+
+        if (!alive) return;
+
+        const flat = results.flat();
+
+        setMemberIndex(flat);
+
+        AsyncStorage.setItem(
+          MEMBERS_CACHE_KEY,
+          JSON.stringify(flat)
+        ).catch(() => {});
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          console.log("Member index load failed", err);
+        }
+      } finally {
+        if (alive) setMembersLoading(false);
+      }
+    };
+
+    loadMembers();
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [groups]);
+
   /* ================= SEARCH ================= */
 
   // Debounce: typing "MC1001" used to run 6 full filters + 6 list re-renders.
@@ -661,6 +855,19 @@ export default function EmployeeCollection() {
     return out;
   }, [groups, searchIndex, query]);
 
+  /* NEW: members matching the same query */
+  const filteredMembers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+
+    const out: any[] = [];
+    for (let i = 0; i < memberIndex.length; i++) {
+      if (memberIndex[i].searchText.includes(q)) out.push(memberIndex[i]);
+      if (out.length >= 50) break; // never render a runaway list
+    }
+    return out;
+  }, [memberIndex, query]);
+
   const handleSearch = useCallback((text: string) => {
     setSearch(text);
   }, []);
@@ -677,6 +884,21 @@ export default function EmployeeCollection() {
     [router]
   );
 
+  /* NEW: straight to the collect payment screen for that member.
+     Same pathname and params groupMembers.tsx already uses. */
+  const openMember = useCallback(
+    (groupId: string, groupMemberId: string) => {
+      router.push({
+        pathname: "/employee/collectPayment",
+        params: {
+          groupId,
+          memberId: groupMemberId,
+        },
+      });
+    },
+    [router]
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: any }) => (
       <GroupCard item={item} onPress={openGroup} />
@@ -684,39 +906,85 @@ export default function EmployeeCollection() {
     [openGroup]
   );
 
-  const listEmptyComponent = useMemo(
-    () => (
-      <View className="flex-1 justify-center items-center py-20">
+  /* NEW: member results sit above the group list */
+  const listHeaderComponent = useMemo(() => {
+    if (!query.trim()) return null;
+    if (filteredMembers.length === 0) return null;
 
-        <MaterialIcons
-          name="group"
-          size={40}
-          color="#9ca3af"
-        />
+    return (
+      <View className="mb-4">
 
-        <Text className="text-gray-600 mt-3">
-          No groups available
-        </Text>
-
-        {search.length > 0 && (
-          <Text className="text-gray-400 text-sm mt-2 text-center">
-            Try searching with another Group ID
+        <View className="flex-row items-center mb-2">
+          <MaterialIcons name="person-search" size={18} color="#024e32" />
+          <Text className="text-[#024e32] font-bold text-sm ml-1.5">
+            Members ({filteredMembers.length})
           </Text>
-        )}
+          <Text className="text-gray-400 text-xs ml-2">
+            tap to collect payment
+          </Text>
+        </View>
+
+        {filteredMembers.map((m) => (
+          <MemberCard key={m.key} item={m} onPress={openMember} />
+        ))}
+
+        {filteredGroups.length > 0 ? (
+          <View className="flex-row items-center mt-3 mb-1">
+            <MaterialIcons name="group" size={18} color="#6b7280" />
+            <Text className="text-gray-600 font-bold text-sm ml-1.5">
+              Groups ({filteredGroups.length})
+            </Text>
+          </View>
+        ) : null}
 
       </View>
-    ),
-    [search.length]
+    );
+  }, [query, filteredMembers, filteredGroups.length, openMember]);
+
+  const listEmptyComponent = useMemo(
+    () => {
+      // Members matched even though no group did - not an empty screen
+      if (filteredMembers.length > 0) return null;
+
+      return (
+        <View className="flex-1 justify-center items-center py-20">
+
+          <MaterialIcons
+            name="group"
+            size={40}
+            color="#9ca3af"
+          />
+
+          <Text className="text-gray-600 mt-3">
+            No groups available
+          </Text>
+
+          {search.length > 0 && (
+            <Text className="text-gray-400 text-sm mt-2 text-center">
+              Try searching with another Group ID,{"\n"}member name, member ID or phone
+            </Text>
+          )}
+
+        </View>
+      );
+    },
+    [search.length, filteredMembers.length]
   );
 
   const contentContainerStyle = useMemo(
     () => ({
       paddingHorizontal: 16,
       paddingBottom: 20,
-      flexGrow: filteredGroups.length === 0 ? 1 : 0,
+      flexGrow:
+        filteredGroups.length === 0 && filteredMembers.length === 0 ? 1 : 0,
     }),
-    [filteredGroups.length]
+    [filteredGroups.length, filteredMembers.length]
   );
+
+  /* getItemLayout assumes every row is CARD_HEIGHT. That is only true
+     when there is no member header above the list, so it is switched
+     off while member results are showing. */
+  const useFixedLayout = filteredMembers.length === 0;
 
   /* ================= UI ================= */
 
@@ -804,23 +1072,29 @@ export default function EmployeeCollection() {
               </View>
 
               <TextInput
-                placeholder="Search by Group ID"
+                placeholder="Group ID, member name, member ID or phone"
                 value={search}
                 onChangeText={handleSearch}
                 autoCorrect={false}
-                autoCapitalize="characters"
+                autoCapitalize="none"
                 returnKeyType="search"
                 className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
               />
 
               <Text className="text-gray-500 text-sm mt-3">
-                {filteredGroups.length} group(s) found
+                {query.trim()
+                  ? `${filteredGroups.length} group(s) · ${filteredMembers.length} member(s) found`
+                  : `${filteredGroups.length} group(s) found`}
+                {membersLoading && !memberIndex.length
+                  ? "  ·  loading members..."
+                  : ""}
               </Text>
 
             </View>
 
             {/* =================================================
                 ONE SINGLE GROUP LIST
+                (member results render in the list header)
             ================================================= */}
 
             <FlatList
@@ -841,9 +1115,13 @@ export default function EmployeeCollection() {
 
               // Delete this one prop if you ever change the card height
               // and see blank gaps while scrolling.
-              getItemLayout={getItemLayout}
+              getItemLayout={useFixedLayout ? getItemLayout : undefined}
 
               keyboardShouldPersistTaps="handled"
+
+              /* ================= MEMBER RESULTS ================= */
+
+              ListHeaderComponent={listHeaderComponent}
 
               /* ================= EMPTY STATE ================= */
 

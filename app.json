@@ -27,7 +27,7 @@
     },
 
     "android": {
-      "versionCode": 9,
+      "versionCode": 10,
       "package": "com.manikya.chitfund",
 
       "adaptiveIcon": {

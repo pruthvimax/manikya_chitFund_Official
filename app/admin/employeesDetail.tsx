@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
@@ -15,7 +14,9 @@ import {
   Easing,
   Modal,
   Pressable,
+  StatusBar,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import BACKEND_URL from "../../config.js";
@@ -261,6 +262,18 @@ export default function EmployeeDetail() {
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
 
+  /*
+    Real device safe-area insets.
+    iOS     -> notch / dynamic island height
+    Android -> 0, so the header keeps the same look as before.
+  */
+  const insets = useSafeAreaInsets();
+
+  /* Shared header padding: iOS uses the real notch height,
+     Android keeps the 48px that pt-12 was giving. */
+  const headerPaddingTop =
+    Platform.OS === "ios" ? insets.top + 12 : 48;
+
   const [emp, setEmp] = useState({
     emp_id: "",
     name: "",
@@ -285,7 +298,7 @@ export default function EmployeeDetail() {
 
   const contentStyle = {
     padding: isDesktopOrLaptop ? 24 : 20,
-    paddingBottom: 40,
+    paddingBottom: 40 + insets.bottom,
     maxWidth: isDesktopOrLaptop ? (isLargeScreen ? 800 : 600) : ("100%" as any),
     alignSelf: "center" as const,
     width: "100%" as any,
@@ -423,8 +436,13 @@ export default function EmployeeDetail() {
   /* ================= LOADING (SKELETON) ================= */
   if (loading) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-50">
-        <View className="bg-[#024e32] px-5 pt-12 pb-5 shadow-md">
+      <View className="flex-1 bg-gray-50">
+        <StatusBar barStyle="light-content" backgroundColor="#024e32" />
+
+        <View
+          className="bg-[#024e32] px-5 pb-5 shadow-md"
+          style={{ paddingTop: headerPaddingTop }}
+        >
           <View className="flex-row items-center">
             <TouchableOpacity
               onPress={() => router.push("/admin/employeesView")}
@@ -471,13 +489,16 @@ export default function EmployeeDetail() {
 
           <Footer />
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!emp || !emp.emp_id) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-50">
+      <View
+        className="flex-1 justify-center items-center bg-gray-50"
+        style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+      >
         <MaterialIcons name="error-outline" size={48} color="#ef4444" />
         <Text className="text-gray-600 mt-4 text-lg">Employee not found</Text>
         <TouchableOpacity
@@ -486,7 +507,7 @@ export default function EmployeeDetail() {
         >
           <Text className="text-white font-semibold">Go Back</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -495,9 +516,20 @@ export default function EmployeeDetail() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       className="flex-1 bg-gray-50"
     >
-      <SafeAreaView className="flex-1 bg-gray-50">
+      {/*
+        Plain View instead of SafeAreaView.
+        SafeAreaView pushed the whole screen down on iOS, leaving the
+        notch area grey above the green header. The inset is applied
+        INSIDE the header now, so the green reaches the top edge.
+      */}
+      <View className="flex-1 bg-gray-50">
+        <StatusBar barStyle="light-content" backgroundColor="#024e32" />
+
         {/* HEADER */}
-        <View className="bg-[#024e32] px-5 pt-12 pb-5 shadow-md">
+        <View
+          className="bg-[#024e32] px-5 pb-5 shadow-md"
+          style={{ paddingTop: headerPaddingTop }}
+        >
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center flex-1">
               <TouchableOpacity
@@ -702,7 +734,7 @@ export default function EmployeeDetail() {
                         emp.status === "active" ? "text-green-700" : "text-red-700"
                       }`}
                     >
-                      {emp.status.toUpperCase()}
+                      {(emp.status || "").toUpperCase()}
                     </Text>
                   </View>
                   <View
@@ -840,7 +872,7 @@ export default function EmployeeDetail() {
           onConfirm={deleteEmployee}
           onCancel={() => setConfirm(null)}
         />
-      </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
