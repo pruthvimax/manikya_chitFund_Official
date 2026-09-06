@@ -21,7 +21,6 @@
     "@react-navigation/native": "^7.1.8",
     "babel-preset-expo": "~57.0.0",
     "expo": "~57.0.20",
-    "expo-av": "~16.0.8",
     "expo-blur": "~57.0.2",
     "expo-build-properties": "^57.0.17",
     "expo-checkbox": "~57.0.0",
