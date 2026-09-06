@@ -290,6 +290,9 @@ export default function AdminLogin() {
     outputRange: [0, 30],
   });
 
+  // Helper to strip non‑digit characters
+  const filterDigits = (text: string) => text.replace(/[^0-9]/g, '');
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -715,7 +718,7 @@ export default function AdminLogin() {
                             padding: 0,
                           }}
                           value={mobile}
-                          onChangeText={setMobile}
+                          onChangeText={(text) => setMobile(filterDigits(text))}
                           onFocus={() => setIsFocused({ ...isFocused, mobile: true })}
                           onBlur={() => setIsFocused({ ...isFocused, mobile: false })}
                         />
@@ -860,7 +863,7 @@ export default function AdminLogin() {
                             letterSpacing: 4,
                           }}
                           value={otp}
-                          onChangeText={setOtp}
+                          onChangeText={(text) => setOtp(filterDigits(text))}
                           onFocus={() => setIsFocused({ ...isFocused, otp: true })}
                           onBlur={() => setIsFocused({ ...isFocused, otp: false })}
                         />
