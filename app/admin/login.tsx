@@ -52,6 +52,41 @@ export default function AdminLogin() {
   const floatingAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  /*
+    ADDED:
+    Holds the currently-running spinner loop so it can be
+    stopped/reset cleanly. Fixes: progressAnim was driven with a
+    single one-shot Animated.timing to 1 in BOTH sendOtp and
+    verifyOtp (they share the same value) - so it only ever
+    rotated once, then sat frozen at 1 for every attempt after
+    that, including the very next step's spinner (Step 1's
+    success doesn't navigate away, so this carried straight into
+    Step 2). Now it's a continuous loop, reset to 0 and restarted
+    on every attempt in both functions.
+  */
+  const spinLoopRef = useRef<any>(null);
+
+  const stopSpinner = () => {
+    if (spinLoopRef.current) {
+      spinLoopRef.current.stop();
+      spinLoopRef.current = null;
+    }
+    progressAnim.setValue(0);
+  };
+
+  const startSpinner = () => {
+    progressAnim.setValue(0);
+    spinLoopRef.current = Animated.loop(
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      })
+    );
+    spinLoopRef.current.start();
+  };
+
   // Auto-hide message after 3-4 seconds
   useEffect(() => {
     if (message) {
@@ -136,11 +171,7 @@ export default function AdminLogin() {
     }
 
     setIsLoading(true);
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 2000,
-      useNativeDriver: false,
-    }).start();
+    startSpinner();
 
     try {
       const response = await fetch(`${BACKEND_URL}/admin/send-otp`, {
@@ -154,18 +185,21 @@ export default function AdminLogin() {
       const data = await response.json();
 
       if (!response.ok) {
+        stopSpinner();
         setIsLoading(false);
         setMessage(data.message || "Failed to send OTP");
         return;
       }
 
+      stopSpinner();
       setIsLoading(false);
       setMessage("OTP sent to WhatsApp ✅");
-      
+
       setStep(2);
-      
+
     } catch (error) {
       console.log(error);
+      stopSpinner();
       setIsLoading(false);
       setMessage("Server connection error");
     }
@@ -179,11 +213,7 @@ export default function AdminLogin() {
     }
 
     setIsLoading(true);
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 2000,
-      useNativeDriver: false,
-    }).start();
+    startSpinner();
 
     try {
       const response = await fetch(`${BACKEND_URL}/admin/verify-otp`, {
@@ -197,11 +227,13 @@ export default function AdminLogin() {
       const data = await response.json();
 
       if (!response.ok) {
+        stopSpinner();
         setIsLoading(false);
         setMessage(data.message || "OTP verification failed");
         return;
       }
 
+      stopSpinner();
       setIsLoading(false);
       setMessage("Login Successful! 🎉");
       // Mark this device as an admin session. Screens that block
@@ -232,6 +264,7 @@ export default function AdminLogin() {
       }, 800);
     } catch (error) {
       console.log(error);
+      stopSpinner();
       setIsLoading(false);
       setMessage("Server error");
     }
@@ -300,7 +333,7 @@ export default function AdminLogin() {
     >
       <SafeAreaView style={{ flex: 1, backgroundColor: '#f0f4f8' }}>
         <StatusBar barStyle="dark-content" backgroundColor="#f0f4f8" />
-        
+
         {/* Background decorative elements */}
         <Animated.View style={{
           position: 'absolute',
@@ -353,7 +386,7 @@ export default function AdminLogin() {
               { scale: scaleAnim }
             ]
           }}>
-            
+
             {/* ================= HAMBURGER MENU ================= */}
             <Animatable.View
               animation="fadeInDown"
@@ -423,7 +456,7 @@ export default function AdminLogin() {
                     resizeMode="contain"
                   />
                 </Animated.View>
-                
+
                 <Animatable.Text
                   animation="fadeInUp"
                   duration={800}
@@ -438,7 +471,7 @@ export default function AdminLogin() {
                 >
                   Admin Portal
                 </Animatable.Text>
-                
+
                 <Animatable.Text
                   animation="fadeInUp"
                   duration={800}
@@ -1312,7 +1345,7 @@ export default function AdminLogin() {
                   </View>
                   <MaterialIcons name="arrow-forward-ios" size={20} color="#94a3b8" />
                 </TouchableOpacity>
-               
+
               </View>
 
               {/* Close Button */}

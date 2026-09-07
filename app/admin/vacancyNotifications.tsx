@@ -1,6 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
   Alert,
@@ -268,6 +269,10 @@ function ConfirmOverlay({
 export default function AdminVacancyNotifications() {
   const router = useRouter();
 
+const { from } = useLocalSearchParams<{
+  from?: string;
+}>();
+
   const [requests, setRequests] = useState<any[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -398,11 +403,15 @@ export default function AdminVacancyNotifications() {
   const askLeavePage = () => {
     setConfirmLeavePage(true);
   };
+/* ================= HEADER BACK ================= */
 
-  const leavePage = () => {
-    setConfirmLeavePage(false);
-    router.replace("/admin/vacancies");
-  };
+const leavePage = () => {
+  router.replace(
+    from === "vacancy"
+      ? "/admin/vacancies"
+      : "/admin"
+  );
+};
 
   /* ================= OPEN GROUP ================= */
   const openGroupPage = () => {
@@ -555,7 +564,7 @@ export default function AdminVacancyNotifications() {
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
           <TouchableOpacity
-            onPress={askLeavePage}
+            onPress={leavePage}
             activeOpacity={0.85}
             className="mt-1"
           >

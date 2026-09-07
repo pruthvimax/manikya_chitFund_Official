@@ -325,7 +325,7 @@ const groupMember =
       String(member.groupMemberId) ===
         String(groupMemberId)
   );
-  
+
 
     if (!groupMember) {
       return res.status(404).json({
@@ -382,9 +382,19 @@ if (previousWinner) {
 
     /* =====================================================
        PENDING INSTALLMENT CHECK
-       Member CANNOT bid if he has pending installments for
-       PAST months or the CURRENT month.
-       Future months do NOT block bidding.
+
+       RULE:
+       An installment counts against the member the moment
+       its START DATE has arrived (today or earlier) -
+       whether that is the CURRENT period or an older
+       OVERDUE one. It is ignored ONLY while its start date
+       is still strictly in the future (not due yet).
+
+       todayForCheck is `new Date()` taken fresh on THIS
+       request, so a long-running auction that crosses into
+       a newly-due installment gets blocked starting with the
+       very next bid attempt, even if the screen was opened
+       earlier and showed bidding as allowed at the time.
     ===================================================== */
 
     const todayForCheck = new Date();
@@ -398,20 +408,7 @@ const plan = (group.collectionPlans || []).find(
     String(col.index)
 );
 
-      if (!plan || !plan.endDate) continue;
-
-      /*
-        Skip months that have NOT started yet
-        (start date in the future = future installment,
-        must NOT block bidding).
-      */
-      if (
-        plan.startDate &&
-        new Date(plan.startDate) >
-          todayForCheck
-      ) {
-        continue;
-      }
+      if (!plan) continue;
 
       const installmentAmount =
         Number(
@@ -447,56 +444,72 @@ const plan = (group.collectionPlans || []).find(
 
       if (totalPaid >= installmentAmount) continue;
 
-      const dueDate = new Date(plan.endDate);
+      /*
+        Determine whether this installment's period has
+        started yet. Prefer startDate; fall back to endDate
+        only if startDate is missing.
+      */
+      const referenceDate =
+        plan.startDate || plan.endDate;
+
+      if (!referenceDate) continue;
+
+      const startOrDueDate = new Date(referenceDate);
+
+      if (Number.isNaN(startOrDueDate.getTime())) continue;
 
       /*
-        Block only if the due month is a PAST month
-        or the CURRENT month. Future months are ignored.
+        Still in the future - hasn't started yet.
+        Does NOT block bidding.
       */
-      const isPastOrCurrentMonth =
-        dueDate.getFullYear() <
-          todayForCheck.getFullYear() ||
-        (dueDate.getFullYear() ===
-          todayForCheck.getFullYear() &&
-          dueDate.getMonth() <=
-            todayForCheck.getMonth());
-
-      if (isPastOrCurrentMonth) {
-        console.log(
-          "⛔ PENDING INSTALLMENT BLOCK:"
-        );
-        console.log(
-          "  Member:",
-          memberId
-        );
-        console.log(
-          "  Month index:",
-          col.index
-        );
-        console.log(
-          "  Installment:",
-          installmentAmount
-        );
-        console.log(
-          "  Dividend:",
-          planDividend
-        );
-        console.log(
-          "  Installment paid:",
-          installmentPaid
-        );
-        console.log(
-          "  Total paid:",
-          totalPaid
-        );
-        console.log(
-          "  Due date:",
-          plan.endDate
-        );
-
-        hasPendingInstallment = true;
-        break;
+      if (startOrDueDate > todayForCheck) {
+        continue;
       }
+
+      /*
+        Started (today or earlier) and unpaid -
+        blocks bidding, whether it's this month's
+        installment or an older overdue one.
+      */
+
+      console.log(
+        "⛔ PENDING INSTALLMENT BLOCK:"
+      );
+      console.log(
+        "  Member:",
+        memberId
+      );
+      console.log(
+        "  Month index:",
+        col.index
+      );
+      console.log(
+        "  Installment:",
+        installmentAmount
+      );
+      console.log(
+        "  Start date:",
+        plan.startDate
+      );
+      console.log(
+        "  End date:",
+        plan.endDate
+      );
+      console.log(
+        "  Dividend:",
+        planDividend
+      );
+      console.log(
+        "  Installment paid:",
+        installmentPaid
+      );
+      console.log(
+        "  Total paid:",
+        totalPaid
+      );
+
+      hasPendingInstallment = true;
+      break;
     }
 
     if (hasPendingInstallment) {

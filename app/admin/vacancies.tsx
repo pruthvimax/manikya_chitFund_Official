@@ -359,7 +359,9 @@ export default function AdminVacancies() {
                 VACANCY NOTIFICATION CARD (RED TICK)
             =============================================== */}
             <TouchableOpacity
-              onPress={() => router.push("/admin/vacancyNotifications")}
+              onPress={() =>
+  router.push("/admin/vacancyNotifications?from=vacancy")
+}
               activeOpacity={0.9}
               className="bg-white rounded-2xl border border-[#e8f0eb] shadow-md p-5 mb-6 flex-row items-center"
             >

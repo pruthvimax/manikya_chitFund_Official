@@ -144,6 +144,64 @@ const SkeletonBox = React.memo(function SkeletonBox({
   );
 });
 
+/* =========================================================================
+   SUMMARY CARD
+
+   Compact tile. Several sit side by side in a wrapping row - React Native
+   has no CSS grid, so the old "grid grid-cols-2" classes did nothing and
+   every card stretched full width, one per line.
+   ========================================================================= */
+const SummaryCard = React.memo(function SummaryCard({
+  label,
+  value,
+  color,
+  icon,
+  cardWidth,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+  icon: any;
+  cardWidth: string;
+}) {
+  return (
+    <View
+      className="bg-white rounded-2xl border border-gray-200 px-3 py-2.5 mb-2.5"
+      style={{
+        width: cardWidth as any,
+        shadowColor: "#000",
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 1,
+      }}
+    >
+      <View className="flex-row items-center mb-1">
+        <MaterialIcons name={icon} size={13} color={color} />
+        <Text
+          className="text-gray-500 text-[10px] font-semibold ml-1 flex-1"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.1}
+        >
+          {label}
+        </Text>
+      </View>
+
+      <Text
+        className="text-base font-bold"
+        style={{ color }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+        maxFontSizeMultiplier={1.1}
+      >
+        ₹{value}
+      </Text>
+    </View>
+  );
+});
+
 const SkeletonGroupsScreen = () => (
   <SafeAreaView className="flex-1 bg-white">
     <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
@@ -162,14 +220,19 @@ const SkeletonGroupsScreen = () => (
         </Text>
       </View>
     </View>
-    <View className="p-5">
+    <View className="p-5" style={{ paddingTop: 120 }}>
       <SkeletonBox width={110} height={14} style={{ marginBottom: 10 }} />
-      <SkeletonBox width={"100%" as any} height={50} radius={16} />
-      <View className="mt-6 grid grid-cols-2 gap-3">
+      <SkeletonBox width={"100%" as any} height={64} radius={16} />
+
+      <View className="flex-row flex-wrap justify-between mt-6">
         {Array.from({ length: 6 }).map((_, i) => (
-          <View key={i} className="bg-white p-4 rounded-2xl border border-gray-200">
-            <SkeletonBox width={80} height={10} style={{ marginBottom: 8 }} />
-            <SkeletonBox width={60} height={18} />
+          <View
+            key={i}
+            className="bg-white px-3 py-2.5 rounded-2xl border border-gray-200 mb-2.5"
+            style={{ width: "48%" }}
+          >
+            <SkeletonBox width={70} height={9} style={{ marginBottom: 7 }} />
+            <SkeletonBox width={55} height={16} />
           </View>
         ))}
       </View>
@@ -182,11 +245,15 @@ const SkeletonGroupsScreen = () => (
 
 const SkeletonLedgerBlock = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) => (
   <View>
-    <View className="mb-6 grid grid-cols-2 gap-3">
+    <View className="flex-row flex-wrap justify-between mb-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <View key={i} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <SkeletonBox width={90} height={10} style={{ marginBottom: 8 }} />
-          <SkeletonBox width={70} height={20} />
+        <View
+          key={i}
+          className="bg-white px-3 py-2.5 rounded-2xl border border-gray-200 mb-2.5"
+          style={{ width: isDesktopOrLaptop ? "31.5%" : "48%" }}
+        >
+          <SkeletonBox width={70} height={9} style={{ marginBottom: 7 }} />
+          <SkeletonBox width={55} height={16} />
         </View>
       ))}
     </View>
@@ -679,6 +746,9 @@ export default function MyAccountCopy() {
   const dropdownMaxWidth = isDesktopOrLaptop ? 520 : 460;
   const dropdownMaxHeight = Math.min(height * 0.75, 620);
 
+  /* Summary tiles: 3 per row on laptop/tablet, 2 per row on phones */
+  const summaryCardWidth = isDesktopOrLaptop ? "31.5%" : "48%";
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       {/* HEADER */}
@@ -997,74 +1067,56 @@ export default function MyAccountCopy() {
             </View>
           ) : (
             <>
-              {/* Summary Cards */}
-              <View className="mb-6 grid grid-cols-2 gap-3">
-                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-                  <Text className="text-gray-500 text-xs">Total Installment</Text>
-                  <Text
-                    className="text-[#024e32] text-xl font-bold mt-1"
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    ₹{totals.totalInstallment}
-                  </Text>
-                </View>
+              {/* =====================================================
+                  SUMMARY TILES
+                  flex-wrap row - 2 per line on phones, 3 on laptop.
+                  (React Native has no CSS grid, so the previous
+                  "grid grid-cols-2" classes did nothing and every
+                  card stretched to full width.)
+              ===================================================== */}
+              <View className="flex-row flex-wrap justify-between mb-4">
+                <SummaryCard
+                  label="Total Installment"
+                  value={totals.totalInstallment}
+                  color="#024e32"
+                  icon="account-balance-wallet"
+                  cardWidth={summaryCardWidth}
+                />
 
-                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-                  <Text className="text-gray-500 text-xs">Total Dividend</Text>
-                  <Text
-                    className="text-blue-600 text-xl font-bold mt-1"
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    ₹{totals.totalDividend}
-                  </Text>
-                </View>
+                <SummaryCard
+                  label="Total Dividend"
+                  value={totals.totalDividend}
+                  color="#2563eb"
+                  icon="trending-up"
+                  cardWidth={summaryCardWidth}
+                />
 
-                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-                  <Text className="text-gray-500 text-xs">User Paid</Text>
-                  <Text
-                    className="text-green-600 text-xl font-bold mt-1"
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    ₹{totals.totalUserPaid}
-                  </Text>
-                </View>
+                <SummaryCard
+                  label="User Paid"
+                  value={totals.totalUserPaid}
+                  color="#16a34a"
+                  icon="check-circle"
+                  cardWidth={summaryCardWidth}
+                />
 
-                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-                  <Text className="text-gray-500 text-xs">Total Penalty</Text>
-                  <Text
-                    className="text-red-600 text-xl font-bold mt-1"
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    ₹{totals.totalPenalty}
-                  </Text>
-                </View>
+                <SummaryCard
+                  label="Total Penalty"
+                  value={totals.totalPenalty}
+                  color="#dc2626"
+                  icon="warning"
+                  cardWidth={summaryCardWidth}
+                />
 
-                <View className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-                  <Text className="text-gray-500 text-xs">Total Due</Text>
-                  <Text
-                    className={`text-xl font-bold mt-1 ${
-                      totals.totalDue > 0 ? "text-red-600" : "text-green-600"
-                    }`}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    maxFontSizeMultiplier={1.2}
-                  >
-                    ₹{Math.max(totals.totalDue, 0)}
-                  </Text>
-                </View>
+                <SummaryCard
+                  label="Total Due"
+                  value={Math.max(totals.totalDue, 0)}
+                  color={totals.totalDue > 0 ? "#dc2626" : "#16a34a"}
+                  icon="pending-actions"
+                  cardWidth={summaryCardWidth}
+                />
+
+                {/* keeps the last row aligned when the count is odd */}
+                <View style={{ width: summaryCardWidth as any }} />
               </View>
 
               {/* About Account Copy Card */}

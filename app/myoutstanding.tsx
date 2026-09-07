@@ -375,6 +375,18 @@ export default function MyOutstanding() {
   const [overdueAmount, setOverdueAmount] = useState(0);
   const [totalPaid, setTotalPaid] = useState(0);
 
+  /*
+    ADDED:
+    - dividendTotal  -> sum of dividend across visible months, for
+      the new separate Dividend card.
+    - currentMonthInfo -> the pending-month record (if any) whose
+      due date falls in the present calendar month, used by the
+      "This Month" card to show that installment's start-end date
+      range and dividend.
+  */
+  const [dividendTotal, setDividendTotal] = useState(0);
+  const [currentMonthInfo, setCurrentMonthInfo] = useState<any>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Group selection
@@ -662,6 +674,32 @@ export default function MyOutstanding() {
               }
             }
 
+            /* ================= START DATE (ADDED) =================
+               Only used to display the "start - end" range on the
+               This Month card. Does not affect installment, pending,
+               dividend, overdue or any other existing calculation.
+            ===================================================== */
+
+            let startDateValue =
+              month.startDate ||
+              month.start_date ||
+              month.collectionStartDate ||
+              null;
+
+            let startDateObj: Date | null = null;
+
+            if (startDateValue) {
+              try {
+                startDateObj = new Date(startDateValue);
+
+                if (isNaN(startDateObj.getTime())) {
+                  startDateObj = null;
+                }
+              } catch (e) {
+                startDateObj = null;
+              }
+            }
+
             /* ================= STATUS ================= */
 
             let status = "Pending";
@@ -790,6 +828,12 @@ export default function MyOutstanding() {
 
               dueDate: dueDateObj,
 
+              /*
+                ADDED: installment period start date, for the
+                This Month card's "start - end" display.
+              */
+              startDate: startDateObj,
+
               status,
 
               daysLeft,
@@ -810,6 +854,21 @@ export default function MyOutstanding() {
                     }
                   )
                 : "Not set",
+
+              /*
+                ADDED: formatted start date, used only by the
+                This Month card.
+              */
+              displayStartDate: startDateObj
+                ? startDateObj.toLocaleDateString(
+                    "en-IN",
+                    {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    }
+                  )
+                : null,
             });
           }
         } catch (err) {
@@ -887,9 +946,27 @@ export default function MyOutstanding() {
     let overdue = 0;
     let paid = 0;
 
+    /*
+      ADDED:
+      - dividendSum tracks total dividend for the new Dividend card.
+      - currentMonth (computed in a separate pass below) is the
+        installment period that is ACTIVE right now.
+    */
+    let dividendSum = 0;
+
     for (const m of months) {
       total += m.pending;
-      paid += m.effectivePaid || 0;
+
+      /*
+        CHANGED:
+        "Total Paid" now shows ONLY the amount the member actually
+        paid (installment payments), NOT the dividend. m.paid is
+        (dividend + installmentPaid), so subtracting the dividend
+        leaves just the real paid-in amount.
+      */
+      paid += (m.paid || 0) - (m.dividend || 0);
+
+      dividendSum += m.dividend || 0;
 
       if (m.isOverdue) {
         overdue +=
@@ -908,10 +985,59 @@ export default function MyOutstanding() {
       }
     }
 
+    /* =====================================================
+       CURRENT MONTH (ACTIVE INSTALLMENT PERIOD)
+
+       CHANGED:
+       "This Month" no longer picks its record by matching the
+       CALENDAR MONTH of the due date. That broke for a period
+       like 05/09/2026 - 05/10/2026: its due date falls in
+       October, even though the period is actively running
+       all through September.
+
+       Instead, the current period is whichever pending record's
+       own date range actually contains TODAY:
+
+         startDate <= today <= dueDate (endDate)
+
+       This is the same rule already used for the bidding
+       installment block. So for a period of 05/09/2026 to
+       05/10/2026, it stays "this month" for every day in
+       between - whether today is 07/09/2026 or 01/10/2026 -
+       and only stops being "this month" once today passes
+       05/10/2026, at which point whichever NEXT period now
+       contains today takes over automatically.
+
+       Falls back to the old calendar-month match ONLY when a
+       record has no startDate at all (so the range check can't
+       be done).
+    ===================================================== */
+
+    let currentMonth: any =
+      months.find(
+        (m) =>
+          m.startDate &&
+          m.dueDate &&
+          m.startDate.getTime() <= now.getTime() &&
+          now.getTime() <= m.dueDate.getTime()
+      ) || null;
+
+    if (!currentMonth) {
+      currentMonth =
+        months.find(
+          (m) =>
+            m.dueDate &&
+            m.dueDate.getMonth() === now.getMonth() &&
+            m.dueDate.getFullYear() === now.getFullYear()
+        ) || null;
+    }
+
     setTotalOutstanding(total);
     setDueThisMonth(dueThis);
     setOverdueAmount(overdue);
     setTotalPaid(paid);
+    setDividendTotal(dividendSum);
+    setCurrentMonthInfo(currentMonth);
   }, [
     selectedGroupId,
     pendingMonths,
@@ -1554,7 +1680,12 @@ export default function MyOutstanding() {
                   </Text>
                 </View>
 
-                {/* THIS MONTH 
+                {/* THIS MONTH
+                    RE-ENABLED (was commented out before).
+                    Instead of just the due amount, it now shows the
+                    current/latest month's installment period
+                    (start date - end date) and that month's
+                    dividend, when available. */}
 
                 <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-gray-100 mb-3">
                   <View className="flex-row items-center mb-2">
@@ -1571,14 +1702,34 @@ export default function MyOutstanding() {
                     </Text>
                   </View>
 
-                  <Text className="text-2xl font-bold text-blue-600">
-                    ₹{dueThisMonth}
-                  </Text>
+                  {currentMonthInfo ? (
+                    <>
+                      <Text className="text-2xl font-bold text-blue-600">
+                        ₹{currentMonthInfo.pending}
+                      </Text>
+
+                      <Text className="text-gray-500 text-xs mt-1">
+                        {currentMonthInfo.displayStartDate
+                          ? `${currentMonthInfo.displayStartDate} - ${currentMonthInfo.displayDate}`
+                          : currentMonthInfo.displayDate}
+                      </Text>
+
+                      {currentMonthInfo.dividend > 0 && (
+                        <Text className="text-gray-500 text-xs mt-1">
+                          Dividend: ₹{currentMonthInfo.dividend}
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    <Text className="text-sm text-gray-400">
+                      No installment this month
+                    </Text>
+                  )}
                 </View>
 
-               OVERDUE */}
+                {/* OVERDUE */}
 
-                <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-red-100">
+                <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-red-100 mb-3">
                   <View className="flex-row items-center mb-2">
                     <View className="w-10 h-10 rounded-full bg-red-50 items-center justify-center mr-2">
                       <MaterialIcons
@@ -1598,9 +1749,11 @@ export default function MyOutstanding() {
                   </Text>
                 </View>
 
-                {/* TOTAL PAID */}
+                {/* TOTAL PAID
+                    CHANGED: now shows only the amount the member
+                    actually paid (installments), not dividend. */}
 
-                <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-green-100">
+                <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-green-100 mb-3">
                   <View className="flex-row items-center mb-2">
                     <View className="w-10 h-10 rounded-full bg-green-50 items-center justify-center mr-2">
                       <MaterialIcons
@@ -1617,6 +1770,28 @@ export default function MyOutstanding() {
 
                   <Text className="text-2xl font-bold text-green-600">
                     ₹{totalPaid}
+                  </Text>
+                </View>
+
+                {/* DIVIDEND (NEW CARD) */}
+
+                <View className="bg-white w-[48%] p-4 rounded-2xl shadow-sm border border-purple-100 mb-3">
+                  <View className="flex-row items-center mb-2">
+                    <View className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center mr-2">
+                      <MaterialIcons
+                        name="card-giftcard"
+                        size={20}
+                        color="#7c3aed"
+                      />
+                    </View>
+
+                    <Text className="text-gray-500 text-xs font-medium">
+                      Dividend
+                    </Text>
+                  </View>
+
+                  <Text className="text-2xl font-bold text-purple-600">
+                    ₹{dividendTotal}
                   </Text>
                 </View>
               </View>

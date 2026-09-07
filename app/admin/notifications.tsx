@@ -2032,7 +2032,7 @@ const handleSelectGroup = (group: any) => {
                           {item.winnerGroupId && (
                             <View className="flex-row mt-0.5">
                               <Text className="text-gray-600 text-xs flex-1">
-                                <Text className="font-medium">Group ID:</Text> {item.winnerGroupId}
+                                <Text className="font-medium">Group Member ID:</Text> {item.winnerGroupId}
                               </Text>
                             </View>
                           )}

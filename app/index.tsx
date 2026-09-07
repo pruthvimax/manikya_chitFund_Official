@@ -49,6 +49,27 @@ export default function LoginScreen() {
   const floatingAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  /*
+    ADDED:
+    Holds the currently-running spinner loop so it can be
+    stopped/reset cleanly. Fixes: previously progressAnim was
+    driven with a single one-shot Animated.timing to 1, which
+    (a) only ever rotated once - a second login attempt started
+    from progressAnim already at 1, so nothing visibly moved -
+    and (b) stopped rotating after its fixed 2000ms even if the
+    request was still loading. This makes the spinner loop
+    continuously for as long as isLoading is true, every attempt.
+  */
+  const spinLoopRef = useRef<any>(null);
+
+  const stopSpinner = () => {
+    if (spinLoopRef.current) {
+      spinLoopRef.current.stop();
+      spinLoopRef.current = null;
+    }
+    progressAnim.setValue(0);
+  };
+
   /* ================= BACK BUTTON LOCK ================= */
   useEffect(() => {
     const backAction = () => true;
@@ -139,11 +160,17 @@ export default function LoginScreen() {
     }
 
     setIsLoading(true);
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: 2000,
-      useNativeDriver: false,
-    }).start();
+
+    progressAnim.setValue(0);
+    spinLoopRef.current = Animated.loop(
+      Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      })
+    );
+    spinLoopRef.current.start();
 
     try {
       const url = `${BACKEND_URL}/members/login`;
@@ -163,12 +190,14 @@ export default function LoginScreen() {
       try {
         data = JSON.parse(text);
       } catch {
+        stopSpinner();
         setIsLoading(false);
         setMessage("Server returned invalid response");
         return;
       }
 
       if (!response.ok) {
+        stopSpinner();
         setIsLoading(false);
         setMessage(data.message || "Login failed");
         return;
@@ -211,6 +240,7 @@ export default function LoginScreen() {
       }, 800);
     } catch (error) {
       console.log("LOGIN ERROR:", error);
+      stopSpinner();
       setIsLoading(false);
       setMessage("Unable to connect to server");
     }
@@ -277,7 +307,7 @@ export default function LoginScreen() {
     >
       <SafeAreaView style={{ flex: 1, backgroundColor: '#f0f4f8' }}>
         <StatusBar barStyle="dark-content" backgroundColor="#f0f4f8" />
-        
+
         {/* Background decorative elements */}
         <Animated.View style={{
           position: 'absolute',
@@ -330,7 +360,7 @@ export default function LoginScreen() {
               { scale: scaleAnim }
             ]
           }}>
-            
+
             {/* ================= HAMBURGER MENU ================= */}
             <Animatable.View
               animation="fadeInDown"
@@ -400,7 +430,7 @@ export default function LoginScreen() {
                     resizeMode="contain"
                   />
                 </Animated.View>
-                
+
                 <Animatable.Text
                   animation="fadeInUp"
                   duration={800}
@@ -415,7 +445,7 @@ export default function LoginScreen() {
                 >
                   MANIKYA CHITS
                 </Animatable.Text>
-                
+
                 <Animatable.Text
                   animation="fadeInUp"
                   duration={800}
@@ -726,7 +756,7 @@ export default function LoginScreen() {
                         onFocus={() => setIsFocused({ ...isFocused, password: true })}
                         onBlur={() => setIsFocused({ ...isFocused, password: false })}
                       />
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         onPress={() => setShowPassword(!showPassword)}
                         style={{ padding: 4 }}
                       >
@@ -1020,7 +1050,7 @@ export default function LoginScreen() {
 
               {/* Menu Items */}
               <View style={{ gap: 12 }}>
-               
+
 
                 {/* Admin Login */}
                 <TouchableOpacity

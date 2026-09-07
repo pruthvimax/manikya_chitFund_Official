@@ -708,11 +708,13 @@ export default function EmployeeCollection() {
           GROUPS_CACHE_KEY,
           JSON.stringify(list)
         ).catch(() => {});
-      } catch (err: any) {
-        if (err?.name !== "AbortError") {
-          console.error("❌ Failed to fetch groups", err);
-        }
-      } finally {
+     } catch (err: any) {
+  // Ignore fetch cancellation when the screen unmounts
+  // or the request is intentionally aborted.
+  if (!controller.signal.aborted) {
+    console.error("❌ Failed to fetch groups", err);
+  }
+} finally {
         if (alive) setLoading(false);
       }
     };

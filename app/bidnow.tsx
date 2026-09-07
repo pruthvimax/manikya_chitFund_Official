@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   Text,
@@ -20,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
   import { MaterialIcons } from "@expo/vector-icons";
 
@@ -35,6 +35,47 @@ import {
   const { width } = Dimensions.get("window");
 
   const isTablet = width >= 768;
+
+  /* =====================================================
+    SHARED SIZE SCALE
+
+    One set of numbers used on BOTH platforms, applied with
+    explicit fontSize instead of relying on class defaults,
+    and with allowFontScaling turned off - so an iPhone and an
+    Android phone render the same card at the same size no
+    matter what the user's system font setting is.
+  ===================================================== */
+
+  const S = {
+    headerTitle: isTablet ? 20 : 17,
+    headerSub: 11,
+
+    cardTitle: 14,
+    sectionTitle: 15,
+
+    label: 9,
+    value: 13,
+    valueLg: 17,
+    big: 19,
+
+    body: 12,
+    small: 11,
+    tiny: 9,
+
+    countdown: isTablet ? 19 : 15,
+
+    iconBack: 22,
+    iconMd: 20,
+    iconSm: 16,
+
+    cardRadius: 20,
+    cardPad: 16,
+    gap: 12,
+  };
+
+  /* Text that never scales with the OS font setting, so both
+     platforms stay identical. */
+  const TXT = { allowFontScaling: false } as const;
 
   /* =====================================================
     BID TYPE
@@ -156,17 +197,29 @@ import {
     ===================================================== */
 
     const Footer = () => (
-      <View className="bg-white border-t border-gray-200 pt-5 pb-7 px-5">
+      <View className="bg-white border-t border-gray-200 pt-4 pb-6 px-5">
         <View className="items-center">
-          <Text className="text-[#024e32] font-bold text-base">
+          <Text
+            {...TXT}
+            className="text-[#024e32] font-bold"
+            style={{ fontSize: S.cardTitle }}
+          >
             MANIKYA CHITS PVT LTD
           </Text>
 
-          <Text className="text-gray-500 text-xs mt-1 text-center">
+          <Text
+            {...TXT}
+            className="text-gray-500 mt-1 text-center"
+            style={{ fontSize: S.small }}
+          >
             Secure • Transparent • Trusted
           </Text>
 
-          <Text className="text-gray-400 text-[10px] mt-1 text-center">
+          <Text
+            {...TXT}
+            className="text-gray-400 mt-1 text-center"
+            style={{ fontSize: S.tiny }}
+          >
             ©{" "}
             {new Date().getFullYear()}{" "}
             Manikya Chits Pvt Ltd.
@@ -189,18 +242,18 @@ const BidBubble = ({
   return (
     <View
       style={{
-        marginBottom: 12,
+        marginBottom: 10,
         alignItems: isUserBid ? "flex-end" : "flex-start",
       }}
     >
       <View
         style={{
           maxWidth: "85%",
-          borderRadius: 16,
-          borderTopRightRadius: isUserBid ? 0 : 16,
-          borderTopLeftRadius: isUserBid ? 16 : 0,
-          paddingHorizontal: 16,
-          paddingVertical: 12,
+          borderRadius: 14,
+          borderTopRightRadius: isUserBid ? 0 : 14,
+          borderTopLeftRadius: isUserBid ? 14 : 0,
+          paddingHorizontal: 13,
+          paddingVertical: 10,
           backgroundColor: isUserBid ? "#024E32" : "#FFFFFF",
           borderWidth: isUserBid ? 0 : 1,
           borderColor: "#E5E7EB",
@@ -211,12 +264,13 @@ const BidBubble = ({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            marginBottom: 4,
+            marginBottom: 3,
           }}
         >
           <Text
+            {...TXT}
             style={{
-              fontSize: 9,
+              fontSize: S.tiny,
               fontWeight: "600",
               color: isUserBid
                 ? "rgba(255,255,255,0.6)"
@@ -229,14 +283,15 @@ const BidBubble = ({
           {isHighest && (
             <View
               style={{
-                marginLeft: 8,
+                marginLeft: 6,
                 backgroundColor: "#FACC15",
-                paddingHorizontal: 8,
+                paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 999,
               }}
             >
               <Text
+                {...TXT}
                 style={{
                   color: "#854D0E",
                   fontSize: 8,
@@ -251,14 +306,15 @@ const BidBubble = ({
           {isUserBid && (
             <View
               style={{
-                marginLeft: 8,
+                marginLeft: 6,
                 backgroundColor: "rgba(255,255,255,0.2)",
-                paddingHorizontal: 8,
+                paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 999,
               }}
             >
               <Text
+                {...TXT}
                 style={{
                   color: "#FFFFFF",
                   fontSize: 8,
@@ -273,8 +329,9 @@ const BidBubble = ({
 
         {/* Bid Amount */}
         <Text
+          {...TXT}
           style={{
-            fontSize: 20,
+            fontSize: S.valueLg,
             fontWeight: "800",
             color: isUserBid ? "#FFFFFF" : "#024E32",
           }}
@@ -287,12 +344,12 @@ const BidBubble = ({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            marginTop: 4,
+            marginTop: 3,
           }}
         >
           <MaterialIcons
             name="schedule"
-            size={12}
+            size={11}
             color={
               isUserBid
                 ? "rgba(255,255,255,0.5)"
@@ -301,8 +358,9 @@ const BidBubble = ({
           />
 
           <Text
+            {...TXT}
             style={{
-              fontSize: 10,
+              fontSize: S.tiny,
               marginLeft: 4,
               color: isUserBid
                 ? "rgba(255,255,255,0.5)"
@@ -319,6 +377,10 @@ const BidBubble = ({
 
   export default function CustomerBidRoom() {
     const router = useRouter();
+
+    /* real device safe-area insets - replaces the hardcoded
+       iOS 50 / Android 30 top padding */
+    const insets = useSafeAreaInsets();
 
     const params = useLocalSearchParams<{
       groupId?: string;
@@ -1520,7 +1582,7 @@ const body = {
     ===================================================== */
 
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#F5F7F6" }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F6" }}>
         <StatusBar
           barStyle="light-content"
           backgroundColor="#024E32"
@@ -1541,44 +1603,52 @@ const body = {
 
           {/* =================================================
               HEADER
+
+              Real safe-area inset instead of hardcoded 50 / 30,
+              so the green bar reaches the top edge and the
+              content sits below the notch on every device.
           ================================================= */}
 
-
   <View
-    className="bg-[#024E32] px-5"
+    className="bg-[#024E32] px-4"
     style={{
-      paddingTop: Platform.OS === "ios" ? 50 : 30,
-      paddingBottom: 20,
+      paddingTop: insets.top + 10,
+      paddingBottom: 14,
     }}
   >
     <View className="flex-row items-center">
       <TouchableOpacity
         onPress={() => router.back()}
-        className="w-10 h-10 rounded-full bg-white/10 items-center justify-center"
+        className="rounded-full bg-white/10 items-center justify-center"
         activeOpacity={0.7}
         style={{
-          width: isTablet ? 44 : 40,
-          height: isTablet ? 44 : 40,
+          width: isTablet ? 40 : 36,
+          height: isTablet ? 40 : 36,
         }}
       >
         <MaterialIcons
           name="arrow-back"
-          size={isTablet ? 26 : 24}
+          size={S.iconBack}
           color="white"
         />
       </TouchableOpacity>
 
       <View className="ml-3 flex-1">
         <Text
+          {...TXT}
           className="text-white font-bold"
-          style={{
-            fontSize: isTablet ? 24 : 20,
-          }}
+          style={{ fontSize: S.headerTitle }}
+          numberOfLines={1}
         >
           🏛️ Bid Room
         </Text>
 
-        <Text className="text-green-100 text-xs mt-0.5">
+        <Text
+          {...TXT}
+          className="text-green-100 mt-0.5"
+          style={{ fontSize: S.headerSub }}
+          numberOfLines={1}
+        >
           Group {groupCode || groupId}
         </Text>
       </View>
@@ -1590,15 +1660,16 @@ const body = {
               opacity: fadeAnim,
               backgroundColor: "#EF4444",
               borderRadius: 9999,
-              paddingHorizontal: 10,
+              paddingHorizontal: 8,
               paddingVertical: 2,
               marginRight: 8,
             }}
           >
             <Text
+              {...TXT}
               style={{
                 color: "white",
-                fontSize: 10,
+                fontSize: S.tiny,
                 fontWeight: "700",
               }}
             >
@@ -1609,16 +1680,16 @@ const body = {
 
         <TouchableOpacity
           onPress={onRefresh}
-          className="w-10 h-10 rounded-full bg-white/10 items-center justify-center"
+          className="rounded-full bg-white/10 items-center justify-center"
           activeOpacity={0.7}
           style={{
-            width: isTablet ? 44 : 40,
-            height: isTablet ? 44 : 40,
+            width: isTablet ? 40 : 36,
+            height: isTablet ? 40 : 36,
           }}
         >
           <MaterialIcons
             name="refresh"
-            size={isTablet ? 25 : 23}
+            size={S.iconMd}
             color="white"
             style={{ opacity: refreshing ? 0.5 : 1 }}
           />
@@ -1647,8 +1718,8 @@ const body = {
               />
             }
             contentContainerStyle={{
-              padding: isTablet ? 30 : 20,
-              paddingBottom: 20,
+              padding: isTablet ? 24 : 14,
+              paddingBottom: 16 + insets.bottom,
               flexGrow: 1,
             }}
           >
@@ -1659,25 +1730,43 @@ const body = {
                   AUCTION INFO
               ================================================= */}
 
-              <View className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm">
+              <View
+                className="bg-white border border-gray-100 shadow-sm"
+                style={{
+                  borderRadius: S.cardRadius,
+                  padding: S.cardPad,
+                }}
+              >
 
                 <View className="flex-row items-center">
 
-                  <View className="w-11 h-11 rounded-2xl bg-[#EAF5EF] items-center justify-center">
+                  <View
+                    className="rounded-2xl bg-[#EAF5EF] items-center justify-center"
+                    style={{ width: 38, height: 38 }}
+                  >
                     <MaterialIcons
                       name="gavel"
-                      size={24}
+                      size={S.iconMd}
                       color="#024E32"
                     />
                   </View>
 
                   <View className="ml-3 flex-1">
 
-                    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                    <Text
+                      {...TXT}
+                      className="text-gray-400 font-semibold tracking-wider uppercase"
+                      style={{ fontSize: S.label }}
+                    >
                       Live Auction
                     </Text>
 
-                    <Text className="text-gray-900 text-base font-bold">
+                    <Text
+                      {...TXT}
+                      className="text-gray-900 font-bold"
+                      style={{ fontSize: S.cardTitle }}
+                      numberOfLines={1}
+                    >
                       {groupCode ||
                         groupId}
                     </Text>
@@ -1685,13 +1774,17 @@ const body = {
                   </View>
 
                   <View
-                    className={`px-3 py-1.5 rounded-full ${
+                    className={`px-2.5 py-1 rounded-full ${
                       auctionEnded
                         ? "bg-red-500"
                         : "bg-green-500"
                     }`}
                   >
-                    <Text className="text-white text-[10px] font-bold tracking-wider">
+                    <Text
+                      {...TXT}
+                      className="text-white font-bold tracking-wider"
+                      style={{ fontSize: S.label }}
+                    >
                       {auctionEnded
                         ? "ENDED"
                         : "LIVE"}
@@ -1700,16 +1793,25 @@ const body = {
 
                 </View>
 
-                <View className="flex-row flex-wrap mt-5 pt-4 border-t border-gray-100">
+                <View className="flex-row flex-wrap mt-4 pt-3 border-t border-gray-100">
 
                   {/* END DATE */}
 
-                  <View className="flex-1 min-w-[110px]">
-                    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                  <View className="flex-1" style={{ minWidth: 0 }}>
+                    <Text
+                      {...TXT}
+                      className="text-gray-400 font-semibold tracking-wider uppercase"
+                      style={{ fontSize: S.label }}
+                    >
                       📅 End Date
                     </Text>
 
-                    <Text className="text-gray-800 font-semibold mt-1 text-sm">
+                    <Text
+                      {...TXT}
+                      className="text-gray-800 font-semibold mt-1"
+                      style={{ fontSize: S.value }}
+                      numberOfLines={1}
+                    >
                       {auctionEndDate ||
                         "-"}
                     </Text>
@@ -1717,12 +1819,21 @@ const body = {
 
                   {/* END TIME */}
 
-                  <View className="flex-1 min-w-[110px]">
-                    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                  <View className="flex-1" style={{ minWidth: 0 }}>
+                    <Text
+                      {...TXT}
+                      className="text-gray-400 font-semibold tracking-wider uppercase"
+                      style={{ fontSize: S.label }}
+                    >
                       ⏰ End Time
                     </Text>
 
-                    <Text className="text-gray-800 font-semibold mt-1 text-sm">
+                    <Text
+                      {...TXT}
+                      className="text-gray-800 font-semibold mt-1"
+                      style={{ fontSize: S.value }}
+                      numberOfLines={1}
+                    >
                       {auctionEndTime ||
                         "-"}
                     </Text>
@@ -1730,12 +1841,21 @@ const body = {
 
                   {/* USER ID */}
 
-                  <View className="flex-1 min-w-[100px]">
-                    <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                  <View className="flex-1" style={{ minWidth: 0 }}>
+                    <Text
+                      {...TXT}
+                      className="text-gray-400 font-semibold tracking-wider uppercase"
+                      style={{ fontSize: S.label }}
+                    >
                       👤 Your ID
                     </Text>
 
-                    <Text className="text-gray-800 font-semibold mt-1 text-sm">
+                    <Text
+                      {...TXT}
+                      className="text-gray-800 font-semibold mt-1"
+                      style={{ fontSize: S.value }}
+                      numberOfLines={1}
+                    >
                       {userid ||
                         "-"}
                     </Text>
@@ -1750,10 +1870,10 @@ const body = {
 
              <View
   style={{
-    marginTop: 16,
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    marginTop: S.gap,
+    borderRadius: S.cardRadius,
+    paddingHorizontal: S.cardPad,
+    paddingVertical: 13,
     borderWidth: 2,
     backgroundColor: auctionEnded ? "#FEF2F2" : "#EAF5EF",
     borderColor: auctionEnded ? "#FECACA" : "#024E32",
@@ -1764,9 +1884,9 @@ const body = {
 
                  <View
   style={{
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: auctionEnded ? "#EF4444" : "#024E32",
@@ -1778,26 +1898,32 @@ const body = {
                           ? "timer-off"
                           : "timer"
                       }
-                      size={24}
+                      size={S.iconMd}
                       color="white"
                     />
                   </View>
 
                   <View className="ml-3 flex-1">
 
-                    <Text className="text-gray-500 text-[10px] font-semibold tracking-wider uppercase">
+                    <Text
+                      {...TXT}
+                      className="text-gray-500 font-semibold tracking-wider uppercase"
+                      style={{ fontSize: S.label }}
+                    >
                       {auctionEnded
                         ? "Auction Ended"
                         : "Time Remaining"}
                     </Text>
 
                     <Text
-  style={{
-    fontWeight: "700",
-    fontSize: 16,
-    color: auctionEnded ? "#DC2626" : "#024E32",
-  }}
->
+                      {...TXT}
+                      style={{
+                        fontWeight: "700",
+                        fontSize: S.value,
+                        color: auctionEnded ? "#DC2626" : "#024E32",
+                      }}
+                      numberOfLines={1}
+                    >
                       {auctionEnded
                         ? "🔴 BIDDING CLOSED"
                         : "🟢 BIDDING OPEN"}
@@ -1808,22 +1934,23 @@ const body = {
                   <View className="items-end">
 
                     <Text
+                      {...TXT}
                       className={`font-extrabold font-mono ${
                         auctionEnded
                           ? "text-red-600"
                           : "text-[#024E32]"
                       }`}
-                      style={{
-                        fontSize:
-                          isTablet
-                            ? 22
-                            : 16,
-                      }}
+                      style={{ fontSize: S.countdown }}
+                      numberOfLines={1}
                     >
                       {countdown}
                     </Text>
 
-                    <Text className="text-gray-400 text-[9px]">
+                    <Text
+                      {...TXT}
+                      className="text-gray-400"
+                      style={{ fontSize: 8 }}
+                    >
                       {timeRemaining.days >
                       0
                         ? "DAYS • HOURS • MINUTES • SECONDS"
@@ -1836,8 +1963,12 @@ const body = {
 
                 {/* END DATE TARGET */}
 
-                <View className="mt-3 pt-3 border-t border-gray-200">
-                  <Text className="text-gray-500 text-[10px] text-center">
+                <View className="mt-3 pt-2.5 border-t border-gray-200">
+                  <Text
+                    {...TXT}
+                    className="text-gray-500 text-center"
+                    style={{ fontSize: S.tiny }}
+                  >
                     Auction closes on{" "}
                     <Text className="font-bold text-gray-700">
                       {auctionEndDate ||
@@ -1857,25 +1988,43 @@ const body = {
                   PLACE BID
               ================================================= */}
 
-              <View className="bg-white rounded-3xl p-5 mt-4 border border-gray-100 shadow-sm">
+              <View
+                className="bg-white border border-gray-100 shadow-sm"
+                style={{
+                  marginTop: S.gap,
+                  borderRadius: S.cardRadius,
+                  padding: S.cardPad,
+                }}
+              >
 
-                <View className="flex-row items-center mb-4">
+                <View className="flex-row items-center mb-3">
 
-                  <View className="w-10 h-10 rounded-xl bg-[#EAF5EF] items-center justify-center">
+                  <View
+                    className="rounded-xl bg-[#EAF5EF] items-center justify-center"
+                    style={{ width: 34, height: 34 }}
+                  >
                     <MaterialIcons
                       name="payments"
-                      size={22}
+                      size={S.iconSm + 2}
                       color="#024E32"
                     />
                   </View>
 
                   <View className="ml-3">
 
-                    <Text className="text-gray-900 text-base font-bold">
+                    <Text
+                      {...TXT}
+                      className="text-gray-900 font-bold"
+                      style={{ fontSize: S.cardTitle }}
+                    >
                       Place Your Bid
                     </Text>
 
-                    <Text className="text-gray-400 text-xs mt-0.5">
+                    <Text
+                      {...TXT}
+                      className="text-gray-400 mt-0.5"
+                      style={{ fontSize: S.small }}
+                    >
                       Enter the amount you want to bid
                     </Text>
 
@@ -1888,9 +2037,13 @@ const body = {
     GROUP MEMBER ID
 ================================================= */}
 
-<View className="mb-4">
+<View className="mb-3">
 
-  <Text className="text-gray-500 text-xs font-semibold tracking-wider uppercase mb-2">
+  <Text
+    {...TXT}
+    className="text-gray-500 font-semibold tracking-wider uppercase mb-2"
+    style={{ fontSize: S.label }}
+  >
     Select Group Member ID
   </Text>
 
@@ -1913,18 +2066,23 @@ const body = {
       groupMemberIds.length === 0
     }
     activeOpacity={0.8}
-    className="h-14 bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4 flex-row items-center justify-between"
+    className="bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4 flex-row items-center justify-between"
+    style={{ height: 48 }}
   >
 
     <View className="flex-row items-center">
 
       <MaterialIcons
         name="confirmation-number"
-        size={21}
+        size={S.iconSm + 2}
         color="#024E32"
       />
 
-      <Text className="text-gray-900 text-base font-semibold ml-3">
+      <Text
+        {...TXT}
+        className="text-gray-900 font-semibold ml-3"
+        style={{ fontSize: S.value }}
+      >
         {selectedGroupMemberId ||
           "Select Group Member ID"}
       </Text>
@@ -1937,7 +2095,7 @@ const body = {
           ? "keyboard-arrow-up"
           : "keyboard-arrow-down"
       }
-      size={24}
+      size={S.iconMd}
       color="#024E32"
     />
 
@@ -1957,7 +2115,7 @@ const body = {
                 setSelectedGroupMemberId(id);
                 setShowGroupMemberDropdown(false);
               }}
-              className={`px-4 py-4 flex-row items-center justify-between ${
+              className={`px-4 py-3 flex-row items-center justify-between ${
                 index <
                 groupMemberIds.length - 1
                   ? "border-b border-gray-100"
@@ -1970,11 +2128,15 @@ const body = {
 
                 <MaterialIcons
                   name="confirmation-number"
-                  size={20}
+                  size={S.iconSm}
                   color="#024E32"
                 />
 
-                <Text className="text-gray-900 text-base font-semibold ml-3">
+                <Text
+                  {...TXT}
+                  className="text-gray-900 font-semibold ml-3"
+                  style={{ fontSize: S.value }}
+                >
                   {id}
                 </Text>
 
@@ -1984,7 +2146,7 @@ const body = {
                 id && (
                 <MaterialIcons
                   name="check"
-                  size={22}
+                  size={S.iconSm + 2}
                   color="#024E32"
                 />
               )}
@@ -1997,25 +2159,41 @@ const body = {
     )}
 
   {groupMemberIds.length === 0 && (
-    <Text className="text-red-500 text-xs mt-2">
+    <Text
+      {...TXT}
+      className="text-red-500 mt-2"
+      style={{ fontSize: S.small }}
+    >
       No Group Member ID found for this account.
     </Text>
   )}
 
 </View>
-  <View className="mb-4">
-    <Text className="text-gray-500 text-xs font-semibold uppercase mb-2">
+  <View className="mb-3">
+    <Text
+      {...TXT}
+      className="text-gray-500 font-semibold uppercase mb-2"
+      style={{ fontSize: S.label }}
+    >
       Slide to Select Bid Amount
     </Text>
 
-    <View className="bg-gray-50 rounded-2xl border border-gray-200 p-4">
+    <View className="bg-gray-50 rounded-2xl border border-gray-200 p-3">
 
-      <View className="items-center mb-2">
-        <Text className="text-gray-400 text-xs">
+      <View className="items-center mb-1">
+        <Text
+          {...TXT}
+          className="text-gray-400"
+          style={{ fontSize: S.small }}
+        >
           Selected Bid
         </Text>
 
-        <Text className="text-[#024E32] text-2xl font-bold">
+        <Text
+          {...TXT}
+          className="text-[#024E32] font-bold"
+          style={{ fontSize: S.big }}
+        >
           {formatAmount(
             PREDEFINED_AMOUNTS[selectedPredefinedIndex]
           )}
@@ -2025,7 +2203,7 @@ const body = {
       <Slider
         style={{
           width: "100%",
-          height: 40,
+          height: 36,
         }}
         minimumValue={0}
         maximumValue={PREDEFINED_AMOUNTS.length - 1}
@@ -2045,11 +2223,11 @@ const body = {
       />
 
       <View className="flex-row justify-between px-1">
-        <Text className="text-gray-400 text-xs">₹10K</Text>
-        <Text className="text-gray-400 text-xs">₹30K</Text>
-        <Text className="text-gray-400 text-xs">₹50K</Text>
-        <Text className="text-gray-400 text-xs">₹70K</Text>
-        <Text className="text-gray-400 text-xs">₹90K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹10K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹30K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹50K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹70K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹90K</Text>
       </View>
 
     </View>
@@ -2057,17 +2235,29 @@ const body = {
 
                 {/* INPUT */}
 
-                <Text className="text-gray-500 text-xs font-semibold tracking-wider uppercase mb-2">
+                <Text
+                  {...TXT}
+                  className="text-gray-500 font-semibold tracking-wider uppercase mb-2"
+                  style={{ fontSize: S.label }}
+                >
                   Or Enter Amount
                 </Text>
 
-                <View className="flex-row items-center bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4 h-14">
+                <View
+                  className="flex-row items-center bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4"
+                  style={{ height: 48 }}
+                >
 
-                  <Text className="text-[#024E32] text-2xl font-bold mr-2">
+                  <Text
+                    {...TXT}
+                    className="text-[#024E32] font-bold mr-2"
+                    style={{ fontSize: S.valueLg }}
+                  >
                     ₹
                   </Text>
 
                   <TextInput
+                    allowFontScaling={false}
                     value={
                       bidAmount
                     }
@@ -2092,7 +2282,8 @@ const body = {
                       !auctionEnded &&
                       !installmentBlocked
                     }
-                    className="flex-1 text-gray-900 text-base font-semibold"
+                    className="flex-1 text-gray-900 font-semibold"
+                    style={{ fontSize: S.value, paddingVertical: 0 }}
                   />
 
                   {bidAmount !==
@@ -2106,7 +2297,7 @@ const body = {
                     >
                       <MaterialIcons
                         name="close"
-                        size={20}
+                        size={S.iconSm + 2}
                         color="#9CA3AF"
                       />
                     </TouchableOpacity>
@@ -2120,7 +2311,11 @@ const body = {
                   0 && (
                   <View className="mt-3 bg-yellow-50 rounded-xl p-3 border border-yellow-200">
 
-                    <Text className="text-yellow-700 text-xs">
+                    <Text
+                      {...TXT}
+                      className="text-yellow-700"
+                      style={{ fontSize: S.small }}
+                    >
                       💡 Current highest bid:{" "}
                       <Text className="font-bold">
                         {formatAmount(
@@ -2129,7 +2324,11 @@ const body = {
                       </Text>
                     </Text>
 
-                    <Text className="text-yellow-600 text-[10px] mt-0.5">
+                    <Text
+                      {...TXT}
+                      className="text-yellow-600 mt-0.5"
+                      style={{ fontSize: S.tiny }}
+                    >
                       Your bid must be higher than the current highest bid
                     </Text>
 
@@ -2144,15 +2343,23 @@ const body = {
                     <View className="flex-row items-center">
                       <MaterialIcons
                         name="block"
-                        size={18}
+                        size={S.iconSm}
                         color="#DC2626"
                       />
-                      <Text className="text-red-700 font-bold text-xs ml-2">
+                      <Text
+                        {...TXT}
+                        className="text-red-700 font-bold ml-2"
+                        style={{ fontSize: S.small }}
+                      >
                         ⛔ Bidding Disabled – Pending Installment
                       </Text>
                     </View>
 
-                    <Text className="text-red-600 text-xs mt-1.5 flex-1">
+                    <Text
+                      {...TXT}
+                      className="text-red-600 mt-1.5 flex-1"
+                      style={{ fontSize: S.small }}
+                    >
                       {blockedReason}
                     </Text>
 
@@ -2173,13 +2380,14 @@ const body = {
                   activeOpacity={
                     0.8
                   }
-                  className={`mt-4 h-14 rounded-2xl items-center justify-center ${
+                  className={`mt-3 rounded-2xl items-center justify-center ${
                     placingBid ||
                     auctionEnded ||
                     installmentBlocked
                       ? "bg-gray-300"
                       : "bg-[#024E32]"
                   }`}
+                  style={{ height: 48 }}
                 >
 
                   {placingBid ? (
@@ -2190,7 +2398,11 @@ const body = {
                         size="small"
                       />
 
-                      <Text className="text-white font-bold ml-2">
+                      <Text
+                        {...TXT}
+                        className="text-white font-bold ml-2"
+                        style={{ fontSize: S.value }}
+                      >
                         SUBMITTING...
                       </Text>
 
@@ -2200,11 +2412,15 @@ const body = {
 
                       <MaterialIcons
                         name="lock"
-                        size={21}
+                        size={S.iconSm + 2}
                         color="white"
                       />
 
-                      <Text className="text-white font-bold ml-2">
+                      <Text
+                        {...TXT}
+                        className="text-white font-bold ml-2"
+                        style={{ fontSize: S.value }}
+                      >
                         AUCTION ENDED
                       </Text>
 
@@ -2214,11 +2430,15 @@ const body = {
 
                       <MaterialIcons
                         name="money-off"
-                        size={21}
+                        size={S.iconSm + 2}
                         color="white"
                       />
 
-                      <Text className="text-white font-bold ml-2">
+                      <Text
+                        {...TXT}
+                        className="text-white font-bold ml-2"
+                        style={{ fontSize: S.value }}
+                      >
                         INSTALLMENT PENDING
                       </Text>
 
@@ -2228,11 +2448,15 @@ const body = {
 
                       <MaterialIcons
                         name="gavel"
-                        size={21}
+                        size={S.iconSm + 2}
                         color="white"
                       />
 
-                      <Text className="text-white font-bold ml-2">
+                      <Text
+                        {...TXT}
+                        className="text-white font-bold ml-2"
+                        style={{ fontSize: S.value }}
+                      >
                         PLACE BID
                       </Text>
 
@@ -2248,11 +2472,15 @@ const body = {
 
                     <MaterialIcons
                       name="info-outline"
-                      size={18}
+                      size={S.iconSm}
                       color="#DC2626"
                     />
 
-                    <Text className="text-red-700 text-xs ml-2 flex-1">
+                    <Text
+                      {...TXT}
+                      className="text-red-700 ml-2 flex-1"
+                      style={{ fontSize: S.small }}
+                    >
                       ⛔ This auction has ended. No more bids accepted.
                     </Text>
 
@@ -2265,11 +2493,15 @@ const body = {
 
                       <MaterialIcons
                         name="info-outline"
-                        size={18}
+                        size={S.iconSm}
                         color="#D97706"
                       />
 
-                      <Text className="text-yellow-700 text-xs ml-2 flex-1">
+                      <Text
+                        {...TXT}
+                        className="text-yellow-700 ml-2 flex-1"
+                        style={{ fontSize: S.small }}
+                      >
                         ⚠️ Auction end date/time is not available.
                       </Text>
 
@@ -2284,13 +2516,28 @@ const body = {
 
               {/* CHIT AMOUNT - bidding starts from this amount */}
 
-              <View className="mt-4 bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <View
+                className="bg-white border border-gray-100 shadow-sm"
+                style={{
+                  marginTop: S.gap,
+                  borderRadius: S.cardRadius,
+                  padding: S.cardPad,
+                }}
+              >
 
-                <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                <Text
+                  {...TXT}
+                  className="text-gray-400 font-semibold tracking-wider uppercase"
+                  style={{ fontSize: S.label }}
+                >
                   💰 Chit Amount
                 </Text>
 
-                <Text className="text-[#024E32] text-2xl font-extrabold mt-1">
+                <Text
+                  {...TXT}
+                  className="text-[#024E32] font-extrabold mt-1"
+                  style={{ fontSize: S.big }}
+                >
                   {chitAmount
                     ? formatAmount(
                         chitAmount
@@ -2298,21 +2545,39 @@ const body = {
                     : "-"}
                 </Text>
 
-                <Text className="text-gray-400 text-[10px] mt-1">
+                <Text
+                  {...TXT}
+                  className="text-gray-400 mt-1"
+                  style={{ fontSize: S.tiny }}
+                >
                   Bidding starts from this amount • Current bided (highest) amount shown below
                 </Text>
 
               </View>
 
-              <View className="flex-row mt-4">
+              <View className="flex-row" style={{ marginTop: S.gap }}>
 
-                <View className="flex-1 bg-white rounded-2xl p-4 mr-2 border border-gray-100 shadow-sm">
+                <View
+                  className="flex-1 bg-white mr-2 border border-gray-100 shadow-sm"
+                  style={{
+                    borderRadius: S.cardRadius,
+                    padding: S.cardPad,
+                  }}
+                >
 
-                  <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                  <Text
+                    {...TXT}
+                    className="text-gray-400 font-semibold tracking-wider uppercase"
+                    style={{ fontSize: S.label }}
+                  >
                     Total Bids
                   </Text>
 
-                  <Text className="text-[#024E32] text-xl font-bold mt-1">
+                  <Text
+                    {...TXT}
+                    className="text-[#024E32] font-bold mt-1"
+                    style={{ fontSize: S.valueLg }}
+                  >
                     {
                       bids.length
                     }
@@ -2320,13 +2585,30 @@ const body = {
 
                 </View>
 
-                <View className="flex-1 bg-white rounded-2xl p-4 ml-2 border border-gray-100 shadow-sm">
+                <View
+                  className="flex-1 bg-white ml-2 border border-gray-100 shadow-sm"
+                  style={{
+                    borderRadius: S.cardRadius,
+                    padding: S.cardPad,
+                  }}
+                >
 
-                  <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
+                  <Text
+                    {...TXT}
+                    className="text-gray-400 font-semibold tracking-wider uppercase"
+                    style={{ fontSize: S.label }}
+                  >
                     Highest Bid
                   </Text>
 
-                  <Text className="text-[#024E32] text-xl font-bold mt-1">
+                  <Text
+                    {...TXT}
+                    className="text-[#024E32] font-bold mt-1"
+                    style={{ fontSize: S.valueLg }}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
                     {highestBid
                       ? formatAmount(
                           highestBid
@@ -2342,25 +2624,33 @@ const body = {
                   ALL BIDS - WhatsApp Style Chat
               ================================================= */}
 
-              <View className="mt-7 mb-3">
+              <View className="mt-6 mb-3">
 
                 <View className="flex-row items-center">
 
                   <MaterialIcons
                     name="chat"
-                    size={24}
+                    size={S.iconMd}
                     color="#024E32"
                   />
 
-                  <Text className="text-gray-900 text-lg font-bold ml-2">
+                  <Text
+                    {...TXT}
+                    className="text-gray-900 font-bold ml-2"
+                    style={{ fontSize: S.sectionTitle }}
+                  >
                     Bids Chat
                   </Text>
 
                   {bids.length >
                     0 && (
-                    <View className="ml-2 bg-[#EAF5EF] px-2.5 py-0.5 rounded-full">
+                    <View className="ml-2 bg-[#EAF5EF] px-2 py-0.5 rounded-full">
 
-                      <Text className="text-[#024E32] text-xs font-bold">
+                      <Text
+                        {...TXT}
+                        className="text-[#024E32] font-bold"
+                        style={{ fontSize: S.small }}
+                      >
                         {
                           bids.length
                         }
@@ -2371,7 +2661,11 @@ const body = {
 
                 </View>
 
-                <Text className="text-gray-500 text-xs mt-1 ml-9">
+                <Text
+                  {...TXT}
+                  className="text-gray-500 mt-1 ml-8"
+                  style={{ fontSize: S.small }}
+                >
                   Bids of this auction only ({auctionEndDate || "-"}
                   {auctionEndTime ? ` • ${auctionEndTime}` : ""}). Other auctions
                   of this group have their own bid chat.
@@ -2386,7 +2680,8 @@ const body = {
               {loading ? (
                 <View
                   key="bid-chat-loading"
-                  className="items-center py-16 bg-white rounded-3xl border border-gray-100"
+                  className="items-center py-12 bg-white border border-gray-100"
+                  style={{ borderRadius: S.cardRadius }}
                 >
 
                   <ActivityIndicator
@@ -2394,7 +2689,11 @@ const body = {
                     color="#024E32"
                   />
 
-                  <Text className="text-gray-500 mt-3 font-medium">
+                  <Text
+                    {...TXT}
+                    className="text-gray-500 mt-3 font-medium"
+                    style={{ fontSize: S.value }}
+                  >
                     Loading bids...
                   </Text>
 
@@ -2403,8 +2702,9 @@ const body = {
                 0 ? (
                 <View
                   key="bid-chat-empty"
-                  className="bg-white rounded-3xl p-8 items-center border border-gray-100"
+                  className="bg-white p-6 items-center border border-gray-100"
                   style={{
+                    borderRadius: S.cardRadius,
                     shadowColor: "#000000",
                     shadowOffset: { width: 0, height: 1 },
                     shadowOpacity: 0.05,
@@ -2413,21 +2713,32 @@ const body = {
                   }}
                 >
 
-                  <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center">
+                  <View
+                    className="rounded-full bg-gray-100 items-center justify-center"
+                    style={{ width: 64, height: 64 }}
+                  >
 
                     <MaterialIcons
                       name="chat-bubble-outline"
-                      size={36}
+                      size={30}
                       color="#9CA3AF"
                     />
 
                   </View>
 
-                  <Text className="text-gray-800 font-bold text-lg mt-4">
+                  <Text
+                    {...TXT}
+                    className="text-gray-800 font-bold mt-3"
+                    style={{ fontSize: S.cardTitle }}
+                  >
                     No bids yet
                   </Text>
 
-                  <Text className="text-gray-500 text-center text-sm mt-2">
+                  <Text
+                    {...TXT}
+                    className="text-gray-500 text-center mt-2"
+                    style={{ fontSize: S.small }}
+                  >
                     Be the first to place a bid! Your bid will appear here.
                   </Text>
 
@@ -2465,7 +2776,7 @@ const body = {
                   FOOTER
               ================================================= */}
 
-              <View className="mt-6">
+              <View className="mt-5">
                 <Footer />
               </View>
 
@@ -2474,6 +2785,6 @@ const body = {
           </ScrollView>
 
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     );
   }

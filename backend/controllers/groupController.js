@@ -564,6 +564,18 @@ export const getMyAccountCopy = async (req, res) => {
         paidAmount,
         penaltyAmount: penaltyPaid,
         paymentDates,
+        /*
+          ADDED:
+          The frontend's "This Month" card needs to know the
+          installment period's START date (not just the end/due
+          date) so it can show "startDate - endDate" and correctly
+          detect which period is currently active (today falls
+          between start and end) instead of guessing by calendar
+          month. This was already tracked on collectionPlans
+          (plan.startDate) - it just wasn't being sent here.
+          Nothing else in this response changes.
+        */
+        startDate: plan?.startDate || null,
         dueDate: c.endDate || null,
         status,
       };

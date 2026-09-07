@@ -2,7 +2,7 @@
   "expo": {
     "name": "Manikya Chits",
     "slug": "manikya-chits",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "orientation": "portrait",
     "icon": "./assets/images/maxxxxx.png",
     "scheme": "manikya-chits",
@@ -27,7 +27,7 @@
     },
 
     "android": {
-      "versionCode": 10,
+      "versionCode": 11,
       "package": "com.manikya.chitfund",
 
       "adaptiveIcon": {
@@ -72,7 +72,6 @@
               "../../node_modules/react-native-bluetooth-escpos-printer/android/libs"
             ]
           },
-
           "ios": {
             "deploymentTarget": "16.4"
           }
@@ -81,7 +80,17 @@
 
       "expo-video",
       "expo-font",
-      "react-native-ble-plx"
+      "react-native-ble-plx",
+
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/manikyaChits.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
     ],
 
     "extra": {

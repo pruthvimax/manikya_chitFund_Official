@@ -241,7 +241,8 @@ export default function AdminIndex() {
           <MenuCard
             title="Vacancy Notifications"
             icon="notifications-active"
-            route="/admin/vacancyNotifications"
+            route="/admin/vacancyNotifications?from=index"
+            badgeCount={newRequestCount}
           />
 
           <MenuCard

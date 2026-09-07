@@ -57,8 +57,23 @@ export default function NewEnrollment() {
   const collectionTypes = ["Daily", "Monthly"];
   const paymentTypes = ["Cash", "AC", "NEFT", "Online Banking", "Netbanking"];
 
+  /*
+    FIX:
+    date.toISOString() converts the Date to UTC before slicing the
+    date part. On a device in IST (UTC+5:30), a date picked at local
+    midnight (e.g. 30th 00:00 IST) becomes 18:30 UTC on the PREVIOUS
+    day (29th), so toISOString() reported the wrong day whenever the
+    local time was before ~05:30 AM.
+
+    Building the string from the Date's LOCAL components instead
+    (getFullYear/getMonth/getDate) avoids the UTC conversion entirely,
+    so the picked day is always the day that gets stored/shown.
+  */
   const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   };
 
   // Helper function to get today's date
@@ -234,7 +249,7 @@ export default function NewEnrollment() {
           MANIKYA CHITS PVT LTD
         </Text>
         <Text className="text-gray-500 text-xs mt-1 text-center">
-          Employee New Enrollment 
+          Employee New Enrollment
         </Text>
         <Text className="text-gray-400 text-xs mt-1 text-center">
           © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
@@ -277,7 +292,7 @@ export default function NewEnrollment() {
         {/* Chit Details Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">💰 Chit Details</Text>
-          
+
           <Text className="font-semibold text-gray-800 mb-2">Chit Amount *</Text>
           <TextInput
             value={chitAmount}
@@ -333,7 +348,7 @@ export default function NewEnrollment() {
         {/* Customer Details Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">👤 Customer Details</Text>
-          
+
           <Text className="font-semibold text-gray-800 mb-2">Customer Name *</Text>
           <TextInput
             value={customerName}
@@ -392,7 +407,7 @@ export default function NewEnrollment() {
         {/* Nominee Details Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">👥 Nominee Details</Text>
-          
+
           <Text className="font-semibold text-gray-800 mb-2">Nominee Name *</Text>
           <TextInput
             value={nomineeName}
@@ -434,7 +449,7 @@ export default function NewEnrollment() {
         {/* Customer Documents Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">📄 Customer Documents</Text>
-          
+
           <Text className="font-semibold text-gray-800 mb-2">Aadhar Number *</Text>
           <TextInput
             value={aadharNumber}
@@ -476,7 +491,7 @@ export default function NewEnrollment() {
         {/* Enrollment Date */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">📅 Enrollment Date</Text>
-          
+
           <TouchableOpacity
             onPress={() => setShowDatePicker(true)}
             className="bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 flex-row justify-between items-center"
@@ -503,7 +518,7 @@ export default function NewEnrollment() {
         {/* Payment Details Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">
           <Text className="font-bold text-gray-800 text-lg mb-3">💵 Payment Details</Text>
-          
+
           <Text className="font-semibold text-gray-800 mb-2">Advance Paid *</Text>
           <TextInput
             value={advancePaid}
