@@ -7,7 +7,8 @@ export default function AdminLayout() {
       <Stack.Screen name="login" />
       <Stack.Screen name="index" />
       <Stack.Screen name="users" />
-      <Stack.Screen name="employees" />
+      <Stack.Screen name="interestedMembers" />
+      <Stack.Screen name="memberHistory" />
       <Stack.Screen name="employeesAdd" />
       <Stack.Screen name="employeesDetail" />
       <Stack.Screen name="members" />
@@ -18,6 +19,9 @@ export default function AdminLayout() {
       <Stack.Screen name="notifications" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="assignGroup" />
+      <Stack.Screen name="bidroom" />
+      <Stack.Screen name="employeesView" />
+      <Stack.Screen name="employeeprogress" />
     </Stack>
   );
 }

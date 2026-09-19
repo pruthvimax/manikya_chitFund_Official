@@ -29,7 +29,29 @@ try {
 /* ================= PRINTER SERVICE (INTEGRATED) ================= */
 let currentPrintMethod = 'none';
 
+/* =========================================================
+   Which optional lines actually apply to this receipt.
+
+   Applied the same way everywhere a receipt gets rendered --
+   the HTML for System Print, the plain-text for Bluetooth, and
+   the on-screen preview that Share/RAWBT captures as an image --
+   so a member who never touched a penalty, or didn't pay any
+   installment today, doesn't get a receipt padded out with
+   "₹ 0" lines on any device, Android or iOS.
+========================================================= */
+const getReceiptFlags = (receipt: any) => ({
+  hasDividend: Number(receipt?.dividendAmount) > 0,
+  hasTodayInstallment: Number(receipt?.todayInstallmentPaid) > 0,
+  hasPenaltyActivity:
+    Number(receipt?.todayPenaltyPaid) > 0 ||
+    Number(receipt?.totalPenaltyPaid) > 0 ||
+    Number(receipt?.pendingPenalty) > 0,
+});
+
 const generateReceiptHTML = (receipt: any) => {
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
+    getReceiptFlags(receipt);
+
   return `
     <!DOCTYPE html>
     <html>
@@ -37,59 +59,83 @@ const generateReceiptHTML = (receipt: any) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { 
-          font-family: 'Courier New', monospace; 
-          font-size: 12px; 
-          width: 58mm; 
-          margin: 0; 
-          padding: 5px;
+        /* Let the printed page use each device's normal paper size
+           (Letter/A4) instead of a hard-coded tiny custom page --
+           some print services (seen on Poco/Android in particular)
+           clip content that doesn't fit a non-standard page rather
+           than paginating it, which is why only part of the receipt
+           was coming out. The receipt itself still looks like a
+           narrow 58mm slip: that's this centered .receipt box.
+
+           IMPORTANT: .receipt is centered with plain margin:auto on
+           a normal block element, NOT flexbox on <body>. A flex
+           container doesn't reliably paginate in print engines --
+           it was clipping everything to one screen-height "page",
+           which is why the header sat in blank space at the top and
+           the footer never made it onto the page at all. */
+        * { box-sizing: border-box; }
+        html, body {
+          margin: 0;
+          padding: 0;
+          width: 100%;
+        }
+        body {
+          font-family: 'Courier New', monospace;
+          font-size: 12px;
+          padding: 20px 0;
+        }
+        .receipt {
+          width: 58mm;
+          min-width: 58mm;
+          margin: 0 auto;
         }
         .center { text-align: center; }
         .bold { font-weight: bold; }
         .highlight { font-weight: bold; color: #000; }
-        .divider { 
-          border-top: 1px dashed #000; 
-          margin: 8px 0; 
+        .divider {
+          border-top: 1px dashed #000;
+          margin: 8px 0;
           padding-top: 8px;
         }
-        .header { 
-          font-size: 14px; 
-          font-weight: bold; 
+        .header {
+          font-size: 14px;
+          font-weight: bold;
           margin-bottom: 5px;
         }
-        .row { 
-          display: flex; 
-          justify-content: space-between; 
+        .row {
+          display: flex;
+          justify-content: space-between;
           margin: 2px 0;
         }
-        .total { 
-          font-size: 14px; 
-          font-weight: bold; 
+        .total {
+          font-size: 14px;
+          font-weight: bold;
           margin-top: 10px;
         }
-        .footer { 
-          margin-top: 15px; 
-          font-size: 10px; 
+        .footer {
+          margin-top: 15px;
+          font-size: 10px;
           text-align: center;
           color: #666;
         }
-        .date-time { 
-          font-weight: bold; 
-          text-align: center; 
+        .date-time {
+          font-weight: bold;
+          text-align: center;
           margin-bottom: 10px;
         }
       </style>
     </head>
     <body>
+    <div class="receipt">
       <div class="center header">MANIKYA CHITS</div>
       <div class="center">Payment Receipt</div>
-      
+
       <div class="date-time">
         Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
       </div>
-      
+
       <div class="divider"></div>
-      
+
       <div class="row">
         <span>Group ID:</span>
         <span>${receipt.groupId || 'N/A'}</span>
@@ -102,26 +148,28 @@ const generateReceiptHTML = (receipt: any) => {
         <span>Month:</span>
         <span>M${receipt.monthIndex || 'N/A'}</span>
       </div>
-      
+
       <div class="divider"></div>
-      
+
       <div class="row">
         <span>Installment:</span>
         <span>₹ ${receipt.installmentAmount || 0}</span>
       </div>
-      ${receipt.dividendAmount > 0 ? `
+      ${hasDividend ? `
       <div class="row">
         <span>Dividend:</span>
         <span>₹ ${receipt.dividendAmount}</span>
       </div>
       ` : ''}
-      
+
       <div class="divider"></div>
-      
+
+      ${hasTodayInstallment ? `
       <div class="row">
         <span>Paid Today (Inst):</span>
-        <span>₹ ${receipt.todayInstallmentPaid || 0}</span>
+        <span>₹ ${receipt.todayInstallmentPaid}</span>
       </div>
+      ` : ''}
       <div class="row">
         <span>Total Inst Paid:</span>
         <span>₹ ${receipt.totalInstallmentPaid || 0}</span>
@@ -130,9 +178,10 @@ const generateReceiptHTML = (receipt: any) => {
         <span>Pending Installment:</span>
         <span>₹ ${receipt.pendingInstallment || 0}</span>
       </div>
-      
+
+      ${hasPenaltyActivity ? `
       <div class="divider"></div>
-      
+
       <div class="row">
         <span>Paid Today (Penalty):</span>
         <span>₹ ${receipt.todayPenaltyPaid || 0}</span>
@@ -145,37 +194,42 @@ const generateReceiptHTML = (receipt: any) => {
         <span>Pending Penalty:</span>
         <span>₹ ${receipt.pendingPenalty || 0}</span>
       </div>
-      
+      ` : ''}
+
       <div class="divider"></div>
-      
+
       <div class="row highlight">
         <span>TOTAL DUE:</span>
         <span>₹ ${receipt.totalDue || 0}</span>
       </div>
-      
+
       <div class="divider"></div>
-      
+
       <div class="row">
         <span>Due Date:</span>
         <span>${receipt.dueDate || 'Not set'}</span>
       </div>
-      
+
       <div class="divider"></div>
-      
+
       <div class="center">Thank you 🙏</div>
       <div class="center">Payment received</div>
-      
+
       <div class="footer">
         <div>Computer generated receipt</div>
         <div>No signature required</div>
         <div>Printed on: ${new Date().toLocaleString()}</div>
       </div>
+    </div>
     </body>
     </html>
   `;
 };
 
 const formatReceiptText = (receipt: any) => {
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
+    getReceiptFlags(receipt);
+
   return `
 ================================
         MANIKYA CHITS
@@ -190,18 +244,17 @@ Month:         M${receipt.monthIndex || 'N/A'}
 
 --------------------------------
 Installment:   ₹ ${receipt.installmentAmount || '0'}
-${receipt.dividendAmount > 0 ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
+${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-Paid Today:    ₹ ${receipt.todayInstallmentPaid || '0'}
-Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
+${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
 --------------------------------
 PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}
---------------------------------
+${hasPenaltyActivity ? `--------------------------------
 Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}
 Total Penalty: ₹ ${receipt.totalPenaltyPaid || '0'}
 --------------------------------
 PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
-================================
+` : ''}================================
 TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
 ================================
 Due Date:      ${receipt.dueDate || 'Not set'}
@@ -217,18 +270,23 @@ ${new Date().toLocaleString()}
 // METHOD 1: SYSTEM PRINT
 const printViaSystem = async (receipt: any) => {
   currentPrintMethod = 'system';
-  
+
   try {
     console.log('🖨️ Trying System Print...');
     const html = generateReceiptHTML(receipt);
-    
+
+    // No custom width/height here on purpose: those were being read
+    // as a tiny fixed page size by some Android print services (seen
+    // on Poco), which clipped the receipt instead of showing it in
+    // full. Letting each device use its normal page size -- with the
+    // receipt's own 58mm look coming from the HTML/CSS above -- keeps
+    // the header and every line printing completely, the same way on
+    // iOS and on every Android device.
     await Print.printAsync({
       html: html,
-      width: 58,
-      height: 1000,
       orientation: Print.Orientation.portrait,
     });
-    
+
     return true;
   } catch (error) {
     console.log('❌ System Print failed:', error);
@@ -239,12 +297,15 @@ const printViaSystem = async (receipt: any) => {
 // METHOD 2: BLUETOOTH PRINT
 const printViaBluetooth = async (receipt: any, device: any) => {
   currentPrintMethod = 'bluetooth';
-  
+
   if (!BluetoothEscposPrinter || !device) return false;
-  
+
   try {
     console.log('🖨️ Trying Bluetooth Print...');
-    
+
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
+      getReceiptFlags(receipt);
+
     const receiptText = `
 ================================
         MANIKYA CHITS
@@ -259,18 +320,17 @@ Month:         M${receipt.monthIndex || 'N/A'}
 
 --------------------------------
 Installment:   ₹ ${receipt.installmentAmount || '0'}
-${receipt.dividendAmount > 0 ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
+${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-Paid Today:    ₹ ${receipt.todayInstallmentPaid || '0'}
-Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
+${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
 --------------------------------
 PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}
---------------------------------
+${hasPenaltyActivity ? `--------------------------------
 Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}
 Total Penalty: ₹ ${receipt.totalPenaltyPaid || '0'}
 --------------------------------
 PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
-================================
+` : ''}================================
 TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
 ================================
 Due Date:      ${receipt.dueDate || 'Not set'}
@@ -284,12 +344,12 @@ ${new Date().toLocaleString()}
 
 
 `;
-    
+
     await BluetoothEscposPrinter.setPrinter(0, 0, 0, 0);
     await BluetoothEscposPrinter.printText(receiptText, {});
     await BluetoothEscposPrinter.lineFeed(4);
     await BluetoothEscposPrinter.cutPaper();
-    
+
     return true;
   } catch (error) {
     console.log('❌ Bluetooth Print failed:', error);
@@ -300,16 +360,16 @@ ${new Date().toLocaleString()}
 // METHOD 3: SHARE TO RAWBT (FALLBACK)
 const printViaShare = async (receipt: any, viewShotRef: any) => {
   currentPrintMethod = 'share';
-  
+
   try {
     console.log('🔄 Using Share/RAWBT fallback...');
-    
+
     if (!viewShotRef.current) {
       throw new Error('Receipt not ready');
     }
-    
+
     const uri = await viewShotRef.current.capture?.();
-    
+
     if (!uri) {
       throw new Error('Failed to capture receipt image');
     }
@@ -319,7 +379,7 @@ const printViaShare = async (receipt: any, viewShotRef: any) => {
       dialogTitle: "Send to Printer (Use RAWBT app)",
       UTI: "image/png"
     });
-    
+
     return true;
   } catch (error) {
     console.log('❌ Share print failed:', error);
@@ -330,9 +390,9 @@ const printViaShare = async (receipt: any, viewShotRef: any) => {
 // SMART PRINT WITH FALLBACK
 const smartPrint = async (receipt: any, viewShotRef: any, bluetoothDevice: any = null) => {
   console.log('🚀 Starting smart print with fallback...');
-  
+
   Alert.alert("Printing", "Preparing receipt...");
-  
+
   // METHOD 1: Try System Print
   try {
     const systemSuccess = await printViaSystem(receipt);
@@ -343,7 +403,7 @@ const smartPrint = async (receipt: any, viewShotRef: any, bluetoothDevice: any =
   } catch (error) {
     console.log('System print error:', error);
   }
-  
+
   // METHOD 2: Try Bluetooth (if available)
   if (Platform.OS === 'android' && bluetoothDevice && BluetoothEscposPrinter) {
     try {
@@ -357,7 +417,7 @@ const smartPrint = async (receipt: any, viewShotRef: any, bluetoothDevice: any =
       console.log('Bluetooth print error:', error);
     }
   }
-  
+
   // METHOD 3: Fallback to Share/RAWBT
   try {
     Alert.alert("Fallback", "Using Share option...");
@@ -369,9 +429,9 @@ const smartPrint = async (receipt: any, viewShotRef: any, bluetoothDevice: any =
   } catch (error) {
     console.log('Share print error:', error);
   }
-  
+
   // All methods failed
-  Alert.alert("❌ All Methods Failed", 
+  Alert.alert("❌ All Methods Failed",
     "Please try:\n1. Check printer connection\n2. Install RAWBT app\n3. Try again");
   return 'failed';
 };
@@ -402,7 +462,7 @@ export default function ReceiptScreen() {
       setBluetoothAvailable(true);
       checkBluetoothStatus();
     }
-    
+
     return () => {
       if (connectedDevice && BluetoothEscposPrinter) {
         try {
@@ -416,7 +476,7 @@ export default function ReceiptScreen() {
 
   const checkBluetoothStatus = async () => {
     if (!BluetoothEscposPrinter) return;
-    
+
     try {
       const enabled = await BluetoothEscposPrinter.isBluetoothEnabled();
       if (!enabled) {
@@ -432,7 +492,7 @@ export default function ReceiptScreen() {
       Alert.alert("Not Supported", "Bluetooth printing not available on this device");
       return false;
     }
-    
+
     try {
       await BluetoothEscposPrinter.enableBluetooth();
       return true;
@@ -469,12 +529,12 @@ export default function ReceiptScreen() {
             ]
           );
         });
-        
+
         if (!userConfirmed) {
           setIsScanning(false);
           return;
         }
-        
+
         const bluetoothEnabled = await enableBluetooth();
         if (!bluetoothEnabled) {
           setIsScanning(false);
@@ -496,7 +556,7 @@ export default function ReceiptScreen() {
               buttonPositive: "OK"
             }
           );
-          
+
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
             Alert.alert("Permission Denied", "Location permission is required to scan for Bluetooth devices");
             setIsScanning(false);
@@ -510,7 +570,7 @@ export default function ReceiptScreen() {
       // Scan for devices
       Alert.alert("Scanning", "Looking for Bluetooth printers...");
       const devicesList = await BluetoothEscposPrinter.scanDevices();
-      
+
       if (devicesList && devicesList.length > 0) {
         setDevices(devicesList);
         setShowDeviceList(true);
@@ -532,18 +592,18 @@ export default function ReceiptScreen() {
   /* ================= CONNECT TO DEVICE ================= */
   const connectToDevice = async (device: any) => {
     if (!BluetoothEscposPrinter) return;
-    
+
     try {
       setIsConnecting(true);
-      
+
       if (connectedDevice) {
         await BluetoothEscposPrinter.disconnect();
       }
-      
+
       Alert.alert("Connecting", `Connecting to ${device.name || 'Unknown Device'}...`);
-      
+
       const connected = await BluetoothEscposPrinter.connectDevice(device.address);
-      
+
       if (connected) {
         setConnectedDevice(device);
         setShowDeviceList(false);
@@ -564,7 +624,7 @@ export default function ReceiptScreen() {
   /* ================= DISCONNECT DEVICE ================= */
   const disconnectDevice = async () => {
     if (!BluetoothEscposPrinter || !connectedDevice) return;
-    
+
     try {
       await BluetoothEscposPrinter.disconnect();
       setConnectedDevice(null);
@@ -582,16 +642,16 @@ export default function ReceiptScreen() {
     }
 
     setIsPrinting(true);
-    
+
     try {
       const method = await smartPrint(
-        receipt, 
-        receiptRef, 
+        receipt,
+        receiptRef,
         connectedDevice
       );
-      
+
       setPrintMethod(method);
-      
+
     } catch (error) {
       console.error('Smart print error:', error);
       Alert.alert("Print Failed", "All print methods failed");
@@ -601,7 +661,11 @@ export default function ReceiptScreen() {
   };
 
   /* ================= RENDER RECEIPT CONTENT ================= */
-  const renderReceiptContent = () => (
+  const renderReceiptContent = () => {
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
+      getReceiptFlags(receipt);
+
+    return (
     <ViewShot
       ref={receiptRef}
       options={{
@@ -634,23 +698,27 @@ export default function ReceiptScreen() {
           label="Installment Amount"
           value={`₹ ${receipt.installmentAmount}`}
         />
-        
-        {receipt.dividendAmount > 0 && (
+
+        {hasDividend && (
           <Row label="Dividend" value={`₹ ${receipt.dividendAmount}`} />
         )}
 
         <Divider />
 
-        {/* INSTALLMENT SECTION */}
-        <Row
-          label="Paid Today (Installment)"
-          value={`₹ ${receipt.todayInstallmentPaid}`}
-        />
+        {/* INSTALLMENT SECTION -- "Paid Today" only when something was
+            actually paid today; the running total and what's still
+            pending always show since they're the state of the month. */}
+        {hasTodayInstallment && (
+          <Row
+            label="Paid Today (Installment)"
+            value={`₹ ${receipt.todayInstallmentPaid}`}
+          />
+        )}
         <Row
           label="Total Installment Paid"
           value={`₹ ${receipt.totalInstallmentPaid}`}
         />
-        
+
         {/* PENDING INSTALLMENT - BOLD */}
         <Row
           label="Pending Installment"
@@ -658,24 +726,30 @@ export default function ReceiptScreen() {
           bold
         />
 
-        <Divider />
+        {/* PENALTY SECTION -- skipped entirely when this month never
+            had any penalty involved, so a clean-paying member's
+            receipt doesn't carry three "₹ 0" penalty lines. */}
+        {hasPenaltyActivity && (
+          <>
+            <Divider />
 
-        {/* PENALTY SECTION */}
-        <Row
-          label="Paid Today (Penalty)"
-          value={`₹ ${receipt.todayPenaltyPaid}`}
-        />
-        <Row
-          label="Total Penalty Paid"
-          value={`₹ ${receipt.totalPenaltyPaid}`}
-        />
-        
-        {/* PENDING PENALTY - BOLD */}
-        <Row
-          label="Pending Penalty"
-          value={`₹ ${receipt.pendingPenalty || 0}`}
-          bold
-        />
+            <Row
+              label="Paid Today (Penalty)"
+              value={`₹ ${receipt.todayPenaltyPaid || 0}`}
+            />
+            <Row
+              label="Total Penalty Paid"
+              value={`₹ ${receipt.totalPenaltyPaid || 0}`}
+            />
+
+            {/* PENDING PENALTY - BOLD */}
+            <Row
+              label="Pending Penalty"
+              value={`₹ ${receipt.pendingPenalty || 0}`}
+              bold
+            />
+          </>
+        )}
 
         <Divider />
 
@@ -694,7 +768,7 @@ export default function ReceiptScreen() {
 
         <Text style={styles.center}>Thank you 🙏</Text>
         <Text style={styles.center}>Payment received</Text>
-        
+
         {/* Print method indicator */}
         {printMethod !== 'none' && (
           <View style={styles.methodIndicator}>
@@ -705,7 +779,8 @@ export default function ReceiptScreen() {
         )}
       </View>
     </ViewShot>
-  );
+    );
+  };
 
   if (!receipt) {
     return (
@@ -741,14 +816,14 @@ export default function ReceiptScreen() {
         {/* Connection Status */}
         {bluetoothAvailable && (
           <View style={styles.connectionStatus}>
-            <MaterialIcons 
-              name={connectedDevice ? "bluetooth-connected" : "bluetooth-disabled"} 
-              size={24} 
-              color={connectedDevice ? "#4CAF50" : "#757575"} 
+            <MaterialIcons
+              name={connectedDevice ? "bluetooth-connected" : "bluetooth-disabled"}
+              size={24}
+              color={connectedDevice ? "#4CAF50" : "#757575"}
             />
             <View style={styles.connectionInfo}>
               <Text style={styles.connectionText}>
-                {connectedDevice 
+                {connectedDevice
                   ? `Connected to: ${connectedDevice.name || 'Bluetooth Printer'}`
                   : "Bluetooth printer not connected"}
               </Text>
@@ -810,7 +885,7 @@ export default function ReceiptScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Available Printers ({devices.length})</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setShowDeviceList(false)}
                 style={styles.closeButton}
               >
@@ -847,10 +922,10 @@ export default function ReceiptScreen() {
                     onPress={() => connectToDevice(item)}
                     disabled={isConnecting}
                   >
-                    <MaterialIcons 
-                      name="print" 
-                      size={24} 
-                      color={isConnecting ? "#ccc" : "#024e32"} 
+                    <MaterialIcons
+                      name="print"
+                      size={24}
+                      color={isConnecting ? "#ccc" : "#024e32"}
                     />
                     <View style={styles.deviceInfo}>
                       <Text style={[
@@ -881,7 +956,7 @@ export default function ReceiptScreen() {
                   {isScanning ? "Scanning..." : "Scan Again"}
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowDeviceList(false)}
@@ -935,15 +1010,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  title: { 
-    textAlign: "center", 
-    fontWeight: "bold", 
+  title: {
+    textAlign: "center",
+    fontWeight: "bold",
     fontSize: 18,
     marginBottom: 8,
     color: "#024e32"
   },
-  center: { 
-    textAlign: "center", 
+  center: {
+    textAlign: "center",
     color: "#666",
     marginBottom: 12
   },
@@ -962,15 +1037,15 @@ const styles = StyleSheet.create({
     color: '#333',
     marginLeft: 8,
   },
-  divider: { 
-    borderTopWidth: 1, 
-    borderTopColor: "#ddd", 
-    marginVertical: 10 
+  divider: {
+    borderTopWidth: 1,
+    borderTopColor: "#ddd",
+    marginVertical: 10
   },
-  row: { 
-    flexDirection: "row", 
-    justifyContent: "space-between", 
-    marginVertical: 4 
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginVertical: 4
   },
   label: { fontSize: 13, color: "#555" },
   value: { fontSize: 13, fontWeight: "500" },
@@ -1012,9 +1087,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'right',
   },
-  buttonContainer: { 
-    flexDirection: "row", 
-    gap: 12, 
+  buttonContainer: {
+    flexDirection: "row",
+    gap: 12,
     marginTop: 20,
     width: '100%',
     maxWidth: 320,
@@ -1028,19 +1103,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     elevation: 2,
   },
-  smartPrintButton: { 
+  smartPrintButton: {
     backgroundColor: "#024e32",
     paddingVertical: 16,
   },
-  backButtonFull: { 
+  backButtonFull: {
     backgroundColor: "#666",
     marginTop: 15,
     width: '100%',
     maxWidth: 320,
   },
-  actionButtonText: { 
-    color: "white", 
-    fontWeight: "600", 
+  actionButtonText: {
+    color: "white",
+    fontWeight: "600",
     marginLeft: 8,
     fontSize: 16,
   },
@@ -1130,7 +1205,7 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     padding: 40,
-  },  // ← FIXED: Added comma here
+  },
   loadingText: {
     marginTop: 20,
     fontSize: 16,
@@ -1188,4 +1263,4 @@ const styles = StyleSheet.create({
   disabledText: {
     color: '#ccc',
   },
-});  // ← FIXED: Added the missing closing brace and parenthesis
+});

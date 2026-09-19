@@ -297,7 +297,7 @@ export default function Contact() {
               </Text>
             </View>
 
-            {/* ✅ MEET OUR DEVELOPMENT TEAM */}
+          {/*  {/* ✅ MEET OUR DEVELOPMENT TEAM *
             <View className="bg-white rounded-3xl shadow-sm border border-[#d7e5dd] p-5 mb-6">
               <View className="flex-row items-center mb-3">
                 <View className="w-11 h-11 bg-[#024e32]/10 rounded-2xl items-center justify-center">
@@ -365,7 +365,7 @@ export default function Contact() {
                   </Text>
                 </Text>
               </TouchableOpacity>
-            </View>
+            </View>*/}
 
             {/* CONNECT WITH US */}
             <View className="bg-white rounded-3xl shadow-sm border border-[#d7e5dd] p-5 mb-6">

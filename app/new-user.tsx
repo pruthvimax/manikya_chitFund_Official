@@ -15,13 +15,22 @@ import {
   StyleSheet,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 import BACKEND_URL from "../config";
+
+// Real app version from app.json/app.config (whatever you bump on
+// each release build) -- never hand-typed, so it can't go stale.
+const APP_VERSION =
+  Constants.expoConfig?.version ||
+  (Constants as any)?.manifest?.version ||
+  (Constants as any)?.manifest2?.extra?.expoClient?.version ||
+  "1.0";
 
 export default function NewUserScreen() {
   const router = useRouter();
   const [showRegistration, setShowRegistration] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // Registration form state
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -41,96 +50,103 @@ export default function NewUserScreen() {
   }, []);
 
   const openWhatsApp = () =>
-    Linking.openURL("https://wa.me/917259201729?text=Hello%20Manikya%20Chits!%20I%20want%20to%20become%20a%20member.");
+    Linking.openURL(
+      "https://wa.me/917259201729?text=Hello%20Manikya%20Chits!%20I%20want%20to%20become%20a%20member.",
+    );
   const dialNumber = () => Linking.openURL("tel:+917259201729");
   const sendEmail = () =>
     Linking.openURL("mailto:manikyachitsprivatelimited@gmail.com");
 
   /* ================= REGISTRATION HANDLER ================= */
-const handleRegistration = async () => {
-  if (!fullName || !phoneNumber || !aadhaarNumber) {
-    Alert.alert(
-      "Required Fields",
-      "Please fill in all required fields (Name, Phone, Aadhaar)"
-    );
-    return;
-  }
-
-  if (phoneNumber.length !== 10) {
-    Alert.alert("Invalid Phone", "Please enter a valid 10-digit phone number");
-    return;
-  }
-
-  if (aadhaarNumber.length !== 12) {
-    Alert.alert(
-      "Invalid Aadhaar",
-      "Please enter a valid 12-digit Aadhaar number"
-    );
-    return;
-  }
-
-  setIsLoading(true);
-
-  try {
-    const response = await fetch(
-      `${BACKEND_URL}/member-interest/register-interest`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fullName,
-          phoneNumber,
-          email,
-          aadhaarNumber,
-          address,
-        }),
-      }
-    );
-
-    // ✅ Read response as TEXT first (prevents JSON crash)
-    const rawText = await response.text();
-    console.log("🔥 RAW RESPONSE:", rawText);
-
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (err) {
+  const handleRegistration = async () => {
+    if (!fullName || !phoneNumber || !aadhaarNumber) {
       Alert.alert(
-        "Server Error",
-        "Backend is not returning JSON.\nCheck API route or server restart."
+        "Required Fields",
+        "Please fill in all required fields (Name, Phone, Aadhaar)",
       );
       return;
     }
 
-    // ✅ If backend sends error
-    if (!response.ok) {
-      Alert.alert("Registration Failed", data.message || "Something went wrong");
+    if (phoneNumber.length !== 10) {
+      Alert.alert(
+        "Invalid Phone",
+        "Please enter a valid 10-digit phone number",
+      );
       return;
     }
 
-    Alert.alert(
-      "Registration Successful!",
-      "Thank you for your interest in Manikya Chits.\nOur team will contact you soon.",
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            setShowRegistration(false);
-            resetForm();
-          },
-        },
-      ]
-    );
-  } catch (error) {
-    console.log("Registration error:", error);
-    Alert.alert("Network Error", "Unable to connect to server.");
-  } finally {
-    setIsLoading(false);
-  }
-};
+    if (aadhaarNumber.length !== 12) {
+      Alert.alert(
+        "Invalid Aadhaar",
+        "Please enter a valid 12-digit Aadhaar number",
+      );
+      return;
+    }
 
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(
+        `${BACKEND_URL}/member-interest/register-interest`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fullName,
+            phoneNumber,
+            email,
+            aadhaarNumber,
+            address,
+          }),
+        },
+      );
+
+      // ✅ Read response as TEXT first (prevents JSON crash)
+      const rawText = await response.text();
+      console.log("🔥 RAW RESPONSE:", rawText);
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (err) {
+        Alert.alert(
+          "Server Error",
+          "Backend is not returning JSON.\nCheck API route or server restart.",
+        );
+        return;
+      }
+
+      // ✅ If backend sends error
+      if (!response.ok) {
+        Alert.alert(
+          "Registration Failed",
+          data.message || "Something went wrong",
+        );
+        return;
+      }
+
+      Alert.alert(
+        "Registration Successful!",
+        "Thank you for your interest in Manikya Chits.\nOur team will contact you soon.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setShowRegistration(false);
+              resetForm();
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      console.log("Registration error:", error);
+      Alert.alert("Network Error", "Unable to connect to server.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const resetForm = () => {
     setFullName("");
@@ -148,7 +164,7 @@ const handleRegistration = async () => {
     "Regular Auctions",
     "Professional Management",
     "24/7 Customer Support",
-    "Online Payment Facilities"
+    "Online Payment Facilities",
   ];
 
   const membershipSteps = [
@@ -156,44 +172,44 @@ const handleRegistration = async () => {
       step: 1,
       title: "Express Interest",
       description: "Fill our membership interest form or contact us directly",
-      icon: "assignment"
+      icon: "assignment",
     },
     {
       step: 2,
       title: "Document Verification",
       description: "Submit KYC documents (Aadhaar, PAN, Address Proof)",
-      icon: "verified"
+      icon: "verified",
     },
     {
       step: 3,
       title: "Nominee & Income Details",
       description: "Provide nominee details and monthly income information",
-      icon: "person-add"
+      icon: "person-add",
     },
     {
       step: 4,
       title: "Group Selection",
       description: "Choose a chit group based on your investment capacity",
-      icon: "groups"
+      icon: "groups",
     },
     {
       step: 5,
       title: "Agreement Signing",
       description: "Sign the chit fund agreement with terms & conditions",
-      icon: "description"
+      icon: "description",
     },
     {
       step: 6,
       title: "First Installment",
       description: "Pay first installment and start your chit journey",
-      icon: "payments"
+      icon: "payments",
     },
     {
       step: 7,
       title: "Active Membership",
       description: "Participate in auctions and receive dividends",
-      icon: "emoji-events"
-    }
+      icon: "emoji-events",
+    },
   ];
 
   return (
@@ -204,13 +220,11 @@ const handleRegistration = async () => {
           <TouchableOpacity onPress={() => router.back()}>
             <MaterialIcons name="arrow-back" size={26} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            JOIN MANIKYA CHITS
-          </Text>
+          <Text style={styles.headerTitle}>JOIN MANIKYA CHITS</Text>
         </View>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -219,30 +233,34 @@ const handleRegistration = async () => {
           {/* HERO SECTION - SIMPLE STYLE */}
           <View style={styles.heroSection}>
             <Text style={styles.heroTitle}>Welcome to Manikya Chits</Text>
-            <Text style={styles.heroSubtitle}>Your Trusted Partner in Financial Growth Since 2022</Text>
-            
+            <Text style={styles.heroSubtitle}>
+              Your Trusted Partner in Financial Growth Since 2022
+            </Text>
+
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>5+</Text>
                 <Text style={styles.statLabel}>Years Experience</Text>
               </View>
-              
+
               <View style={styles.statDivider} />
-              
+
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>₹10Cr+</Text>
                 <Text style={styles.statLabel}>Total Transactions</Text>
               </View>
-              
+
               <View style={styles.statDivider} />
-              
+
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>100+</Text>
                 <Text style={styles.statLabel}>Active Groups</Text>
               </View>
             </View>
-            
-            <Text style={styles.heroFooter}>Registered & Licensed Chit Fund Company</Text>
+
+            <Text style={styles.heroFooter}>
+              Registered & Licensed Chit Fund Company
+            </Text>
           </View>
 
           {/* ABOUT COMPANY */}
@@ -251,23 +269,26 @@ const handleRegistration = async () => {
               <MaterialIcons name="business" size={24} color="#024e32" />
               <Text style={styles.cardTitle}>About Manikya Chits Pvt Ltd</Text>
             </View>
-            
+
             <Text style={styles.cardText}>
-              Established in 2022, Manikya Chits is a registered chit fund company operating with 
-              transparency and integrity. We are licensed under the Chit Funds Act and regulated 
-              by the Government of Karnataka.
+              Established in 2022, Manikya Chits is a registered chit fund
+              company operating with transparency and integrity. We are licensed
+              under the Chit Funds Act and regulated by the Government of
+              Karnataka.
             </Text>
-            
+
             <Text style={styles.cardText}>
-              In just 2 years, we have successfully managed chits worth over 
-              <Text style={styles.highlight}> ₹10+ crores</Text> across 
-              <Text style={styles.highlight}> 100+ active groups</Text>, 
-              benefiting hundreds of members across Karnataka with secure and profitable savings.
+              In just 2 years, we have successfully managed chits worth over
+              <Text style={styles.highlight}> ₹10+ crores</Text> across
+              <Text style={styles.highlight}> 100+ active groups</Text>,
+              benefiting hundreds of members across Karnataka with secure and
+              profitable savings.
             </Text>
-            
+
             <Text style={styles.cardText}>
-              Our mission is to provide a secure and profitable savings platform for individuals 
-              while fostering financial discipline and community support through transparent operations.
+              Our mission is to provide a secure and profitable savings platform
+              for individuals while fostering financial discipline and community
+              support through transparent operations.
             </Text>
           </View>
 
@@ -277,11 +298,15 @@ const handleRegistration = async () => {
               <MaterialIcons name="star" size={24} color="#024e32" />
               <Text style={styles.cardTitle}>Why Choose Manikya Chits?</Text>
             </View>
-            
+
             <View style={styles.featuresGrid}>
               {features.map((feature, index) => (
                 <View key={index} style={styles.featureItem}>
-                  <MaterialIcons name="check-circle" size={18} color="#024e32" />
+                  <MaterialIcons
+                    name="check-circle"
+                    size={18}
+                    color="#024e32"
+                  />
                   <Text style={styles.featureText}>{feature}</Text>
                 </View>
               ))}
@@ -294,7 +319,7 @@ const handleRegistration = async () => {
               <MaterialIcons name="how-to-reg" size={24} color="#024e32" />
               <Text style={styles.cardTitle}>How to Become a Member</Text>
             </View>
-            
+
             <View style={styles.stepsContainer}>
               {membershipSteps.map((step) => (
                 <View key={step.step} style={styles.stepItem}>
@@ -303,18 +328,20 @@ const handleRegistration = async () => {
                   </View>
                   <View style={styles.stepContent}>
                     <Text style={styles.stepTitle}>{step.title}</Text>
-                    <Text style={styles.stepDescription}>{step.description}</Text>
+                    <Text style={styles.stepDescription}>
+                      {step.description}
+                    </Text>
                   </View>
                 </View>
               ))}
-              
+
               {/* IMPORTANT NOTE */}
               <View style={styles.noteBox}>
                 <Text style={styles.noteTitle}>📝 Important Requirement:</Text>
                 <Text style={styles.noteText}>
-                  Every member must provide a nominee and declare their monthly income 
-                  for eligibility assessment. This ensures proper financial planning 
-                  and security for all parties involved.
+                  Every member must provide a nominee and declare their monthly
+                  income for eligibility assessment. This ensures proper
+                  financial planning and security for all parties involved.
                 </Text>
               </View>
             </View>
@@ -326,12 +353,13 @@ const handleRegistration = async () => {
               <MaterialIcons name="folder" size={24} color="#024e32" />
               <Text style={styles.cardTitle}>Documents Required</Text>
             </View>
-            
+
             <View style={styles.documentsList}>
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>Aadhaar Card</Text> (Mandatory for KYC)
+                  <Text style={styles.bold}>Aadhaar Card</Text> (Mandatory for
+                  KYC)
                 </Text>
               </View>
               <View style={styles.documentItem}>
@@ -343,31 +371,36 @@ const handleRegistration = async () => {
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>Address Proof</Text> (Latest Utility Bill/Ration Card)
+                  <Text style={styles.bold}>Address Proof</Text> (Latest Utility
+                  Bill/Ration Card)
                 </Text>
               </View>
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>2 Passport Size Photos</Text> (Recent)
+                  <Text style={styles.bold}>2 Passport Size Photos</Text>{" "}
+                  (Recent)
                 </Text>
               </View>
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>Bank Account Details</Text> (Cancelled cheque/Passbook)
+                  <Text style={styles.bold}>Bank Account Details</Text>{" "}
+                  (Cancelled cheque/Passbook)
                 </Text>
               </View>
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>Income Proof</Text> (Salary slips/Income certificate)
+                  <Text style={styles.bold}>Income Proof</Text> (Salary
+                  slips/Income certificate)
                 </Text>
               </View>
               <View style={styles.documentItem}>
                 <MaterialIcons name="check-box" size={20} color="#024e32" />
                 <Text style={styles.documentText}>
-                  <Text style={styles.bold}>Nominee Details</Text> (Aadhaar & Relationship proof)
+                  <Text style={styles.bold}>Nominee Details</Text> (Aadhaar &
+                  Relationship proof)
                 </Text>
               </View>
             </View>
@@ -384,7 +417,9 @@ const handleRegistration = async () => {
                 <MaterialIcons name="assignment-add" size={24} color="white" />
                 <Text style={styles.buttonText}>REGISTER INTEREST NOW</Text>
               </View>
-              <Text style={styles.buttonSubtext}>Quick form • 24-hour response • No commitment</Text>
+              <Text style={styles.buttonSubtext}>
+                Quick form • 24-hour response • No commitment
+              </Text>
             </TouchableOpacity>
 
             <View style={styles.secondaryButtons}>
@@ -422,7 +457,8 @@ const handleRegistration = async () => {
                 <Text style={styles.sectionTitle}>Business Hours</Text>
               </View>
               <Text style={styles.contactText}>
-                Monday to Saturday: <Text style={styles.boldText}>9:30 AM – 6:30 PM</Text>
+                Monday to Saturday:{" "}
+                <Text style={styles.boldText}>9:30 AM – 6:30 PM</Text>
               </Text>
               <Text style={[styles.contactText, styles.boldText]}>
                 Closed on Sundays
@@ -444,7 +480,10 @@ const handleRegistration = async () => {
 
               <TouchableOpacity onPress={sendEmail} activeOpacity={0.7}>
                 <Text style={styles.contactText}>
-                  Email: <Text style={styles.linkText}>manikyachitsprivatelimited@gmail.com</Text>
+                  Email:{" "}
+                  <Text style={styles.linkText}>
+                    manikyachitsprivatelimited@gmail.com
+                  </Text>
                 </Text>
               </TouchableOpacity>
             </View>
@@ -456,7 +495,8 @@ const handleRegistration = async () => {
                 <Text style={styles.sectionTitle}>Office Address</Text>
               </View>
               <Text style={styles.contactText}>
-                #102 Shri Siddivinayaka complex, infront of Government Hospital ,JC road{"\n"}
+                #102 Shri Siddivinayaka complex, infront of Government Hospital
+                ,JC road{"\n"}
                 Sagara, Shivamogga, Karnataka – 577401
               </Text>
             </View>
@@ -469,24 +509,28 @@ const handleRegistration = async () => {
               </View>
 
               <View style={styles.socialButtons}>
-                <TouchableOpacity 
-                  onPress={openWhatsApp} 
+                <TouchableOpacity
+                  onPress={openWhatsApp}
                   style={styles.whatsappSocialButton}
                   activeOpacity={0.8}
                 >
                   <FontAwesome name="whatsapp" size={24} color="#fff" />
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  onPress={() => Linking.openURL("https://instagram.com/manikya_chits_pvt_limited")} 
+
+                <TouchableOpacity
+                  onPress={() =>
+                    Linking.openURL(
+                      "https://instagram.com/manikya_chits_pvt_limited",
+                    )
+                  }
                   style={styles.instagramButton}
                   activeOpacity={0.8}
                 >
                   <FontAwesome name="instagram" size={24} color="#fff" />
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  onPress={() => Linking.openURL("https://www.facebook.com/")} 
+
+                <TouchableOpacity
+                  onPress={() => Linking.openURL("https://www.facebook.com/")}
                   style={styles.facebookButton}
                   activeOpacity={0.8}
                 >
@@ -498,13 +542,17 @@ const handleRegistration = async () => {
 
           {/* FOOTER */}
           <View style={styles.footer}>
-            <Text style={styles.footerTitle}>MANIKYA CHITS PRIVATE LIMITED</Text>
-            
+            <Text style={styles.footerTitle}>
+              MANIKYA CHITS PRIVATE LIMITED
+            </Text>
+
             <View style={styles.footerVerified}>
               <MaterialIcons name="verified" size={18} color="#4ade80" />
-              <Text style={styles.footerVerifiedText}>Licensed & Registered Chit Fund Company</Text>
+              <Text style={styles.footerVerifiedText}>
+                Licensed & Registered Chit Fund Company
+              </Text>
             </View>
-            
+
             <View style={styles.footerLinks}>
               <TouchableOpacity>
                 <Text style={styles.footerLink}>Terms & Conditions</Text>
@@ -518,17 +566,16 @@ const handleRegistration = async () => {
                 <Text style={styles.footerLink}>Grievance Redressal</Text>
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.footerBottom}>
               <Text style={styles.copyright}>
-                © 2024 Manikya Chits Private Limited. All rights reserved.
+                © {new Date().getFullYear()} Manikya Chits Private Limited. All
+                rights reserved.
               </Text>
               <Text style={styles.license}>
                 Registered under the Chit Funds Act, Government of Karnataka
               </Text>
-              <Text style={styles.version}>
-                Version 1.0 • Last Updated: December 2024
-              </Text>
+              <Text style={styles.version}>Version {APP_VERSION}</Text>
             </View>
           </View>
         </View>
@@ -553,7 +600,10 @@ const handleRegistration = async () => {
               Fill this form and our team will contact you within 24 hours
             </Text>
 
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.modalBody}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.formContainer}>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Full Name *</Text>
@@ -614,7 +664,8 @@ const handleRegistration = async () => {
                 </View>
 
                 <Text style={styles.formNote}>
-                  * Required fields. We respect your privacy and will not share your information.
+                  * Required fields. We respect your privacy and will not share
+                  your information.
                 </Text>
               </View>
             </ScrollView>
@@ -631,11 +682,13 @@ const handleRegistration = async () => {
                 ) : (
                   <>
                     <MaterialIcons name="send" size={22} color="white" />
-                    <Text style={styles.submitButtonText}>SUBMIT INTEREST FORM</Text>
+                    <Text style={styles.submitButtonText}>
+                      SUBMIT INTEREST FORM
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 onPress={() => setShowRegistration(false)}
                 style={styles.cancelButton}
@@ -656,11 +709,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#f6fbf8",
   },
   mainHeader: {
+    // Same fixed/floating header pattern used on the other screens
+    // (My Chits, My Outstanding, Vacancies, Home) -- absolutely
+    // positioned at the true top of the screen with its own manual
+    // top padding, instead of sitting in normal flow inside
+    // SafeAreaView. That combination is what was causing the extra
+    // gap on iOS: SafeAreaView already pads for the notch, and the
+    // old "position: relative" header stacked paddingTop: 60 on top
+    // of that inset instead of starting from the very top. This way
+    // it clears the notch/status bar exactly once, the same amount,
+    // on both iOS and Android.
     backgroundColor: "#024e32",
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 16,
-    position: 'relative',
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     zIndex: 50,
   },
   headerContent: {
@@ -678,13 +744,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    // Clears the now-floating header above so content never starts
+    // underneath it.
+    paddingTop: 110,
     paddingBottom: 40,
   },
   container: {
     paddingHorizontal: 20,
     paddingVertical: 24,
   },
-  
+
   // Hero Section
   heroSection: {
     backgroundColor: "#024e32",
@@ -741,7 +810,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontStyle: "italic",
   },
-  
+
   // Cards
   card: {
     backgroundColor: "white",
@@ -777,7 +846,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#024e32",
   },
-  
+
   // Features
   featuresGrid: {
     flexDirection: "row",
@@ -802,7 +871,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginLeft: 8,
   },
-  
+
   // Steps
   stepsContainer: {
     gap: 20,
@@ -858,7 +927,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  
+
   // Documents
   documentsList: {
     gap: 12,
@@ -876,7 +945,7 @@ const styles = StyleSheet.create({
   bold: {
     fontWeight: "bold",
   },
-  
+
   // CTA Buttons
   ctaContainer: {
     marginBottom: 24,
@@ -947,7 +1016,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 8,
   },
-  
+
   // Contact Section (Matches Contact Page)
   contactCard: {
     backgroundColor: "white",
@@ -1026,7 +1095,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  
+
   // Footer
   footer: {
     backgroundColor: "#024e32",
@@ -1087,8 +1156,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
     marginTop: 8,
+    lineHeight: 16,
   },
-  
+
   // Modal Styles
   modalOverlay: {
     flex: 1,

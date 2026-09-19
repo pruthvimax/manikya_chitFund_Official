@@ -1,6 +1,6 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,15 @@ import BACKEND_URL from "../../config";
        available = group.totalCollections - group.members.length
 
    which the backend computes live on every read.
+
+   This screen can also be opened from the "Group Capacity"
+   cards on the admin dashboard by tapping a short-staffed
+   group -- that navigation carries ?chitId=...&groupId=... in
+   the URL. When those params are present, this page auto-opens
+   the Create Vacancy form with that exact chit and group
+   already selected, so the admin only has to fill in the rest
+   (Max Bid %, Frequency, Details, Status) and publish. It never
+   auto-publishes anything on its own.
 ========================================================= */
 
 const FREQUENCIES = ["Daily", "Weekly", "Monthly"] as const;
@@ -34,6 +43,11 @@ const formatAmount = (amount: any) =>
 
 export default function AdminVacancies() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    groupId?: string;
+    chitId?: string;
+    needed?: string;
+  }>();
 
   /* existing data (read only) */
   const [chits, setChits] = useState<any[]>([]);
@@ -62,6 +76,15 @@ export default function AdminVacancies() {
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
+
+  /* Which required fields are currently missing -- drives the red
+     outline on that exact input plus the popup alert on Publish.
+     Details is the only optional field, so it never appears here. */
+  const [fieldErrors, setFieldErrors] = useState<{
+    chit?: boolean;
+    group?: boolean;
+    maxBid?: boolean;
+  }>({});
 
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
@@ -148,6 +171,26 @@ export default function AdminVacancies() {
     setSelectedGroupId(null);
     setGroupsOfChit([]);
     loadGroupsOfChit(chitId);
+    setFieldErrors((prev) => ({ ...prev, chit: false }));
+  };
+
+  /* Tapping a group that's already full never selects it -- it pops
+     an alert and leaves the current selection untouched. */
+  const pickGroup = (group: any) => {
+    const capacity = Number(group.totalCollections || 0);
+    const filled = group.members?.length || 0;
+    const free = Math.max(capacity - filled, 0);
+
+    if (free <= 0) {
+      Alert.alert(
+        "Group is full",
+        `Group ${group.groupId} has no free seats (${filled}/${capacity} filled). Please pick a different group.`
+      );
+      return;
+    }
+
+    setSelectedGroupId(group.groupId);
+    setFieldErrors((prev) => ({ ...prev, group: false }));
   };
 
   const resetForm = () => {
@@ -159,33 +202,88 @@ export default function AdminVacancies() {
     setDetails("");
     setStatus("Open");
     setShowForm(false);
+    setFieldErrors({});
   };
 
-  /* ================= VALIDATE + CONFIRM ================= */
+  /* =========================================================
+     AUTO-SELECT CHIT + GROUP FROM THE "Group Capacity" CARD
+
+     When this screen is opened by tapping a short-staffed group
+     on the admin dashboard, ?chitId= & ?groupId= arrive in the
+     URL. As soon as the chit list has loaded, open the Create
+     Vacancy form with that exact chit + group already picked --
+     the admin still fills in Max Bid %, Frequency, Details and
+     Status themselves and taps Publish; nothing is auto-created.
+     A ref makes sure this only fires once, so it never fights a
+     selection the admin makes by hand afterwards (e.g. on a
+     pull-to-refresh).
+  ========================================================= */
+  const appliedParamsRef = useRef(false);
+
+  useEffect(() => {
+    if (appliedParamsRef.current) return;
+    if (loading) return;
+    if (!params.chitId || !params.groupId) return;
+
+    appliedParamsRef.current = true;
+
+    const chitId = String(params.chitId);
+    const groupId = String(params.groupId);
+
+    setShowForm(true);
+    setSelectedChitId(chitId);
+    setSelectedGroupId(groupId);
+    loadGroupsOfChit(chitId);
+  }, [loading, params.chitId, params.groupId]);
+
+  /* ================= VALIDATE + CONFIRM =================
+     Every field is required except Vacancy Details. Anything left
+     empty gets a red outline on that exact input AND a red popup
+     alert naming what's missing -- all of them at once, not just
+     the first one found. */
   const handlePublish = () => {
+    const errors: { chit?: boolean; group?: boolean; maxBid?: boolean } = {};
+    const missing: string[] = [];
+
     if (!selectedChitId) {
-      flash("Select an existing Chit", "error");
-      return;
+      errors.chit = true;
+      missing.push("Chit");
     }
 
     if (!selectedGroupId) {
-      flash("Select an existing Group", "error");
-      return;
+      errors.group = true;
+      missing.push("Group");
     }
 
     const bid = Number(maxBidPercent);
+    const bidInvalid =
+      !maxBidPercent || !Number.isFinite(bid) || bid < 0 || bid > 100;
 
-    if (!maxBidPercent || !Number.isFinite(bid) || bid < 0 || bid > 100) {
-      flash("Max Bid % must be between 0 and 100", "error");
+    if (bidInvalid) {
+      errors.maxBid = true;
+      missing.push("Maximum Bid %");
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      Alert.alert(
+        "Required fields missing",
+        `Please fill: ${missing.join(", ")}`
+      );
       return;
     }
+
+    setFieldErrors({});
 
     const duplicate = vacancies.some(
       (v) => v.chitId === selectedChitId && v.groupId === selectedGroupId
     );
 
     if (duplicate) {
-      flash(`A vacancy already exists for group ${selectedGroupId}`, "error");
+      Alert.alert(
+        "Vacancy already exists",
+        `A vacancy already exists for group ${selectedGroupId}.`
+      );
       return;
     }
 
@@ -360,8 +458,8 @@ export default function AdminVacancies() {
             =============================================== */}
             <TouchableOpacity
               onPress={() =>
-  router.push("/admin/vacancyNotifications?from=vacancy")
-}
+                router.push("/admin/vacancyNotifications?from=vacancy")
+              }
               activeOpacity={0.9}
               className="bg-white rounded-2xl border border-[#e8f0eb] shadow-md p-5 mb-6 flex-row items-center"
             >
@@ -436,15 +534,26 @@ export default function AdminVacancies() {
 
                 {/* ---------- SELECT EXISTING CHIT ---------- */}
                 <Text className="text-gray-700 font-semibold mb-2">
-                  Chit <Text className="text-gray-400 text-xs">(existing)</Text>
+                  Chit <Text className="text-gray-400 text-xs">(existing)</Text>{" "}
+                  <Text className="text-red-500 text-xs font-bold">*</Text>
                 </Text>
+
+                {fieldErrors.chit ? (
+                  <Text className="text-red-600 text-xs mb-2">
+                    Please select a Chit
+                  </Text>
+                ) : null}
 
                 {chits.length === 0 ? (
                   <Text className="text-red-600 text-sm mb-4">
                     No chit schemes found. Add one in Chit Schemes first.
                   </Text>
                 ) : (
-                  <View className="flex-row flex-wrap mb-4">
+                  <View
+                    className={`flex-row flex-wrap mb-4 ${
+                      fieldErrors.chit ? "border border-red-500 rounded-xl p-2" : ""
+                    }`}
+                  >
                     {chits.map((c) => {
                       const active = selectedChitId === c.chitId;
 
@@ -486,15 +595,28 @@ export default function AdminVacancies() {
                       Group{" "}
                       <Text className="text-gray-400 text-xs">
                         (existing groups of {selectedChitId})
-                      </Text>
+                      </Text>{" "}
+                      <Text className="text-red-500 text-xs font-bold">*</Text>
                     </Text>
+
+                    {fieldErrors.group ? (
+                      <Text className="text-red-600 text-xs mb-2">
+                        Please select a Group
+                      </Text>
+                    ) : null}
 
                     {groupsOfChit.length === 0 ? (
                       <Text className="text-red-600 text-sm mb-4">
                         No groups found for this chit. Create one in Groups first.
                       </Text>
                     ) : (
-                      <View className="flex-row flex-wrap mb-4">
+                      <View
+                        className={`flex-row flex-wrap mb-4 ${
+                          fieldErrors.group
+                            ? "border border-red-500 rounded-xl p-2"
+                            : ""
+                        }`}
+                      >
                         {groupsOfChit.map((g) => {
                           const active = selectedGroupId === g.groupId;
                           const capacity = Number(g.totalCollections || 0);
@@ -504,7 +626,7 @@ export default function AdminVacancies() {
                           return (
                             <TouchableOpacity
                               key={g._id || g.groupId}
-                              onPress={() => setSelectedGroupId(g.groupId)}
+                              onPress={() => pickGroup(g)}
                               activeOpacity={0.85}
                               className={`mr-2 mb-2 px-4 py-3 rounded-xl border ${
                                 active
@@ -538,14 +660,26 @@ export default function AdminVacancies() {
 
                 {/* ---------- VACANCY-ONLY FIELDS ---------- */}
                 <Text className="text-gray-700 font-semibold mb-2">
-                  Maximum Bid %
+                  Maximum Bid % <Text className="text-red-500 text-xs font-bold">*</Text>
                 </Text>
+                {fieldErrors.maxBid ? (
+                  <Text className="text-red-600 text-xs mb-2">
+                    Please enter Maximum Bid % (0-100)
+                  </Text>
+                ) : null}
                 <TextInput
                   placeholder="e.g. 30"
                   keyboardType="number-pad"
                   value={maxBidPercent}
-                  onChangeText={setMaxBidPercent}
-                  className="border border-gray-300 px-4 py-4 rounded-xl mb-4 bg-white"
+                  onChangeText={(t) => {
+                    setMaxBidPercent(t);
+                    if (fieldErrors.maxBid) {
+                      setFieldErrors((prev) => ({ ...prev, maxBid: false }));
+                    }
+                  }}
+                  className={`border px-4 py-4 rounded-xl mb-4 bg-white ${
+                    fieldErrors.maxBid ? "border-red-500 border-2" : "border-gray-300"
+                  }`}
                   placeholderTextColor="#9CA3AF"
                 />
 

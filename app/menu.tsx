@@ -16,7 +16,6 @@ import {
   useWindowDimensions,
   RefreshControl,
   Modal,
-  Image,
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
@@ -123,14 +122,41 @@ export default function HomeScreen() {
   const userInteractingRef = useRef(false);
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const slideImages = [
-    
-    require("../assets/images/slide2.png"),
-    require("../assets/images/slide3.png"),
-    require("../assets/images/slide4.png"),
-    require("../assets/images/slide5.png"),
-    require("../assets/images/slide6.png"),
-    require("../assets/images/slide1.png"),
+  // Slogan slides — Kannada line as the headline, its English
+  // translation underneath as the subtitle (per your Kannada set).
+  const slogans = [
+    {
+      kn: "ನಿಮ್ಮ ಪ್ರಗತಿಗೆ ನಮ್ಮ ಆಸರೆ.",
+      en: "Our support for your progress.",
+    },
+    {
+      kn: "ಸಣ್ಣ ಉಳಿತಾಯ, ದೊಡ್ಡ ಕನಸು.",
+      en: "Small savings, big dreams.",
+    },
+    {
+      kn: "ಸುರಕ್ಷಿತ ಹೂಡಿಕೆ, ಸುಖಿ ಜೀವನ.",
+      en: "Safe investment, a happy life.",
+    },
+    {
+      kn: "ಒಟ್ಟಾಗಿ ಉಳಿಸೋಣ, ಜೊತೆಯಾಗಿ ಬೆಳೆಯೋಣ.",
+      en: "Let's save together, grow together.",
+    },
+    {
+      kn: "ಬೇಕಾದಾಗ ಹಣ, ಬೇಡದಿದ್ದಾಗ ಉಳಿತಾಯ.",
+      en: "Money when you need it, savings when you don't.",
+    },
+    {
+      kn: "ಸ್ವಾವಲಂಬಿ ಬದುಕಿಗೆ, ನಮ್ಮ ಚಿಟ್ ಫಂಡ್ ಆಸರೆ.",
+      en: "For a self-reliant life, our chit fund is your support.",
+    },
+    {
+      kn: "ದಿನದ ಸಣ್ಣ ಉಳಿತಾಯ, ಮನೆಗೆ ತರುವುದು ಮಹಾ ಆದಾಯ.",
+      en: "A small daily saving brings great income home.",
+    },
+    {
+      kn: "ಇಂದಿನ ಉಳಿತಾಯ, ಮುಂದಿನ ಆಸ್ತಿ ಆಯ.",
+      en: "Today's saving is tomorrow's chosen asset.",
+    },
   ];
 
   // =========================================================
@@ -162,6 +188,30 @@ export default function HomeScreen() {
     let active = true;
     let playTimeout: NodeJS.Timeout | null = null;
     let failSafeTimeout: NodeJS.Timeout | null = null;
+    let readyListener: any = null;
+    let hasStartedPlaying = false;
+
+    const markPlayedOnce = async () => {
+      try {
+        await AsyncStorage.setItem(introVideoPlayedKey, "true");
+      } catch {}
+    };
+
+    // Actually starts playback -- safe to call more than once (from the
+    // timed attempt AND the "readyToPlay" listener below), since a
+    // second play() call on an already-playing player is a harmless no-op.
+    const attemptPlay = () => {
+      if (!active || hasStartedPlaying) return;
+      try {
+        introVideoPlayer.play();
+        hasStartedPlaying = true;
+        markPlayedOnce();
+        console.log("✅ Intro video started");
+      } catch (error) {
+        console.log("❌ Intro video play error:", error);
+        setShowSlideshow(true);
+      }
+    };
 
     const playIntroVideoOnce = async () => {
       try {
@@ -172,18 +222,41 @@ export default function HomeScreen() {
           return;
         }
 
-        introVideoPlayer.currentTime = 0;
+        // Resetting currentTime before the video source has actually
+        // loaded can throw on some devices -- if it does, that must
+        // NOT abort playback, so it gets its own try/catch instead of
+        // sharing the outer one (which used to skip straight to the
+        // slideshow here, before the video ever got a chance to play).
+        try {
+          introVideoPlayer.currentTime = 0;
+        } catch (e) {
+          console.log("⚠️ Intro video currentTime reset skipped:", e);
+        }
 
-        playTimeout = setTimeout(async () => {
-          if (!active) return;
-          try {
-            introVideoPlayer.play();
-            await AsyncStorage.setItem(introVideoPlayedKey, "true");
-            console.log("✅ Intro video started");
-          } catch (error) {
-            console.log("❌ Intro video play error:", error);
-            setShowSlideshow(true);
-          }
+        // Primary trigger: once the player actually reports it's
+        // loaded and ready, start playback right away.
+        try {
+          readyListener = introVideoPlayer.addListener(
+            "statusChange",
+            (payload: any) => {
+              const status = payload?.status ?? payload;
+              if (status === "readyToPlay") {
+                attemptPlay();
+              } else if (status === "error") {
+                console.log("❌ Intro video error, skipping to slideshow");
+                setShowSlideshow(true);
+              }
+            }
+          );
+        } catch (e) {
+          console.log("statusChange listener not supported");
+        }
+
+        // Backup trigger: some platforms never fire a distinct
+        // "readyToPlay" statusChange, so also try a short delay after
+        // mount -- attemptPlay() is a no-op if playback already started.
+        playTimeout = setTimeout(() => {
+          attemptPlay();
         }, 400);
 
         // Fail-safe: never leave the user stuck on a black box
@@ -202,6 +275,9 @@ export default function HomeScreen() {
       active = false;
       if (playTimeout) clearTimeout(playTimeout);
       if (failSafeTimeout) clearTimeout(failSafeTimeout);
+      try {
+        readyListener?.remove?.();
+      } catch {}
     };
   }, [introVideoPlayer]);
 
@@ -258,7 +334,7 @@ export default function HomeScreen() {
 
   const goToSlide = useCallback(
     (index: number, animated = true) => {
-      const total = slideImages.length;
+      const total = slogans.length;
       if (total === 0) return;
 
       const next = ((index % total) + total) % total; // safe wrap both directions
@@ -269,7 +345,7 @@ export default function HomeScreen() {
         sliderRef.current?.scrollTo({ x: next * sliderWidth, y: 0, animated });
       }
     },
-    [sliderWidth, slideImages.length]
+    [sliderWidth, slogans.length]
   );
 
   const goToNextSlide = useCallback(() => {
@@ -282,7 +358,7 @@ export default function HomeScreen() {
 
   // Auto-slide every 3 seconds (paused while the user is swiping)
   useEffect(() => {
-    if (!showSlideshow || slideImages.length === 0 || sliderWidth === 0) return;
+    if (!showSlideshow || slogans.length === 0 || sliderWidth === 0) return;
 
     const timer = setInterval(() => {
       if (userInteractingRef.current) return;
@@ -290,7 +366,7 @@ export default function HomeScreen() {
     }, 3000);
 
     return () => clearInterval(timer);
-  }, [showSlideshow, sliderWidth, goToSlide, slideImages.length]);
+  }, [showSlideshow, sliderWidth, goToSlide, slogans.length]);
 
   // Keep position correct when the container resizes (rotation / web resize)
   useEffect(() => {
@@ -683,17 +759,32 @@ export default function HomeScreen() {
           onStartShouldSetResponder={() => { if (profileMenuVisible) setProfileMenuVisible(false); return false; }}
         >
           {/* ===================================================
-              INTRO VIDEO / SLIDESHOW CONTAINER
+              INTRO VIDEO / SLOGAN SLIDESHOW CONTAINER
+
+              Video logic is unchanged — it still plays once, then
+              hands off to the slideshow. Only what plays AFTER the
+              video changed: instead of image slides, this now cycles
+              through brand-green "wow" cards with a Kannada slogan
+              as the headline and its English translation underneath,
+              using the exact same swipe / auto-advance / arrows /
+              dots mechanics as before.
           =================================================== */}
           <View
             onLayout={(e) => {
               const w = e.nativeEvent.layout.width;
               if (w > 0 && Math.abs(w - sliderWidth) > 1) setSliderWidth(w);
             }}
-            className={`self-center mt-6 overflow-hidden rounded-3xl border border-[#d2e4dc] bg-black shadow-sm ${
+            className={`self-center mt-6 overflow-hidden rounded-3xl border border-[#d2e4dc] shadow-sm ${
               isDesktopOrLaptop ? "w-full max-w-5xl" : isTablet ? "w-[95%]" : "w-[92%]"
             }`}
-            style={{ aspectRatio: 16 / 9, maxHeight: isDesktopOrLaptop ? 560 : 420 }}
+            style={{
+              aspectRatio: 16 / 9,
+              maxHeight: isDesktopOrLaptop ? 560 : 420,
+              // Video stage stays black; once the slogan slideshow
+              // takes over, the whole stage goes brand green so no
+              // black flashes at the swipe edges.
+              backgroundColor: showSlideshow ? "#024e32" : "#000000",
+            }}
           >
             {!showSlideshow ? (
               <VideoView
@@ -706,7 +797,7 @@ export default function HomeScreen() {
               />
             ) : (
               <View style={{ flex: 1, position: "relative" }}>
-                {/* SWIPEABLE SLIDER (left / right) */}
+                {/* SWIPEABLE SLOGAN SLIDER (left / right) */}
                 <ScrollView
                   ref={sliderRef}
                   horizontal
@@ -720,22 +811,99 @@ export default function HomeScreen() {
                   style={{ flex: 1 }}
                 >
                   {sliderWidth > 0 &&
-                    slideImages.map((img, idx) => (
+                    slogans.map((slide, idx) => (
                       <View
                         key={idx}
                         style={{
                           width: sliderWidth,
                           height: "100%",
-                          backgroundColor: "#000",
+                          backgroundColor: "#024e32",
                           alignItems: "center",
                           justifyContent: "center",
+                          paddingHorizontal: isDesktopOrLaptop ? 64 : 28,
+                          // Reserve clear space at the bottom so the
+                          // pagination dots never sit on top of the
+                          // English subtitle text.
+                          paddingBottom: isDesktopOrLaptop ? 46 : 36,
+                          overflow: "hidden",
                         }}
                       >
-                        <Image
-                          source={img}
-                          style={{ width: "100%", height: "100%" }}
-                          resizeMode="contain"
+                        {/* decorative glow circles for that "wow" depth */}
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            width: isDesktopOrLaptop ? 260 : 170,
+                            height: isDesktopOrLaptop ? 260 : 170,
+                            borderRadius: 999,
+                            backgroundColor: "rgba(255,255,255,0.07)",
+                            top: isDesktopOrLaptop ? -110 : -70,
+                            right: isDesktopOrLaptop ? -90 : -55,
+                          }}
                         />
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            width: isDesktopOrLaptop ? 180 : 120,
+                            height: isDesktopOrLaptop ? 180 : 120,
+                            borderRadius: 999,
+                            backgroundColor: "rgba(255,255,255,0.05)",
+                            bottom: isDesktopOrLaptop ? -70 : -40,
+                            left: isDesktopOrLaptop ? -60 : -35,
+                          }}
+                        />
+                        <View
+                          pointerEvents="none"
+                          style={{
+                            position: "absolute",
+                            width: 2,
+                            height: "70%",
+                            backgroundColor: "rgba(255,255,255,0.06)",
+                            left: "18%",
+                          }}
+                        />
+
+                        <MaterialIcons
+                          name="format-quote"
+                          size={isDesktopOrLaptop ? 44 : 32}
+                          color="rgba(255,255,255,0.4)"
+                          style={{ marginBottom: 6, transform: [{ scaleX: -1 }] }}
+                        />
+
+                        <Text
+                          style={{
+                            color: "#ffffff",
+                            fontSize: isDesktopOrLaptop ? 30 : isTablet ? 26 : 21,
+                            fontWeight: "800",
+                            textAlign: "center",
+                            lineHeight: isDesktopOrLaptop ? 42 : isTablet ? 36 : 29,
+                          }}
+                        >
+                          {slide.kn}
+                        </Text>
+
+                        <View
+                          style={{
+                            width: 44,
+                            height: 3,
+                            borderRadius: 2,
+                            backgroundColor: "#e8501f",
+                            marginVertical: isDesktopOrLaptop ? 18 : 14,
+                          }}
+                        />
+
+                        <Text
+                          style={{
+                            color: "rgba(255,255,255,0.85)",
+                            fontSize: isDesktopOrLaptop ? 16 : 13,
+                            fontWeight: "500",
+                            textAlign: "center",
+                            lineHeight: isDesktopOrLaptop ? 24 : 19,
+                          }}
+                        >
+                          {slide.en}
+                        </Text>
                       </View>
                     ))}
                 </ScrollView>
@@ -758,7 +926,7 @@ export default function HomeScreen() {
                     borderRadius: 20,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: "rgba(0,0,0,0.35)",
+                    backgroundColor: "rgba(0,0,0,0.25)",
                   }}
                 >
                   <MaterialIcons name="chevron-left" size={28} color="#ffffff" />
@@ -782,7 +950,7 @@ export default function HomeScreen() {
                     borderRadius: 20,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: "rgba(0,0,0,0.35)",
+                    backgroundColor: "rgba(0,0,0,0.25)",
                   }}
                 >
                   <MaterialIcons name="chevron-right" size={28} color="#ffffff" />
@@ -796,9 +964,13 @@ export default function HomeScreen() {
                     flexDirection: "row",
                     alignSelf: "center",
                     gap: 8,
+                    backgroundColor: "rgba(0,0,0,0.18)",
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 12,
                   }}
                 >
-                  {slideImages.map((_, idx) => (
+                  {slogans.map((_, idx) => (
                     <TouchableOpacity
                       key={idx}
                       onPress={() => {

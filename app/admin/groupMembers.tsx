@@ -1,26 +1,24 @@
-import { useEffect, useState, useRef } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import * as Print from "expo-print";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
+  Animated,
+  KeyboardAvoidingView,
   Modal,
   Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
   useWindowDimensions,
-  View,
-  RefreshControl,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Animated,
-  StatusBar,
+  View
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { MaterialIcons } from "@expo/vector-icons";
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useLocalSearchParams, useRouter } from "expo-router";
 import BACKEND_URL from "../../config";
 
 // ============ HELPER FUNCTION TO EXTRACT NUMERIC VALUE FROM ID ============
@@ -30,7 +28,7 @@ const extractNumberFromId = (id: string) => {
   const numbers = id.match(/\d+/g);
   if (!numbers) return 0;
   // Join all numbers and convert to integer
-  return parseInt(numbers.join('')) || 0;
+  return parseInt(numbers.join("")) || 0;
 };
 
 // ============ SORT MEMBERS BY GROUP MEMBER ID ============
@@ -43,7 +41,11 @@ const sortMembersById = (members: any[]) => {
 };
 
 // ============ PREMIUM SKELETON LOADER ============
-const SkeletonLoader = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) => {
+const SkeletonLoader = ({
+  isDesktopOrLaptop,
+}: {
+  isDesktopOrLaptop: boolean;
+}) => {
   const skeletonOpacity = useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
@@ -59,7 +61,7 @@ const SkeletonLoader = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) =
           duration: 800,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
     animation.start();
@@ -184,7 +186,7 @@ export default function GroupMembers() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [collectionAmount, setCollectionAmount] = useState("");
-  
+
   // Date picker states
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
@@ -225,15 +227,16 @@ export default function GroupMembers() {
 
   // Confirmation modals
   const [addMemberConfirmModal, setAddMemberConfirmModal] = useState(false);
-  const [addCollectionConfirmModal, setAddCollectionConfirmModal] = useState(false);
+  const [addCollectionConfirmModal, setAddCollectionConfirmModal] =
+    useState(false);
 
   // Generate months based on table columns (M1...Mn)
   const months = Array.from(
     { length: Math.max(...members.map((m) => m.collections?.length || 0), 0) },
-    (_, i) => `M${i + 1}`
+    (_, i) => `M${i + 1}`,
   );
 
-  //dividend amount ui 
+  //dividend amount ui
   const [dividend, setDividend] = useState("");
 
   // ✅ 6% fixed penalty
@@ -247,83 +250,172 @@ export default function GroupMembers() {
     return new Date().getTime() > due.getTime();
   };
 
-  // ✅ LIVE pending + penalty calculator
-  const getPendingAndPenalty = (
-    installment: number,
-    payments: any[] | undefined,
-    endDate?: Date | null,
-    dividend: number = 0
+  // ✅ CUMULATIVE / COMPOUNDING penalty across all months for one member.
+  //
+  // Each overdue month's penalty is 6% of (that month's own unpaid
+  // installment, frozen as of ITS OWN due date + every earlier month's
+  // installment that was STILL UNPAID AS OF THIS MONTH'S OWN DUE DATE).
+  // Two different "as of" points on purpose, and BOTH are frozen in time —
+  // nothing here is ever computed against "today":
+  //   - a month's OWN contribution is frozen using only payments made on
+  //     or before ITS OWN due date, so a late payment can never shrink a
+  //     charge that's already been assessed (and possibly already
+  //     collected) for that same month.
+  //   - the CARRY from an earlier month is frozen using only payments made
+  //     on or before THIS month's own due date — i.e. whichever earlier
+  //     months were still unpaid at the moment THIS month's penalty was
+  //     assessed. Once that due date has passed, this never moves again,
+  //     even if the earlier month gets paid off much later — a penalty
+  //     that's already been assessed and declared stays fixed. (An
+  //     earlier month that was already paid off BEFORE this month's due
+  //     date is correctly excluded, since it genuinely wasn't outstanding
+  //     "back then" either.)
+  // New overdue months only ever ADD another increment on top of the
+  // running total; an old month's own already-assessed increment never
+  // changes.
+  //
+  // Example this matches: M1 ₹5000 unpaid → +₹300 (total ₹300). M2 also
+  // ₹5000 unpaid while M1 remains unpaid as of M2's due date → base =
+  // ₹5000 (M1 carried) + ₹5000 (M2) = ₹10,000 → +₹600 (total ₹900). That
+  // ₹600 for M2 is now permanently fixed — even if M1 is paid off weeks
+  // later, M2's penalty does NOT drop back down. If M2 itself gets fully
+  // paid off before M3 becomes overdue, M3's carry only includes M1
+  // (still unpaid as of M3's due date), not M2.
+  const getCumulativePenaltyForMember = (
+    collections: any[] | undefined,
+    monthPlansMap: Record<number, any>,
   ) => {
-    const safePayments = Array.isArray(payments) ? payments : [];
+    const sorted = [...(collections || [])]
+      .filter((c) => c && c.installmentAmount)
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
 
-    const installmentPaid = safePayments
-      .filter(p => p.paymentType !== "PENALTY")
-      .reduce((s, p) => s + (p.amount || 0), 0);
+    // Pending installment balance for `collection`, using only payments
+    // made on or before `cutoffDate` (pass null to mean "right now",
+    // i.e. every payment on record regardless of date — used only for
+    // the live "Pending Installment" display, never for penalty carry).
+    const pendingAsOfDate = (collection: any, cutoffDate: any) => {
+      const installment = collection.installmentAmount || 0;
+      const dividend = Number(monthPlansMap[collection.index]?.dividend || 0);
+      const effectiveInstallment = Math.max(installment - dividend, 0);
+      const payments = Array.isArray(collection.payments)
+        ? collection.payments
+        : [];
 
-    const totalInstallmentPaid = dividend + installmentPaid;
-    const pendingInstallment = Math.max(installment - totalInstallmentPaid, 0);
-
-    if (!endDate || !isAfterDueDate(endDate)) {
-      return {
-        pendingInstallment,
-        penaltyDue: 0,
-        pendingPenalty: 0,
-        totalPending: pendingInstallment,
-      };
-    }
-
-    const due = new Date(endDate);
-    due.setHours(23, 59, 59, 999);
-    const dueTime = due.getTime();
-
-    let installmentPaidBeforeDue = 0;
-    safePayments.forEach((p) => {
-      const paidTime = new Date(p.paidAt || p.date).getTime();
-      if (paidTime <= dueTime && p.paymentType !== "PENALTY") {
-        installmentPaidBeforeDue += p.amount || 0;
+      if (!cutoffDate) {
+        const paidAny = payments
+          .filter((p: any) => p.paymentType !== "PENALTY")
+          .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+        return Math.max(effectiveInstallment - paidAny, 0);
       }
-    });
 
-    const effectiveInstallment = Math.max(installment - dividend, 0);
-    const penaltyBaseAmount = Math.max(effectiveInstallment - installmentPaidBeforeDue, 0);
-    const penaltyDue = Math.round((penaltyBaseAmount * FIXED_PENALTY_PERCENTAGE) / 100);
-
-    let runningInstallment = installmentPaidBeforeDue;
-    let penaltyPaid = 0;
-    safePayments.forEach((p) => {
-      const paidTime = new Date(p.paidAt || p.date).getTime();
-      if (paidTime > dueTime) {
-        if (p.paymentType === "PENALTY") {
-          penaltyPaid += p.amount || 0;
-          return;
-        }
-        if (runningInstallment < installment) {
-          const usedForInstallment = Math.min(installment - runningInstallment, p.amount || 0);
-          runningInstallment += usedForInstallment;
-          const remaining = (p.amount || 0) - usedForInstallment;
-          if (remaining > 0) {
-            penaltyPaid += remaining;
-          }
-        } else {
-          penaltyPaid += p.amount || 0;
-        }
-      }
-    });
-
-    const pendingPenalty = Math.max(penaltyDue - penaltyPaid, 0);
-
-    return {
-      pendingInstallment,
-      penaltyDue,
-      pendingPenalty,
-      totalPending: pendingInstallment + pendingPenalty,
+      const due = new Date(cutoffDate);
+      due.setHours(23, 59, 59, 999);
+      const dueTime = due.getTime();
+      let paidByCutoff = 0;
+      payments.forEach((p: any) => {
+        if (p.paymentType === "PENALTY") return;
+        const t = new Date(p.paidAt || p.date).getTime();
+        if (t <= dueTime) paidByCutoff += p.amount || 0;
+      });
+      return Math.max(effectiveInstallment - paidByCutoff, 0);
     };
+
+    // This month's own unpaid installment, frozen using only payments made
+    // on or before ITS OWN due date.
+    const unpaidAsOfOwnDueDate = (collection: any) =>
+      pendingAsOfDate(collection, collection.endDate || null);
+
+    // Current outstanding installment balance, right now, using every
+    // payment on record regardless of when it was made. Used ONLY for the
+    // live "Pending Installment" display — penalty carry uses
+    // pendingAsOfDate(..., thisMonth.endDate) instead, so it freezes.
+    const currentPendingInstallment = (collection: any) =>
+      pendingAsOfDate(collection, null);
+
+    const perMonth: {
+      index: number;
+      pendingInstallment: number;
+      penaltyIncrement: number;
+      penaltyPaid: number;
+      pendingPenalty: number;
+      cumulativeAssessed: number;
+      // Breakdown of penaltyIncrement, for display: penaltyIncrement ≈
+      // carriedPenaltyPart + ownPenaltyPart (may differ by ≤ ₹1 from
+      // rounding the two parts separately vs. rounding the combined base).
+      carriedFromMonths: number[];
+      carriedPenaltyPart: number;
+      ownPenaltyPart: number;
+    }[] = [];
+
+    let totalPenaltyAssessed = 0;
+    let totalPenaltyPending = 0;
+
+    sorted.forEach((c, i) => {
+      const pendingInstallment = currentPendingInstallment(c);
+
+      const payments = Array.isArray(c.payments) ? c.payments : [];
+      const penaltyPaid = payments
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+
+      let penaltyIncrement = 0;
+      const carriedFromMonths: number[] = [];
+      let carriedPenaltyPart = 0;
+      let ownPenaltyPart = 0;
+
+      if (c.endDate && isAfterDueDate(c.endDate)) {
+        const thisMonthUnpaid = unpaidAsOfOwnDueDate(c);
+        let carriedUnpaid = 0;
+        for (let j = 0; j < i; j++) {
+          // Freeze each earlier month's contribution as of THIS month's
+          // own due date — not "today" — so this penalty, once assessed,
+          // never changes based on when the earlier month eventually gets
+          // paid off.
+          const priorPending = pendingAsOfDate(sorted[j], c.endDate);
+          if (priorPending > 0) {
+            carriedUnpaid += priorPending;
+            carriedFromMonths.push(sorted[j].index);
+          }
+        }
+
+        const base = thisMonthUnpaid + carriedUnpaid;
+        penaltyIncrement = Math.round((base * FIXED_PENALTY_PERCENTAGE) / 100);
+        totalPenaltyAssessed += penaltyIncrement;
+
+        // Split the same 6% across the two parts (6% is linear, so this
+        // splits cleanly) purely so the UI can explain WHICH still-unpaid
+        // month(s) this charge is coming from.
+        carriedPenaltyPart = Math.round(
+          (carriedUnpaid * FIXED_PENALTY_PERCENTAGE) / 100,
+        );
+        ownPenaltyPart = Math.round(
+          (thisMonthUnpaid * FIXED_PENALTY_PERCENTAGE) / 100,
+        );
+      }
+
+      const pendingPenalty = Math.max(penaltyIncrement - penaltyPaid, 0);
+      totalPenaltyPending += pendingPenalty;
+
+      perMonth.push({
+        index: c.index,
+        pendingInstallment,
+        penaltyIncrement,
+        penaltyPaid,
+        pendingPenalty,
+        cumulativeAssessed: totalPenaltyAssessed,
+        carriedFromMonths,
+        carriedPenaltyPart,
+        ownPenaltyPart,
+      });
+    });
+
+    return { perMonth, totalPenaltyAssessed, totalPenaltyPending };
   };
 
   // ✅ SAFE helper
   const getCollectionMeta = (collection: any) => {
     const installmentAmount = Number(
-      collection?.installmentAmount ?? collection?.amount ?? 0
+      collection?.installmentAmount ?? collection?.amount ?? 0,
     );
     const endDate = collection?.endDate ? new Date(collection.endDate) : null;
     return {
@@ -343,28 +435,27 @@ export default function GroupMembers() {
       const groupData = await groupRes.json();
 
       const tempPlansMap: Record<number, any> = {};
-      (data.collectionPlans || []).forEach(p => {
+      (data.collectionPlans || []).forEach((p) => {
         tempPlansMap[p.monthIndex] = p;
       });
 
       setPlansMap(tempPlansMap);
 
       // Get members and sort them by groupMemberId numerically
-      const fetchedMembers = (data.groupMembers || []).map(m => ({
+      const fetchedMembers = (data.groupMembers || []).map((m) => ({
         ...m,
-        collections: (m.collections || []).map(c => ({
+        collections: (m.collections || []).map((c) => ({
           ...c,
           installmentAmount:
             tempPlansMap[c.index]?.installmentAmount ??
             c.installmentAmount ??
             c.amount ??
             0,
-          endDate:
-            tempPlansMap[c.index]?.endDate
-              ? new Date(tempPlansMap[c.index].endDate)
-              : c.endDate
-                ? new Date(c.endDate)
-                : null,
+          endDate: tempPlansMap[c.index]?.endDate
+            ? new Date(tempPlansMap[c.index].endDate)
+            : c.endDate
+              ? new Date(c.endDate)
+              : null,
           payments: (c.payments || []).map((p: any) => ({
             ...p,
             paidAt: p.paidAt || p.date || new Date().toISOString(),
@@ -376,33 +467,15 @@ export default function GroupMembers() {
       // ✅ SORT MEMBERS BY GROUP MEMBER ID (NUMERIC ORDER)
       const sortedMembers = sortMembersById(fetchedMembers);
       setMembers(sortedMembers);
-      
+
       await fetchAdminUpdates();
     } catch (error) {
       console.log("Failed to load members:", error);
-      Alert.alert("Warning", "Could not connect to server. Using local data.");
-      const localMembers = [
-        {
-          _id: "1",
-          memberId: "M001",
-          groupMemberId: "M01",
-          memberName: "John Doe",
-          phone: "1234567890",
-          collections: [
-            {
-              index: 1,
-              installmentAmount: 1000,
-              startDate: "2026-01-01",
-              endDate: "2026-01-31",
-              payments: [
-                { amount: 500, paidAt: "2026-01-09T15:14:23.317Z", id: "p1" },
-                { amount: 500, paidAt: "2026-01-09T14:11:43.795Z", id: "p2" }
-              ]
-            }
-          ]
-        }
-      ];
-      setMembers(localMembers);
+      Alert.alert(
+        "Error",
+        "Could not connect to the server. Pull to refresh to try again.",
+      );
+      setMembers([]);
     } finally {
       setLoading(false);
     }
@@ -420,13 +493,18 @@ export default function GroupMembers() {
   // Fetch admin updates
   const fetchAdminUpdates = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/admin/updates?groupId=${groupId}`);
+      const res = await fetch(
+        `${BACKEND_URL}/admin/updates?groupId=${groupId}`,
+      );
       const text = await res.text();
       if (text.startsWith("{") || text.startsWith("[")) {
         const data = JSON.parse(text);
         setAdminUpdates(data.updates || []);
       } else {
-        console.log("Non-JSON response from admin updates:", text.substring(0, 100));
+        console.log(
+          "Non-JSON response from admin updates:",
+          text.substring(0, 100),
+        );
         setAdminUpdates([]);
       }
     } catch (error) {
@@ -475,7 +553,7 @@ export default function GroupMembers() {
   const openMonthConfig = async (monthIndex: number) => {
     try {
       const res = await fetch(
-        `${BACKEND_URL}/groups/${groupId}/collection-plan/${monthIndex}`
+        `${BACKEND_URL}/groups/${groupId}/collection-plan/${monthIndex}`,
       );
       const data = await res.json();
 
@@ -506,13 +584,13 @@ export default function GroupMembers() {
 
     const normalizedInput = groupMemberId.trim().toLowerCase();
     const alreadyExists = members.some(
-      (m) => (m.groupMemberId || "").trim().toLowerCase() === normalizedInput
+      (m) => (m.groupMemberId || "").trim().toLowerCase() === normalizedInput,
     );
 
     if (alreadyExists) {
       Alert.alert(
         "Duplicate Group Member ID",
-        `Group Member ID "${groupMemberId}" already exists. Please use a different ID.`
+        `Group Member ID "${groupMemberId}" already exists. Please use a different ID.`,
       );
       return;
     }
@@ -520,7 +598,11 @@ export default function GroupMembers() {
     setAddMemberConfirmModal(true);
   };
 
-  // Actually add member
+  // Actually add member — backend is the source of truth now: on
+  // failure we show an error and do NOT fabricate a local-only member,
+  // so the list on screen never drifts from what the server actually
+  // has (same reasoning as apps like Instagram/Flipkart, which never
+  // show you data your account doesn't really have).
   const addMember = async () => {
     setAddMemberConfirmModal(false);
 
@@ -535,45 +617,16 @@ export default function GroupMembers() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const newMember = {
-        _id: generatePaymentId(),
-        memberId,
-        groupMemberId,
-        memberName: `Member ${memberId}`,
-        phone: "Not set",
-        collections: []
-      };
-      
-      // ✅ Add new member and sort
-      setMembers(prev => {
-        const updated = [...prev, newMember];
-        return sortMembersById(updated);
-      });
-      
       Alert.alert("Success", `Member added with ID: ${groupMemberId}`);
       setMemberId("");
       setGroupMemberId("");
       await fetchMembers();
-
     } catch (error) {
       console.log("Failed to add member to backend:", error);
-      const newMember = {
-        _id: generatePaymentId(),
-        memberId,
-        groupMemberId,
-        memberName: `Member ${memberId}`,
-        phone: "Not set",
-        collections: []
-      };
-      
-      setMembers(prev => {
-        const updated = [...prev, newMember];
-        return sortMembersById(updated);
-      });
-      Alert.alert("Success", `Member added with ID: ${groupMemberId} (locally)`);
-      setMemberId("");
-      setGroupMemberId("");
-      await fetchMembers();
+      Alert.alert(
+        "Error",
+        "Failed to add member. Please check your connection and try again.",
+      );
     }
   };
 
@@ -586,17 +639,11 @@ export default function GroupMembers() {
         body: JSON.stringify({
           groupId,
           ...updateData,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         }),
       });
     } catch (error) {
       console.log("Failed to record admin update:", error);
-      const newUpdate = {
-        ...updateData,
-        timestamp: new Date().toISOString(),
-        id: generatePaymentId(),
-      };
-      setAdminUpdates(prev => [newUpdate, ...prev]);
     }
   };
 
@@ -609,7 +656,9 @@ export default function GroupMembers() {
     setAddCollectionConfirmModal(true);
   };
 
-  // Actually add collection
+  // Actually add collection — no local-only fallback: if the backend
+  // call fails, nothing is applied on screen and the admin is told to
+  // retry, so the plan shown always matches what's actually saved.
   const addCollection = async () => {
     setAddCollectionConfirmModal(false);
 
@@ -628,52 +677,36 @@ export default function GroupMembers() {
             installmentAmount: Number(collectionAmount),
             ...(dividend ? { dividend: Number(dividend) } : {}),
           }),
-        }
+        },
       );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
 
       const data = await res.json();
-      
+
       Alert.alert("Success", data.message || "Collection plan added");
 
-      setSelectedMonth("");
-      setStartDate("");
-      setEndDate("");
-      setCollectionAmount("");
-      setDividend("");
-
-      setMembers(prev =>
-        prev.map(m => ({
-          ...m,
-          collections: (m.collections || []).map(c =>
-            c.index === monthIndex
-              ? {
-                  ...c,
-                  installmentAmount: Number(collectionAmount),
-                  endDate: tempEndDate,
-                }
-              : c
-          ),
-        }))
-      );
-      
       await recordAdminUpdate({
         type: "ADD_COLLECTION_PLAN",
         month: selectedMonth,
         amount: collectionAmount,
-        details: `Added collection plan for ${selectedMonth} - ₹${collectionAmount}`
+        details: `Added collection plan for ${selectedMonth} - ₹${collectionAmount}`,
       });
 
       setSelectedMonth("");
       setStartDate("");
       setEndDate("");
       setCollectionAmount("");
-      fetchMembers();
-    } catch {
-      Alert.alert("Info", "Collection plan saved locally (backend offline)");
-      setSelectedMonth("");
-      setStartDate("");
-      setEndDate("");
-      setCollectionAmount("");
+      setDividend("");
+      await fetchMembers();
+    } catch (error) {
+      console.log("Failed to add collection plan:", error);
+      Alert.alert(
+        "Error",
+        "Failed to save the collection plan. Please check your connection and try again.",
+      );
     }
   };
 
@@ -682,33 +715,31 @@ export default function GroupMembers() {
     if (!memberToDelete) return;
 
     try {
-      try {
-        await fetch(
-          `${BACKEND_URL}/groups/${groupId}/members/${memberToDelete.groupMemberId}`,
-          { method: "DELETE" }
-        );
-      } catch (error) {
-        console.log("Backend delete failed, removing locally:", error);
+      const res = await fetch(
+        `${BACKEND_URL}/groups/${groupId}/members/${memberToDelete.groupMemberId}`,
+        { method: "DELETE" },
+      );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
 
-      setMembers(prev => {
-        const updated = prev.filter(m => m.groupMemberId !== memberToDelete.groupMemberId);
-        return sortMembersById(updated);
-      });
-
-      await fetchMembers();
-     
       await recordAdminUpdate({
         type: "DELETE_MEMBER",
         memberId: memberToDelete.memberId,
-        details: `Deleted member ${memberToDelete.memberName} from group`
+        details: `Deleted member ${memberToDelete.memberName} from group`,
       });
 
       setDeleteModalVisible(false);
       setMemberToDelete(null);
       Alert.alert("Success", "Member deleted");
+      await fetchMembers();
     } catch (error) {
-      Alert.alert("Error", "Failed to delete member");
+      console.log("Failed to delete member:", error);
+      Alert.alert(
+        "Error",
+        "Failed to delete member. Please check your connection and try again.",
+      );
     }
   };
 
@@ -719,31 +750,33 @@ export default function GroupMembers() {
       member.collections.map((c: any) => ({
         index: c.index,
         amount: c.amount ?? "",
-        payments: c.payments || []
-      }))
+        payments: c.payments || [],
+      })),
     );
     setEditVisible(true);
   };
 
   const saveEdit = async () => {
     try {
-      setMembers(prev => prev.map(m => {
-        if (m._id === editMember._id) {
-          return {
-            ...m,
-            collections: editCollections.map(c => ({
-              ...c,
-              amount: Number(c.amount) || 0
-            }))
-          };
-        }
-        return m;
-      }));
+      setMembers((prev) =>
+        prev.map((m) => {
+          if (m._id === editMember._id) {
+            return {
+              ...m,
+              collections: editCollections.map((c) => ({
+                ...c,
+                amount: Number(c.amount) || 0,
+              })),
+            };
+          }
+          return m;
+        }),
+      );
 
       await recordAdminUpdate({
         type: "UPDATE_COLLECTIONS",
         memberId: editMember.memberId,
-        details: `Updated collections for ${editMember.memberName}`
+        details: `Updated collections for ${editMember.memberName}`,
       });
 
       setEditVisible(false);
@@ -760,10 +793,10 @@ export default function GroupMembers() {
 
   // Date picker functions
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
+    return date.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
     });
   };
 
@@ -817,7 +850,7 @@ export default function GroupMembers() {
     placeholder: string,
     onPress: () => void,
     webValue: string,
-    onChangeWeb: (e: any) => void
+    onChangeWeb: (e: any) => void,
   ) => {
     if (Platform.OS === "web") {
       return (
@@ -826,10 +859,11 @@ export default function GroupMembers() {
           value={webValue}
           onChange={onChangeWeb}
           className="bg-gray-50 border border-gray-300 px-4 py-3 rounded-xl w-full"
-          style={{ 
-            fontSize: '16px',
-            color: webValue ? '#1f2937' : '#6b7280',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+          style={{
+            fontSize: "16px",
+            color: webValue ? "#1f2937" : "#6b7280",
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           }}
         />
       );
@@ -841,7 +875,9 @@ export default function GroupMembers() {
         className="bg-gray-50 border border-gray-300 px-4 py-3 rounded-xl flex-row justify-between items-center"
         activeOpacity={0.8}
       >
-        <Text className={`${value ? "text-gray-800 font-medium" : "text-gray-500"}`}>
+        <Text
+          className={`${value ? "text-gray-800 font-medium" : "text-gray-500"}`}
+        >
           {value || placeholder}
         </Text>
         <MaterialIcons name="calendar-today" size={20} color="#666" />
@@ -849,117 +885,14 @@ export default function GroupMembers() {
     );
   };
 
-  // Add payment to collection
-  const addPaymentToCollection = async (member: any, monthIndex: number, amount: number) => {
-    const paymentId = generatePaymentId();
-
-    const c = member.collections?.[monthIndex - 1];
-    const { installmentAmount, endDate } = getCollectionMeta(c || {});
-    const { pendingInstallment } = getPendingAndPenalty(
-      installmentAmount,
-      c.payments || [],
-      endDate,
-      Number(plansMap[c.index]?.dividend || 0)
-    );
-
-    let paymentType: "INSTALLMENT" | "PENALTY" = "INSTALLMENT";
-    const { pendingPenalty } = getPendingAndPenalty(
-      installmentAmount,
-      c.payments || [],
-      endDate,
-      Number(plansMap[c.index]?.dividend || 0)
-    );
-
-    if (isAfterDueDate(endDate) && pendingPenalty > 0 && amount <= pendingPenalty) {
-      paymentType = "PENALTY";
-    }
-
-    const newPayment = {
-      __pid: paymentId,
-      amount: parseFloat(amount.toString()),
-      paidAt: new Date().toISOString(),
-      date: new Date().toISOString(),
-      collectedBy: currentEmployee?.emp_id || "Admin",
-      paymentType,
-    };
-
-    try {
-      const response = await fetch(
-        `${BACKEND_URL}/groups/${groupId}/members/${member.groupMemberId}/collections/${monthIndex}/payments`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(newPayment),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.log("Backend payment failed, saving locally:", error);
-    }
-
-    setMembers(prev => prev.map(m => {
-      if (m.groupMemberId === member.groupMemberId) {
-        const updatedCollections = [...(m.collections || [])];
-        while (updatedCollections.length < monthIndex) {
-          updatedCollections.push({ index: updatedCollections.length + 1, payments: [] });
-        }
-        const collectionIndex = monthIndex - 1;
-        if (!updatedCollections[collectionIndex]) {
-          updatedCollections[collectionIndex] = { index: monthIndex, payments: [] };
-        }
-        const updatedPayments = [
-          ...(updatedCollections[collectionIndex].payments || []),
-          newPayment,
-        ];
-        updatedCollections[collectionIndex] = {
-          ...updatedCollections[collectionIndex],
-          index: monthIndex,
-          installmentAmount: updatedCollections[collectionIndex].installmentAmount ?? 0,
-          endDate: updatedCollections[collectionIndex].endDate,
-          payments: updatedPayments,
-        };
-        return { ...m, collections: updatedCollections };
-      }
-      return m;
-    }));
-
-    await recordAdminUpdate({
-      type: "ADD_PAYMENT",
-      memberId: member.memberId,
-      monthIndex,
-      amount,
-      details: `Added payment of ₹${amount} for ${member.memberName} - M${monthIndex}`
-    });
-
-    Alert.alert("Success", "Payment added successfully");
-    
-    if (historyVisible && historyMember?.groupMemberId === member.groupMemberId) {
-      setHistoryMember(prev => ({
-        ...prev,
-        collections: prev.collections.map((c: any) => {
-          if (c.index !== monthIndex) return c;
-          return {
-            ...c,
-            installmentAmount: c.installmentAmount,
-            endDate: c.endDate,
-            payments: [...(c.payments || []), newPayment],
-          };
-        }),
-      }));
-    }
-  };
-
   // Open edit payment modal
   const openEditPaymentModal = (
     payment: any,
     monthIndex: number,
-    paymentIndex: number
+    paymentIndex: number,
   ) => {
     console.log("Opening edit for payment:", payment);
-    
+
     if (!historyMember) {
       Alert.alert("Error", "Member data not found");
       return;
@@ -974,7 +907,7 @@ export default function GroupMembers() {
       ...paymentWithId,
       monthIndex,
       paymentIndex,
-      member: historyMember
+      member: historyMember,
     });
 
     setEditPaymentAmount(payment.amount.toString());
@@ -1003,11 +936,11 @@ export default function GroupMembers() {
             amount: newAmount,
             paidAt: editPaymentDate.toISOString(),
           }),
-        }
+        },
       );
 
-      setMembers(prev =>
-        prev.map(m => {
+      setMembers((prev) =>
+        prev.map((m) => {
           if (m.groupMemberId !== editingPayment.member.groupMemberId) return m;
           return {
             ...m,
@@ -1018,12 +951,14 @@ export default function GroupMembers() {
                 ...payments[editingPayment.paymentIndex],
                 amount: newAmount,
                 paidAt: editPaymentDate.toISOString(),
-                paymentType: payments[editingPayment.paymentIndex].paymentType || "INSTALLMENT",
+                paymentType:
+                  payments[editingPayment.paymentIndex].paymentType ||
+                  "INSTALLMENT",
               };
               return { ...c, payments };
             }),
           };
-        })
+        }),
       );
 
       setEditPaymentModal(false);
@@ -1039,14 +974,11 @@ export default function GroupMembers() {
   };
 
   // Delete payment
-  const deleteNow = async (
-    monthIndex: number,
-    paymentIndex: number
-  ) => {
+  const deleteNow = async (monthIndex: number, paymentIndex: number) => {
     try {
       const res = await fetch(
         `${BACKEND_URL}/groups/${groupId}/members/${historyMember.groupMemberId}/payments/${monthIndex}/${paymentIndex}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
 
       if (!res.ok) {
@@ -1070,7 +1002,11 @@ export default function GroupMembers() {
     }
   };
 
-  const deletePayment = (payment: any, monthIndex: number, paymentIndex: number) => {
+  const deletePayment = (
+    payment: any,
+    monthIndex: number,
+    paymentIndex: number,
+  ) => {
     if (paymentIndex < 0) {
       Alert.alert("Not Allowed", "Dividend cannot be deleted");
       return;
@@ -1093,17 +1029,12 @@ export default function GroupMembers() {
           style: "destructive",
           onPress: () => deleteNow(monthIndex, paymentIndex),
         },
-      ]
+      ],
     );
   };
 
-  // ✅ FULL TABLE PRINT
-  const printFullTable = () => {
-    if (Platform.OS !== "web") {
-      Alert.alert("Print works only on Web/Desktop");
-      return;
-    }
-
+  // ✅ FULL TABLE PRINT — works on Web, iOS and Android
+  const printFullTable = async () => {
     const maxMonths = getMaxCollections();
 
     let html = `
@@ -1145,7 +1076,11 @@ export default function GroupMembers() {
     `;
 
     members.forEach((m) => {
-      let totalPenalty = 0;
+      const { totalPenaltyPending } = getCumulativePenaltyForMember(
+        m.collections,
+        plansMap,
+      );
+      const totalPenalty = totalPenaltyPending;
 
       html += `
         <tr>
@@ -1170,14 +1105,6 @@ export default function GroupMembers() {
         const dividend = Number(plansMap[c.index]?.dividend || 0);
         const totalPaid = dividend + installmentPaid;
         const installmentAmount = c.installmentAmount || 0;
-        const { pendingPenalty } = getPendingAndPenalty(
-          installmentAmount,
-          c.payments || [],
-          c.endDate,
-          dividend
-        );
-
-        totalPenalty += pendingPenalty;
 
         html += `
           <td>
@@ -1199,17 +1126,38 @@ export default function GroupMembers() {
     html += `
           </tbody>
         </table>
-        <script>
-          window.print();
-          window.onafterprint = () => window.close();
-        </script>
       </body>
       </html>
     `;
 
-    const printWindow = window.open("", "_blank");
-    printWindow.document.write(html);
-    printWindow.document.close();
+    if (Platform.OS === "web") {
+      // On web, keep the familiar "open a print-ready window" flow.
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        Alert.alert("Error", "Please allow pop-ups to print the report.");
+        return;
+      }
+      printWindow.document.write(
+        html.replace(
+          "</body>",
+          `<script>window.print(); window.onafterprint = () => window.close();</script></body>`,
+        ),
+      );
+      printWindow.document.close();
+      return;
+    }
+
+    // On iOS and Android, hand the same HTML to expo-print, which opens the
+    // native print / "Save as PDF" sheet — no browser or pop-up needed.
+    try {
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.log("Failed to print:", error);
+      Alert.alert(
+        "Error",
+        "Could not open the print dialog. Please try again.",
+      );
+    }
   };
 
   // ============ RENDER CONFIRMATION MODALS ============
@@ -1230,7 +1178,7 @@ export default function GroupMembers() {
               Please verify the member details below
             </Text>
           </View>
-          
+
           <View className="bg-gray-50 rounded-xl p-4 mb-4">
             <View className="bg-white rounded-lg p-4 space-y-3">
               <View className="flex-row justify-between items-center py-2 border-b border-gray-100">
@@ -1238,12 +1186,16 @@ export default function GroupMembers() {
                 <Text className="text-gray-800 font-bold">{memberId}</Text>
               </View>
               <View className="flex-row justify-between items-center py-2">
-                <Text className="text-gray-600 font-medium">Group Member ID</Text>
-                <Text className="text-[#024e32] font-bold text-lg">{groupMemberId}</Text>
+                <Text className="text-gray-600 font-medium">
+                  Group Member ID
+                </Text>
+                <Text className="text-[#024e32] font-bold text-lg">
+                  {groupMemberId}
+                </Text>
               </View>
             </View>
           </View>
-          
+
           <View className="flex-row space-x-3">
             <TouchableOpacity
               onPress={() => setAddMemberConfirmModal(false)}
@@ -1254,7 +1206,7 @@ export default function GroupMembers() {
                 Cancel
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={addMember}
               className="flex-1 bg-[#024e32] py-3.5 rounded-xl"
@@ -1286,7 +1238,7 @@ export default function GroupMembers() {
               Please verify the collection details below
             </Text>
           </View>
-          
+
           <View className="bg-gray-50 rounded-xl p-4 mb-4">
             <View className="bg-white rounded-lg p-4 space-y-3">
               <View className="flex-row justify-between items-center py-2 border-b border-gray-100">
@@ -1303,7 +1255,9 @@ export default function GroupMembers() {
               </View>
               <View className="flex-row justify-between items-center py-2">
                 <Text className="text-gray-600 font-medium">Amount</Text>
-                <Text className="text-[#047857] font-bold text-lg">₹{collectionAmount}</Text>
+                <Text className="text-[#047857] font-bold text-lg">
+                  ₹{collectionAmount}
+                </Text>
               </View>
               {dividend && (
                 <View className="flex-row justify-between items-center py-2 border-t border-gray-100">
@@ -1313,7 +1267,7 @@ export default function GroupMembers() {
               )}
             </View>
           </View>
-          
+
           <View className="flex-row space-x-3">
             <TouchableOpacity
               onPress={() => setAddCollectionConfirmModal(false)}
@@ -1324,7 +1278,7 @@ export default function GroupMembers() {
                 Cancel
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={addCollection}
               className="flex-1 bg-[#047857] py-3.5 rounded-xl"
@@ -1357,15 +1311,13 @@ export default function GroupMembers() {
           </View>
 
           <View className="flex-row items-center space-x-3">
-            {Platform.OS === "web" && (
-              <TouchableOpacity
-                onPress={printFullTable}
-                className="bg-white/20 px-3 py-1 rounded-full flex-row items-center"
-              >
-                <MaterialIcons name="print" size={16} color="white" />
-                <Text className="text-white text-sm ml-1">Print</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              onPress={printFullTable}
+              className="bg-white/20 px-3 py-1 rounded-full flex-row items-center"
+            >
+              <MaterialIcons name="print" size={16} color="white" />
+              <Text className="text-white text-sm ml-1">Print</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => setShowAdminUpdates(true)}
@@ -1407,17 +1359,25 @@ export default function GroupMembers() {
             }
           >
             {/* ADD FORM */}
-            <View className={`p-5 ${isDesktopOrLaptop ? 'max-w-6xl mx-auto w-full' : ''}`}>
-              <View className={`bg-white rounded-2xl p-5 mb-6 border border-gray-200 ${isDesktopOrLaptop ? 'p-8' : ''}`}>
+            <View
+              className={`p-5 ${isDesktopOrLaptop ? "max-w-6xl mx-auto w-full" : ""}`}
+            >
+              <View
+                className={`bg-white rounded-2xl p-5 mb-6 border border-gray-200 ${isDesktopOrLaptop ? "p-8" : ""}`}
+              >
                 <View className="flex-row items-center mb-4">
                   <MaterialIcons name="person-add" size={24} color="#024e32" />
-                  <Text className={`font-bold text-gray-800 ml-2 ${isDesktopOrLaptop ? 'text-xl' : 'text-lg'}`}>
+                  <Text
+                    className={`font-bold text-gray-800 ml-2 ${isDesktopOrLaptop ? "text-xl" : "text-lg"}`}
+                  >
                     Add New Member
                   </Text>
                 </View>
 
-                <View className={`${isDesktopOrLaptop ? 'flex-row gap-4' : ''}`}>
-                  <View className={`${isDesktopOrLaptop ? 'flex-1' : ''}`}>
+                <View
+                  className={`${isDesktopOrLaptop ? "flex-row gap-4" : ""}`}
+                >
+                  <View className={`${isDesktopOrLaptop ? "flex-1" : ""}`}>
                     <TextInput
                       placeholder="Member ID"
                       value={memberId}
@@ -1425,7 +1385,7 @@ export default function GroupMembers() {
                       className="bg-gray-50 border border-gray-300 px-4 py-3 rounded-xl mb-3"
                     />
                   </View>
-                  <View className={`${isDesktopOrLaptop ? 'flex-1' : ''}`}>
+                  <View className={`${isDesktopOrLaptop ? "flex-1" : ""}`}>
                     <TextInput
                       placeholder="Group Member ID (e.g., MB01)"
                       value={groupMemberId}
@@ -1448,25 +1408,39 @@ export default function GroupMembers() {
                 {/* COLLECTION SECTION */}
                 <View className="mt-6 pt-6 border-t border-gray-200">
                   <View className="flex-row items-center mb-4">
-                    <MaterialIcons name="attach-money" size={24} color="#024e32" />
-                    <Text className={`font-bold text-gray-800 ml-2 ${isDesktopOrLaptop ? 'text-xl' : 'text-lg'}`}>
+                    <MaterialIcons
+                      name="attach-money"
+                      size={24}
+                      color="#024e32"
+                    />
+                    <Text
+                      className={`font-bold text-gray-800 ml-2 ${isDesktopOrLaptop ? "text-xl" : "text-lg"}`}
+                    >
                       Add Collection
                     </Text>
                   </View>
 
                   {/* MONTH DROPDOWN */}
                   <View className="mb-3">
-                    <Text className="text-gray-600 mb-2">Select Collection Month</Text>
+                    <Text className="text-gray-600 mb-2">
+                      Select Collection Month
+                    </Text>
                     <TouchableOpacity
-                      onPress={() => setMonthDropdownVisible(!monthDropdownVisible)}
+                      onPress={() =>
+                        setMonthDropdownVisible(!monthDropdownVisible)
+                      }
                       className="bg-gray-50 border border-gray-300 px-4 py-3 rounded-xl flex-row justify-between items-center"
                       activeOpacity={0.8}
                     >
-                      <Text className={`${selectedMonth ? "text-gray-800 font-medium" : "text-gray-500"}`}>
+                      <Text
+                        className={`${selectedMonth ? "text-gray-800 font-medium" : "text-gray-500"}`}
+                      >
                         {selectedMonth || "Select month (M1, M2, M3...)"}
                       </Text>
                       <MaterialIcons
-                        name={monthDropdownVisible ? "expand-less" : "expand-more"}
+                        name={
+                          monthDropdownVisible ? "expand-less" : "expand-more"
+                        }
                         size={24}
                         color="#666"
                       />
@@ -1474,8 +1448,8 @@ export default function GroupMembers() {
 
                     {monthDropdownVisible && (
                       <View className="bg-white border border-gray-300 rounded-xl mt-1 max-h-64 overflow-hidden shadow-sm">
-                        <ScrollView 
-                          className="max-h-64" 
+                        <ScrollView
+                          className="max-h-64"
                           showsVerticalScrollIndicator={true}
                           nestedScrollEnabled={true}
                         >
@@ -1492,17 +1466,21 @@ export default function GroupMembers() {
                               activeOpacity={0.7}
                             >
                               <View className="flex-row items-center">
-                                <MaterialIcons 
-                                  name="calendar-today" 
-                                  size={18} 
-                                  color={selectedMonth === month ? "#024e32" : "#666"} 
+                                <MaterialIcons
+                                  name="calendar-today"
+                                  size={18}
+                                  color={
+                                    selectedMonth === month ? "#024e32" : "#666"
+                                  }
                                   style={{ marginRight: 10 }}
                                 />
-                                <Text className={`text-base ${
-                                  selectedMonth === month 
-                                    ? "text-[#024e32] font-semibold" 
-                                    : "text-gray-700"
-                                }`}>
+                                <Text
+                                  className={`text-base ${
+                                    selectedMonth === month
+                                      ? "text-[#024e32] font-semibold"
+                                      : "text-gray-700"
+                                  }`}
+                                >
                                   {month}
                                 </Text>
                               </View>
@@ -1514,25 +1492,27 @@ export default function GroupMembers() {
                   </View>
 
                   {/* DATE FIELDS */}
-                  <View className={`mb-3 ${isDesktopOrLaptop ? 'flex-row gap-4' : 'space-y-3'}`}>
-                    <View className={`${isDesktopOrLaptop ? 'flex-1' : ''}`}>
+                  <View
+                    className={`mb-3 ${isDesktopOrLaptop ? "flex-row gap-4" : "space-y-3"}`}
+                  >
+                    <View className={`${isDesktopOrLaptop ? "flex-1" : ""}`}>
                       <Text className="text-gray-600 mb-2">Start Date</Text>
                       {renderDateInput(
                         startDate,
                         "Select start date",
                         () => setShowStartDatePicker(true),
                         webStartDate,
-                        handleWebStartDateChange
+                        handleWebStartDateChange,
                       )}
                     </View>
-                    <View className={`${isDesktopOrLaptop ? 'flex-1' : ''}`}>
+                    <View className={`${isDesktopOrLaptop ? "flex-1" : ""}`}>
                       <Text className="text-gray-600 mb-2">End Date</Text>
                       {renderDateInput(
                         endDate,
                         "Select end date",
                         () => setShowEndDatePicker(true),
                         webEndDate,
-                        handleWebEndDateChange
+                        handleWebEndDateChange,
                       )}
                     </View>
                   </View>
@@ -1546,7 +1526,7 @@ export default function GroupMembers() {
                       onChange={onStartDateChange}
                     />
                   )}
-                  
+
                   {Platform.OS !== "web" && showEndDatePicker && (
                     <DateTimePicker
                       value={tempEndDate}
@@ -1558,7 +1538,9 @@ export default function GroupMembers() {
 
                   {/* AMOUNT FIELD */}
                   <View className="mb-4">
-                    <Text className="text-gray-600 mb-2">Collection Amount (₹)</Text>
+                    <Text className="text-gray-600 mb-2">
+                      Collection Amount (₹)
+                    </Text>
                     <TextInput
                       placeholder="Enter amount"
                       value={collectionAmount}
@@ -1589,7 +1571,11 @@ export default function GroupMembers() {
                     activeOpacity={0.8}
                   >
                     <View className="flex-row items-center justify-center">
-                      <MaterialIcons name="attach-money" size={22} color="white" />
+                      <MaterialIcons
+                        name="attach-money"
+                        size={22}
+                        color="white"
+                      />
                       <Text className="text-white text-center font-semibold text-lg ml-2">
                         Add Collection
                       </Text>
@@ -1611,7 +1597,9 @@ export default function GroupMembers() {
               {/* TABLE */}
               <View className="mb-10">
                 <View className="flex-row justify-between items-center mb-4">
-                  <Text className={`font-bold text-gray-800 ${isDesktopOrLaptop ? 'text-xl' : 'text-lg'}`}>
+                  <Text
+                    className={`font-bold text-gray-800 ${isDesktopOrLaptop ? "text-xl" : "text-lg"}`}
+                  >
                     Members ({members.length})
                   </Text>
                   <View className="flex-row items-center">
@@ -1637,7 +1625,9 @@ export default function GroupMembers() {
                     {/* FIXED NAME COLUMN */}
                     <View className="border border-gray-300 border-r-0 rounded-l-xl overflow-hidden">
                       <View className="bg-[#024e32] py-3 px-3">
-                        <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-40' : 'w-28'}`}>
+                        <Text
+                          className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-40" : "w-28"}`}
+                        >
                           Name
                         </Text>
                       </View>
@@ -1649,7 +1639,9 @@ export default function GroupMembers() {
                           }`}
                           style={{ minHeight: 70, justifyContent: "center" }}
                         >
-                          <Text className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? 'w-40' : 'w-28'}`}>
+                          <Text
+                            className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? "w-40" : "w-28"}`}
+                          >
                             {m.memberName || "-"}
                           </Text>
                         </View>
@@ -1660,30 +1652,42 @@ export default function GroupMembers() {
                     <ScrollView horizontal className="flex-5">
                       <View className="border border-gray-300 border-l-0 rounded-r-xl overflow-hidden">
                         <View className="bg-[#024e32] flex-row py-3 px-3">
-                          <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-32' : 'w-28'}`}>
+                          <Text
+                            className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-32" : "w-28"}`}
+                          >
                             Phone
                           </Text>
-                          <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-36' : 'w-28'}`}>
+                          <Text
+                            className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-36" : "w-28"}`}
+                          >
                             Member ID
                           </Text>
-                          <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-44' : 'w-36'}`}>
+                          <Text
+                            className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-44" : "w-36"}`}
+                          >
                             Group Member ID
                           </Text>
-                          {Array.from({ length: getMaxCollections() }).map((_, i) => (
-                            <TouchableOpacity
-                              key={i}
-                              className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}
-                              onPress={() => openMonthConfig(i + 1)}
-                            >
-                              <Text className="text-white font-semibold text-center">
-                                M{i + 1}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                          <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}>
+                          {Array.from({ length: getMaxCollections() }).map(
+                            (_, i) => (
+                              <TouchableOpacity
+                                key={i}
+                                className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                                onPress={() => openMonthConfig(i + 1)}
+                              >
+                                <Text className="text-white font-semibold text-center">
+                                  M{i + 1}
+                                </Text>
+                              </TouchableOpacity>
+                            ),
+                          )}
+                          <Text
+                            className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                          >
                             Penalty
                           </Text>
-                          <Text className={`text-white font-semibold text-center ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}>
+                          <Text
+                            className={`text-white font-semibold text-center ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                          >
                             Actions
                           </Text>
                         </View>
@@ -1695,113 +1699,100 @@ export default function GroupMembers() {
                             }`}
                             style={{ minHeight: 70, alignItems: "center" }}
                           >
-                            <Text className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}>
+                            <Text
+                              className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                            >
                               {m.phone || "-"}
                             </Text>
-                            <Text className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? 'w-36' : 'w-28'}`}>
+                            <Text
+                              className={`text-gray-800 text-center text-sm ${isDesktopOrLaptop ? "w-36" : "w-28"}`}
+                            >
                               {m.memberId}
                             </Text>
-                            <Text className={`text-gray-800 text-center text-sm font-medium ${isDesktopOrLaptop ? 'w-44' : 'w-36'}`}>
+                            <Text
+                              className={`text-gray-800 text-center text-sm font-medium ${isDesktopOrLaptop ? "w-44" : "w-36"}`}
+                            >
                               {m.groupMemberId}
                             </Text>
-                            {Array.from({ length: getMaxCollections() }).map((_, idx) => {
-                              const c = m.collections?.[idx];
-                              const totalPaid = (c?.payments || [])
-                                .filter(p => p.paymentType !== "PENALTY")
-                                .reduce((s, p) => s + (p.amount || 0), 0);
-                              const monthDividend = Number(plansMap[c?.index]?.dividend || 0);
-                              const displayPaid = monthDividend + totalPaid;
-                              
-                              return (
-                                <TouchableOpacity
-                                  key={idx}
-                                  className={`text-center ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}
-                                  onPress={() => {
-                                    Alert.prompt(
-                                      "Add Payment",
-                                      `Enter payment amount for ${m.memberName} - M${idx + 1}`,
-                                      [
-                                        { text: "Cancel", style: "cancel" },
-                                        {
-                                          text: "Add",
-                                          onPress: (amount) => {
-                                            if (amount && !isNaN(parseFloat(amount))) {
-                                              addPaymentToCollection(m, idx + 1, parseFloat(amount));
-                                            }
-                                          },
-                                        },
-                                      ],
-                                      "plain-text",
-                                      "",
-                                      "numeric"
-                                    );
-                                  }}
-                                >
-                                  <Text className="text-gray-800 text-center text-sm">
-                                    {c
-                                      ? `₹${displayPaid} / ₹${c.installmentAmount}`
-                                      : "-"}
-                                  </Text>
-                                  {monthDividend > 0 && (
-                                    <Text className="text-blue-600 text-xs">
-                                      Dividend ₹{monthDividend}
+                            {Array.from({ length: getMaxCollections() }).map(
+                              (_, idx) => {
+                                const c = m.collections?.[idx];
+                                const totalPaid = (c?.payments || [])
+                                  .filter((p) => p.paymentType !== "PENALTY")
+                                  .reduce((s, p) => s + (p.amount || 0), 0);
+                                const monthDividend = Number(
+                                  plansMap[c?.index]?.dividend || 0,
+                                );
+                                const displayPaid = monthDividend + totalPaid;
+
+                                return (
+                                  <View
+                                    key={idx}
+                                    className={`text-center ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                                  >
+                                    <Text className="text-gray-800 text-center text-sm">
+                                      {c
+                                        ? `₹${displayPaid} / ₹${c.installmentAmount}`
+                                        : "-"}
                                     </Text>
-                                  )}
-                                </TouchableOpacity>
-                              );
-                            })}
+                                    {monthDividend > 0 && (
+                                      <Text className="text-blue-600 text-xs">
+                                        Dividend ₹{monthDividend}
+                                      </Text>
+                                    )}
+                                  </View>
+                                );
+                              },
+                            )}
 
                             {/* Penalty Column */}
-                            <View className={`text-center ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`}>
+                            <View
+                              className={`text-center ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                            >
                               {(() => {
-                                let totalPenalty = 0;
-                                (m.collections || []).forEach((c) => {
-                                  if (!c || !c.endDate || !c.installmentAmount) return;
-                                  const { installmentAmount, endDate } = getCollectionMeta(c);
-                                  const { pendingPenalty } = getPendingAndPenalty(
-                                    installmentAmount,
-                                    c.payments || [],
-                                    endDate,
-                                    Number(plansMap[c.index]?.dividend || 0)
+                                const { perMonth, totalPenaltyPending } =
+                                  getCumulativePenaltyForMember(
+                                    m.collections,
+                                    plansMap,
                                   );
-                                  totalPenalty += pendingPenalty;
-                                });
-                                const hasAnyPenalty = (m.collections || []).some((c) => {
-                                  if (!c || !c.endDate || !c.installmentAmount) return false;
-                                  const { installmentAmount, endDate } = getCollectionMeta(c);
-                                  const { penaltyDue } = getPendingAndPenalty(
-                                    installmentAmount,
-                                    c.payments || [],
-                                    endDate,
-                                    Number(plansMap[c.index]?.dividend || 0)
-                                  );
-                                  return penaltyDue > 0;
-                                });
+                                const totalPenalty = totalPenaltyPending;
+                                const hasAnyPenalty = perMonth.some(
+                                  (row) => row.penaltyIncrement > 0,
+                                );
                                 return (
                                   <Text
                                     className={`text-center text-sm font-semibold ${
                                       totalPenalty > 0
                                         ? "text-red-600"
                                         : hasAnyPenalty
-                                        ? "text-green-600"
-                                        : "text-gray-400"
+                                          ? "text-green-600"
+                                          : "text-gray-400"
                                     }`}
                                   >
                                     {totalPenalty > 0
                                       ? `₹${totalPenalty}`
                                       : hasAnyPenalty
-                                      ? "✔"
-                                      : "-"}
+                                        ? "✔"
+                                        : "-"}
                                   </Text>
                                 );
                               })()}
                             </View>
-                            <View className={`flex-row justify-center space-x-4 ${isDesktopOrLaptop ? 'w-32' : 'w-24'}`} style={{ gap: 14 }}>
-                              <TouchableOpacity onPress={() => {
-                                setHistoryMember(m);
-                                setHistoryVisible(true);
-                              }}>
-                                <MaterialIcons name="history" size={20} color="#2563eb" />
+                            <View
+                              className={`flex-row justify-center space-x-4 ${isDesktopOrLaptop ? "w-32" : "w-24"}`}
+                              style={{ gap: 14 }}
+                            >
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setHistoryMember(m);
+                                  setHistoryVisible(true);
+                                }}
+                              >
+                                <MaterialIcons
+                                  name="history"
+                                  size={20}
+                                  color="#2563eb"
+                                />
                               </TouchableOpacity>
                               <TouchableOpacity
                                 onPress={() => {
@@ -1809,7 +1800,11 @@ export default function GroupMembers() {
                                   setDeleteModalVisible(true);
                                 }}
                               >
-                                <MaterialIcons name="delete" size={20} color="#dc2626" />
+                                <MaterialIcons
+                                  name="delete"
+                                  size={20}
+                                  color="#dc2626"
+                                />
                               </TouchableOpacity>
                             </View>
                           </View>
@@ -1829,7 +1824,8 @@ export default function GroupMembers() {
                       Group Members
                     </Text>
                     <Text className="text-gray-400 text-xs mt-1 text-center">
-                      © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+                      © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All
+                      rights reserved.
                     </Text>
                   </View>
                 </View>
@@ -1976,8 +1972,8 @@ export default function GroupMembers() {
               </Text>
 
               <Text className="text-gray-700 text-lg">
-                <Text className="font-semibold">Amount:</Text>{" "}
-                ₹{selectedMonthConfig?.installmentAmount}
+                <Text className="font-semibold">Amount:</Text> ₹
+                {selectedMonthConfig?.installmentAmount}
               </Text>
             </View>
 
@@ -1995,149 +1991,460 @@ export default function GroupMembers() {
 
       {/* PAYMENT HISTORY MODAL */}
       <Modal visible={historyVisible} transparent animationType="slide">
-        <View className="flex-1 bg-black/50 justify-center items-center">
-          <View className="bg-white w-[90%] max-h-[80%] rounded-2xl p-5">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-xl font-bold">Payment History - {historyMember?.memberName}</Text>
-              <TouchableOpacity onPress={() => setHistoryVisible(false)}>
-                <MaterialIcons name="close" size={24} />
-              </TouchableOpacity>
-            </View>
+        <View className="flex-1 bg-black/60 justify-center items-center px-4">
+          <View
+            className="bg-white w-full max-w-xl max-h-[85%] rounded-3xl overflow-hidden"
+            style={{
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.25,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header */}
+            <View
+              className="px-5 pt-5 pb-6"
+              style={{ backgroundColor: "#024e32" }}
+            >
+              <View className="flex-row items-start justify-between">
+                <View className="flex-row items-center flex-1 pr-3">
+                  <View
+                    className="w-12 h-12 rounded-full items-center justify-center mr-3"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.18)",
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.3)",
+                    }}
+                  >
+                    <Text className="text-white text-lg font-bold">
+                      {(historyMember?.memberName || "?")
+                        .charAt(0)
+                        .toUpperCase()}
+                    </Text>
+                  </View>
+                  <View className="flex-1">
+                    <Text
+                      className="text-white text-lg font-bold"
+                      numberOfLines={1}
+                    >
+                      {historyMember?.memberName || "Member"}
+                    </Text>
+                    <Text className="text-white/70 text-xs mt-0.5">
+                      Payment History • ID {historyMember?.groupMemberId || "-"}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setHistoryVisible(false)}
+                  className="w-8 h-8 rounded-full items-center justify-center"
+                  style={{ backgroundColor: "rgba(255,255,255,0.16)" }}
+                >
+                  <MaterialIcons name="close" size={18} color="white" />
+                </TouchableOpacity>
+              </View>
 
-            <ScrollView>
-              {historyMember?.collections?.map((c: any) => {
-                const { installmentAmount, endDate } = getCollectionMeta(c);
-                if (!installmentAmount || !endDate) return null;
-                const { pendingInstallment, penaltyDue, pendingPenalty, totalPending } =
-                  getPendingAndPenalty(
-                    installmentAmount,
-                    c.payments || [],
-                    endDate,
-                    Number(plansMap[c.index]?.dividend || 0)
+              {/* Summary chips */}
+              {(() => {
+                const { totalPenaltyPending, perMonth } =
+                  getCumulativePenaltyForMember(
+                    historyMember?.collections,
+                    plansMap,
                   );
-                const installmentPaid = (c.payments || [])
-                  .filter(p => p.paymentType !== "PENALTY")
-                  .reduce((s, p) => s + (p.amount || 0), 0);
-                const dividend = Number(plansMap[c?.index]?.dividend || 0);
-                const displayPaid = dividend + installmentPaid;
-                const remainingInstallment = pendingInstallment;
-                const isDueDatePassed = c.endDate ? isAfterDueDate(c.endDate) : false;
-                const isPaymentIncomplete = displayPaid < (c.installmentAmount || 0);
-                const dividendPayment = dividend > 0 ? [{
-                  amount: dividend,
-                  paidAt: c.startDate || new Date(),
-                  paymentType: "DIVIDEND",
-                  collectedBy: "System",
-                }] : [];
-                const allPayments = [...dividendPayment, ...(c.payments || [])];
-                
+                const totalPendingInstallment = perMonth.reduce(
+                  (s, row) => s + row.pendingInstallment,
+                  0,
+                );
                 return (
-                  <View key={c.index} className="border border-gray-200 rounded-xl p-4 mb-4">
-                    <View className="flex-row justify-between items-center mb-3">
-                      <Text className="font-bold text-lg">
-                        Month {c.index} - ₹{c.installmentAmount || "Not set"}
+                  <View className="flex-row mt-4" style={{ gap: 10 }}>
+                    <View
+                      className="flex-1 rounded-2xl px-3 py-2.5"
+                      style={{ backgroundColor: "rgba(255,255,255,0.14)" }}
+                    >
+                      <Text className="text-white/70 text-[11px]">
+                        Pending Installments
+                      </Text>
+                      <Text className="text-white text-base font-bold mt-0.5">
+                        ₹{totalPendingInstallment}
                       </Text>
                     </View>
-
-                    {pendingPenalty > 0 && (
-                      <View className="mt-2 bg-red-50 p-2 rounded-lg">
-                        <Text className="text-red-600 text-sm font-semibold">
-                          Penalty (6%): ₹{pendingPenalty}
-                        </Text>
-                        <Text className="text-red-500 text-xs mt-1">
-                          ⚠️ Due date passed
-                        </Text>
-                      </View>
-                    )}
-
-                    {allPayments.length === 0 ? (
-                      <Text className="text-gray-400 text-center py-4">
-                        No payments recorded
+                    <View
+                      className="flex-1 rounded-2xl px-3 py-2.5"
+                      style={{ backgroundColor: "rgba(255,255,255,0.14)" }}
+                    >
+                      <Text className="text-white/70 text-[11px]">
+                        Pending Penalty
                       </Text>
-                    ) : (
-                      allPayments.map((p: any, i: number) => {
-                        const paymentType = p?.paymentType || "INSTALLMENT";
-                        const isDividend = paymentType === "DIVIDEND";
-                        const realIndex = isDividend ? -1 : i - dividendPayment.length;
-                        return (
-                          <View key={i} className="flex-row justify-between items-center mb-3 p-2 bg-gray-50 rounded-lg">
-                            <View>
-                              <View className="flex-row items-center">
-                                <Text className="text-gray-700 font-medium">
-                                  ₹{p.amount}
-                                </Text>
-                                <Text className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                  paymentType === "PENALTY"
-                                    ? "bg-red-100 text-red-600"
-                                    : paymentType === "DIVIDEND"
-                                    ? "bg-blue-100 text-blue-700"
-                                    : "bg-green-100 text-green-700"
-                                }`}>
-                                  {paymentType}
-                                </Text>
-                              </View>
-                              <Text className="text-gray-500 text-sm">
-                                {new Date(p.paidAt).toLocaleDateString("en-IN")}
-                              </Text>
-                              <Text className="text-gray-400 text-xs mt-1">
-                                Collected by: {p.collectedBy || "System"}
-                              </Text>
-                            </View>
-                            {!isDividend && (
-                              <View className="flex-row space-x-3">
-                                <TouchableOpacity onPress={() => openEditPaymentModal(p, c.index, realIndex)}>
-                                  <MaterialIcons name="edit" size={20} color="#16a34a" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => deletePayment(p, c.index, realIndex)}>
-                                  <MaterialIcons name="delete" size={20} color="#dc2626" />
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                          </View>
-                        );
-                      })
-                    )}
-
-                    <View className="mt-3 pt-3 border-t border-gray-200">
-                      <View>
-                        <Text className="font-semibold text-gray-700">
-                          Total Paid: ₹{displayPaid}
-                          {installmentAmount > 0 ? ` / ₹${installmentAmount}` : ""}
-                        </Text>
-                      </View>
-                      {pendingInstallment > 0 && (
-                        <Text className="text-red-600 font-semibold mt-1">
-                          Remaining Installment: ₹{remainingInstallment}
-                        </Text>
-                      )}
-                      {pendingPenalty > 0 && (
-                        <Text className="text-red-700 font-semibold mt-1">
-                          Penalty (6%): ₹{pendingPenalty}
-                        </Text>
-                      )}
-                      {pendingInstallment === 0 && pendingPenalty === 0 && (
-                        <Text className="text-green-600 font-semibold mt-1">
-                          Fully Paid ✔
-                        </Text>
-                      )}
-                      {displayPaid >= installmentAmount && isAfterDueDate(c.endDate) && pendingPenalty > 0 && (
-                        <Text className="text-red-600 font-semibold mt-1">
-                          Total pending – Penalty Due ₹{pendingPenalty}
-                        </Text>
-                      )}
-                      {installmentAmount > 0 && pendingInstallment > 0 && (
-                        <Text className="text-red-600 font-semibold mt-1">
-                          Total Pending: ₹{totalPending}
-                        </Text>
-                      )}
+                      <Text className="text-white text-base font-bold mt-0.5">
+                        ₹{totalPenaltyPending}
+                      </Text>
                     </View>
                   </View>
                 );
-              }) || (
-                <Text className="text-gray-400 text-center py-8">
-                  No collection data available
-                </Text>
-              )}
+              })()}
+            </View>
+
+            <ScrollView
+              className="px-4 pt-4"
+              style={{ backgroundColor: "#f8faf9" }}
+              contentContainerStyle={{ paddingBottom: 18 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {(() => {
+                const collections = historyMember?.collections || [];
+                const { perMonth } = getCumulativePenaltyForMember(
+                  collections,
+                  plansMap,
+                );
+
+                const validRows = collections
+                  .map((c: any) => {
+                    const meta = getCollectionMeta(c);
+                    return { c, meta };
+                  })
+                  .filter(
+                    ({ meta }: any) => meta.installmentAmount && meta.endDate,
+                  );
+
+                if (validRows.length === 0) {
+                  return (
+                    <View className="items-center py-14">
+                      <MaterialIcons
+                        name="receipt-long"
+                        size={40}
+                        color="#cbd5e1"
+                      />
+                      <Text className="text-gray-400 text-center mt-3">
+                        No collection data available
+                      </Text>
+                    </View>
+                  );
+                }
+
+                return validRows.map(({ c, meta }: any) => {
+                  const { installmentAmount, endDate } = meta;
+                  const rowPosition = perMonth.findIndex(
+                    (row) => row.index === c.index,
+                  );
+                  const penaltyRow =
+                    rowPosition >= 0 ? perMonth[rowPosition] : null;
+
+                  const pendingInstallment =
+                    penaltyRow?.pendingInstallment ?? 0;
+                  const penaltyIncrement = penaltyRow?.penaltyIncrement ?? 0;
+                  const pendingPenalty = penaltyRow?.pendingPenalty ?? 0;
+                  const totalPending = pendingInstallment + pendingPenalty;
+
+                  const installmentPaid = (c.payments || [])
+                    .filter((p: any) => p.paymentType !== "PENALTY")
+                    .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+                  const dividend = Number(plansMap[c?.index]?.dividend || 0);
+                  const displayPaid = dividend + installmentPaid;
+                  const progressRatio =
+                    installmentAmount > 0
+                      ? Math.min(displayPaid / installmentAmount, 1)
+                      : 0;
+
+                  const isFullyClear =
+                    pendingInstallment === 0 && pendingPenalty === 0;
+                  const isOverdue = isAfterDueDate(c.endDate);
+
+                  const dividendPayment =
+                    dividend > 0
+                      ? [
+                          {
+                            amount: dividend,
+                            paidAt: c.startDate || new Date(),
+                            paymentType: "DIVIDEND",
+                            collectedBy: "System",
+                          },
+                        ]
+                      : [];
+                  const allPayments = [
+                    ...dividendPayment,
+                    ...(c.payments || []),
+                  ];
+
+                  const statusBadge = isFullyClear
+                    ? {
+                        label: "Fully Paid",
+                        bg: "#dcfce7",
+                        fg: "#16a34a",
+                        icon: "check-circle" as const,
+                      }
+                    : isOverdue
+                      ? {
+                          label: "Overdue",
+                          bg: "#fee2e2",
+                          fg: "#dc2626",
+                          icon: "error" as const,
+                        }
+                      : {
+                          label: "Pending",
+                          bg: "#fef3c7",
+                          fg: "#b45309",
+                          icon: "schedule" as const,
+                        };
+
+                  return (
+                    <View
+                      key={c.index}
+                      className="bg-white rounded-2xl mb-4 overflow-hidden border border-gray-100"
+                      style={{
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 3 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 8,
+                        elevation: 2,
+                      }}
+                    >
+                      {/* Card header */}
+                      <View className="flex-row items-center justify-between px-4 pt-4">
+                        <View className="flex-row items-center">
+                          <View
+                            className="w-9 h-9 rounded-xl items-center justify-center mr-2.5"
+                            style={{ backgroundColor: "#eafaf1" }}
+                          >
+                            <Text
+                              className="font-bold"
+                              style={{ color: "#024e32" }}
+                            >
+                              M{c.index}
+                            </Text>
+                          </View>
+                          <View>
+                            <Text className="font-bold text-gray-800 text-base">
+                              Month {c.index} · ₹{installmentAmount}
+                            </Text>
+                            {!!endDate && (
+                              <Text className="text-gray-400 text-xs mt-0.5">
+                                Due{" "}
+                                {new Date(endDate).toLocaleDateString("en-IN")}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+
+                        <View
+                          className="flex-row items-center px-2.5 py-1 rounded-full"
+                          style={{ backgroundColor: statusBadge.bg }}
+                        >
+                          <MaterialIcons
+                            name={statusBadge.icon}
+                            size={13}
+                            color={statusBadge.fg}
+                          />
+                          <Text
+                            className="text-xs font-semibold ml-1"
+                            style={{ color: statusBadge.fg }}
+                          >
+                            {statusBadge.label}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Progress bar */}
+                      <View className="px-4 mt-3">
+                        <View className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <View
+                            className="h-2 rounded-full"
+                            style={{
+                              width: `${progressRatio * 100}%`,
+                              backgroundColor: isFullyClear
+                                ? "#16a34a"
+                                : "#024e32",
+                            }}
+                          />
+                        </View>
+                        <View className="flex-row justify-between mt-1.5">
+                          <Text className="text-gray-500 text-xs">
+                            Paid ₹{displayPaid} / ₹{installmentAmount}
+                          </Text>
+                          <Text className="text-gray-400 text-xs">
+                            {Math.round(progressRatio * 100)}%
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Penalty breakdown */}
+                      {penaltyIncrement > 0 && (
+                        <View className="mx-4 mt-3 bg-red-50 rounded-xl px-3 py-2.5 border border-red-100">
+                          <View className="flex-row items-center justify-between">
+                            <Text className="text-red-700 text-sm font-semibold">
+                              Penalty (6%) — ₹{pendingPenalty}
+                              {pendingPenalty !== penaltyIncrement
+                                ? ` of ₹${penaltyIncrement}`
+                                : ""}
+                            </Text>
+                            <MaterialIcons
+                              name="warning-amber"
+                              size={16}
+                              color="#dc2626"
+                            />
+                          </View>
+                          {penaltyRow &&
+                            penaltyRow.carriedFromMonths.length > 0 && (
+                              <Text className="text-red-500 text-xs mt-1">
+                                {`M${penaltyRow.carriedFromMonths.join("+M")} ₹${penaltyRow.carriedPenaltyPart} previous + M${c.index} ₹${penaltyRow.ownPenaltyPart} current = ₹${penaltyRow.carriedPenaltyPart + penaltyRow.ownPenaltyPart} total`}
+                              </Text>
+                            )}
+                        </View>
+                      )}
+
+                      {/* Payments */}
+                      <View className="px-4 mt-3">
+                        {allPayments.length === 0 ? (
+                          <View className="items-center py-5">
+                            <MaterialIcons
+                              name="inbox"
+                              size={26}
+                              color="#d1d5db"
+                            />
+                            <Text className="text-gray-400 text-sm mt-1.5">
+                              No payments recorded
+                            </Text>
+                          </View>
+                        ) : (
+                          allPayments.map((p: any, i: number) => {
+                            const paymentType = p?.paymentType || "INSTALLMENT";
+                            const isDividend = paymentType === "DIVIDEND";
+                            const realIndex = isDividend
+                              ? -1
+                              : i - dividendPayment.length;
+                            const typeStyle =
+                              paymentType === "PENALTY"
+                                ? {
+                                    bg: "#fee2e2",
+                                    fg: "#dc2626",
+                                    icon: "percent" as const,
+                                  }
+                                : paymentType === "DIVIDEND"
+                                  ? {
+                                      bg: "#dbeafe",
+                                      fg: "#2563eb",
+                                      icon: "savings" as const,
+                                    }
+                                  : {
+                                      bg: "#dcfce7",
+                                      fg: "#16a34a",
+                                      icon: "payments" as const,
+                                    };
+
+                            return (
+                              <View
+                                key={i}
+                                className="flex-row items-center justify-between py-2.5"
+                                style={
+                                  i !== allPayments.length - 1
+                                    ? {
+                                        borderBottomWidth: 1,
+                                        borderBottomColor: "#f1f5f9",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <View className="flex-row items-center flex-1 pr-2">
+                                  <View
+                                    className="w-9 h-9 rounded-full items-center justify-center mr-3"
+                                    style={{ backgroundColor: typeStyle.bg }}
+                                  >
+                                    <MaterialIcons
+                                      name={typeStyle.icon}
+                                      size={16}
+                                      color={typeStyle.fg}
+                                    />
+                                  </View>
+                                  <View className="flex-1">
+                                    <View className="flex-row items-center">
+                                      <Text className="text-gray-800 font-semibold">
+                                        ₹{p.amount}
+                                      </Text>
+                                      <Text
+                                        className="ml-2 text-[10px] font-semibold"
+                                        style={{ color: typeStyle.fg }}
+                                      >
+                                        {paymentType}
+                                      </Text>
+                                    </View>
+                                    <Text className="text-gray-400 text-xs mt-0.5">
+                                      {new Date(p.paidAt).toLocaleDateString(
+                                        "en-IN",
+                                      )}{" "}
+                                      • {p.collectedBy || "System"} •{" "}
+                                      {p.paymentMode || "Cash"}
+                                    </Text>
+                                  </View>
+                                </View>
+                                {!isDividend && (
+                                  <View
+                                    className="flex-row"
+                                    style={{ gap: 14 }}
+                                  >
+                                    <TouchableOpacity
+                                      onPress={() =>
+                                        openEditPaymentModal(
+                                          p,
+                                          c.index,
+                                          realIndex,
+                                        )
+                                      }
+                                    >
+                                      <MaterialIcons
+                                        name="edit"
+                                        size={18}
+                                        color="#16a34a"
+                                      />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      onPress={() =>
+                                        deletePayment(p, c.index, realIndex)
+                                      }
+                                    >
+                                      <MaterialIcons
+                                        name="delete"
+                                        size={18}
+                                        color="#dc2626"
+                                      />
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })
+                        )}
+                      </View>
+
+                      {/* Footer totals */}
+                      <View
+                        className="mx-4 mt-2 mb-4 pt-3"
+                        style={{ borderTopWidth: 1, borderTopColor: "#f1f5f9" }}
+                      >
+                        {isFullyClear ? (
+                          <View className="flex-row items-center">
+                            <MaterialIcons
+                              name="check-circle"
+                              size={16}
+                              color="#16a34a"
+                            />
+                            <Text className="text-green-600 font-semibold ml-1.5">
+                              Fully Paid
+                            </Text>
+                          </View>
+                        ) : (
+                          <View className="flex-row justify-between items-center">
+                            <Text className="text-gray-500 text-sm">
+                              Total Pending
+                            </Text>
+                            <Text className="text-red-600 font-bold text-base">
+                              ₹{totalPending}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                });
+              })()}
             </ScrollView>
           </View>
         </View>
@@ -2161,9 +2468,12 @@ export default function GroupMembers() {
               </View>
 
               <View className="mb-4 bg-gray-50 rounded-xl p-4">
-                <Text className="text-gray-600 text-sm mb-1">Editing payment for:</Text>
+                <Text className="text-gray-600 text-sm mb-1">
+                  Editing payment for:
+                </Text>
                 <Text className="text-gray-800 font-semibold">
-                  {editingPayment?.member?.memberName} - M{editingPayment?.monthIndex}
+                  {editingPayment?.member?.memberName} - M
+                  {editingPayment?.monthIndex}
                 </Text>
                 <Text className="text-gray-500 text-sm mt-1">
                   Current: ₹{editingPayment?.amount}
@@ -2171,7 +2481,9 @@ export default function GroupMembers() {
               </View>
 
               <View className="mb-4">
-                <Text className="text-gray-700 font-medium mb-2">New Amount (₹)</Text>
+                <Text className="text-gray-700 font-medium mb-2">
+                  New Amount (₹)
+                </Text>
                 <TextInput
                   value={editPaymentAmount}
                   keyboardType="numeric"
@@ -2211,7 +2523,11 @@ export default function GroupMembers() {
                       <Text className="text-gray-800">
                         {editPaymentDate.toLocaleDateString("en-IN")}
                       </Text>
-                      <MaterialIcons name="calendar-today" size={20} color="#666" />
+                      <MaterialIcons
+                        name="calendar-today"
+                        size={20}
+                        color="#666"
+                      />
                     </TouchableOpacity>
                     {showPaymentDatePicker && (
                       <DateTimePicker
@@ -2269,16 +2585,22 @@ export default function GroupMembers() {
                 </Text>
               ) : (
                 adminUpdates.map((update, i) => (
-                  <View key={i} className="border border-gray-200 rounded-xl p-4 mb-3">
+                  <View
+                    key={i}
+                    className="border border-gray-200 rounded-xl p-4 mb-3"
+                  >
                     <View className="flex-row justify-between items-start mb-2">
                       <Text className="font-semibold text-[#024e32]">
                         {update.type}
                       </Text>
                       <Text className="text-gray-500 text-sm">
-                        {new Date(update.timestamp).toLocaleTimeString("en-IN", {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
+                        {new Date(update.timestamp).toLocaleTimeString(
+                          "en-IN",
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        )}
                       </Text>
                     </View>
                     <Text className="text-gray-700">{update.details}</Text>

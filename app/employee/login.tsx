@@ -9,7 +9,6 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -34,7 +33,6 @@ export default function EmployeeLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
-  const [menuVisible, setMenuVisible] = useState(false);
   const [isFocused, setIsFocused] = useState({ empId: false, password: false });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -50,6 +48,28 @@ export default function EmployeeLogin() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const floatingAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  /*
+    ADDED:
+    Drives the top navbar's shrink-on-scroll. Tracks how far the
+    ScrollView has scrolled, then navbarScale/navbarTranslateY below
+    interpolate that into a transform (not padding/fontSize, which
+    can't run on the native thread) so the whole pill smoothly
+    shrinks as you scroll down and springs back to full size once
+    you're back at the top - native-driven, so it stays smooth on
+    both iOS and Android instead of stepping/jumping.
+  */
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const navbarScale = scrollY.interpolate({
+    inputRange: [0, 60],
+    outputRange: [1, 0.82],
+    extrapolate: 'clamp',
+  });
+  const navbarTranslateY = scrollY.interpolate({
+    inputRange: [0, 60],
+    outputRange: [0, -6],
+    extrapolate: 'clamp',
+  });
 
   /*
     ADDED:
@@ -281,10 +301,6 @@ export default function EmployeeLogin() {
     ? Math.min(width * 0.2, 280)
     : width * 0.5;
 
-  const menuTopPosition = Platform.OS === 'ios'
-    ? (StatusBar.currentHeight || 20) + (isDesktopOrLaptop ? 20 : 10)
-    : (StatusBar.currentHeight || 0) + (isDesktopOrLaptop ? 10 : 10);
-
   // Floating background circles
   const float1 = floatingAnim.interpolate({
     inputRange: [0, 1],
@@ -295,52 +311,147 @@ export default function EmployeeLogin() {
     outputRange: [0, 30],
   });
 
+  /* ================= TRANSPARENT / GLASS SURFACES ================= */
+  // Shared "glass" surfaces so iOS and Android render identically.
+  const glassInput = (focused: boolean) => ({
+    backgroundColor: focused
+      ? 'rgba(255,255,255,0.45)'
+      : 'rgba(255,255,255,0.25)',
+    borderWidth: 1.5,
+    borderColor: focused
+      ? '#024e32'
+      : 'rgba(255,255,255,0.6)',
+  });
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flex: 1 }}
-    >
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#f0f4f8' }}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f0f4f8" />
+    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+      {/* ===== FULL TRANSPARENT BACKGROUND LAYER ===== */}
+      <LinearGradient
+        colors={['#e8f5ee', '#e3eef7', '#f2f7fb']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
+        pointerEvents="none"
+      />
 
-        {/* Background decorative elements */}
-        <Animated.View style={{
-          position: 'absolute',
-          top: -100,
-          right: -100,
-          width: 300,
-          height: 300,
-          borderRadius: 150,
-          backgroundColor: 'rgba(2, 78, 50, 0.05)',
-          transform: [{ translateY: float1 }],
-        }} />
-        <Animated.View style={{
-          position: 'absolute',
-          bottom: -100,
-          left: -100,
-          width: 350,
-          height: 350,
-          borderRadius: 175,
-          backgroundColor: 'rgba(2, 78, 50, 0.03)',
-          transform: [{ translateY: float2 }],
-        }} />
-        <Animated.View style={{
-          position: 'absolute',
-          top: '40%',
-          left: -50,
-          width: 150,
-          height: 150,
-          borderRadius: 75,
-          backgroundColor: 'rgba(3, 105, 161, 0.03)',
-          transform: [{ translateY: float1 }],
-        }} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
+          <StatusBar
+            barStyle="dark-content"
+            backgroundColor="transparent"
+            translucent
+          />
 
-        <ScrollView
+          {/* Background decorative elements */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: -100,
+              right: -100,
+              width: 300,
+              height: 300,
+              borderRadius: 150,
+              backgroundColor: 'rgba(2, 78, 50, 0.10)',
+              transform: [{ translateY: float1 }],
+            }}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              bottom: -100,
+              left: -100,
+              width: 350,
+              height: 350,
+              borderRadius: 175,
+              backgroundColor: 'rgba(2, 78, 50, 0.07)',
+              transform: [{ translateY: float2 }],
+            }}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: '40%',
+              left: -50,
+              width: 150,
+              height: 150,
+              borderRadius: 75,
+              backgroundColor: 'rgba(3, 105, 161, 0.07)',
+              transform: [{ translateY: float1 }],
+            }}
+          />
+
+          {/* ================= TOP NAV BAR — Admin / Employee / Member =================
+              Pinned above the scroll area so it stays put as a real navbar.
+              Replaces the old hamburger + popup: the other two portals are
+              one tap away, the current one just reads as selected.
+              Transparent glass style to match the rest of the screen. */}
+          <Animatable.View
+            animation="fadeInDown"
+            duration={600}
+            delay={200}
+            style={{
+              paddingHorizontal: isDesktopOrLaptop ? 40 : 16,
+              paddingTop: (StatusBar.currentHeight || 0) + 10,
+              zIndex: 20,
+            }}
+          >
+            <Animated.View style={{ transform: [{ scale: navbarScale }, { translateY: navbarTranslateY }] }}>
+            <View style={{
+              flexDirection: 'row',
+              backgroundColor: 'rgba(255,255,255,0.28)',
+              borderRadius: 20,
+              padding: 4,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.55)',
+            }}>
+              <TouchableOpacity
+                onPress={() => router.replace("/admin/login")}
+                activeOpacity={0.7}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16 }}
+              >
+                <MaterialIcons name="admin-panel-settings" size={16} color="#475569" />
+                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#475569' }}>Admin</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16, backgroundColor: '#024e32' }}>
+                <MaterialIcons name="badge" size={16} color="#fff" />
+                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '700', color: '#fff' }}>Employee</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => router.replace("/")}
+                activeOpacity={0.7}
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16 }}
+              >
+                <MaterialIcons name="person" size={16} color="#475569" />
+                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#475569' }}>Member</Text>
+              </TouchableOpacity>
+            </View>
+            </Animated.View>
+          </Animatable.View>
+
+        <Animated.ScrollView
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            { useNativeDriver: true }
+          )}
+          scrollEventThrottle={16}
           contentContainerStyle={{
             flexGrow: 1,
             justifyContent: 'center',
           }}
           showsVerticalScrollIndicator={false}
+          style={{ backgroundColor: 'transparent' }}
         >
           <Animated.View style={{
             flex: 1,
@@ -356,39 +467,6 @@ export default function EmployeeLogin() {
             ]
           }}>
 
-            {/* ================= HAMBURGER MENU ================= */}
-            <Animatable.View
-              animation="fadeInDown"
-              duration={600}
-              delay={200}
-              style={{
-                position: "absolute",
-                top: menuTopPosition,
-                left: isDesktopOrLaptop ? 40 : 20,
-                zIndex: 20,
-              }}
-            >
-              <TouchableOpacity
-                style={{
-                  padding: 12,
-                  borderRadius: 16,
-                  backgroundColor: 'rgba(255,255,255,0.9)',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 12,
-                  elevation: 5,
-                }}
-                onPress={() => setMenuVisible(true)}
-                activeOpacity={0.7}
-              >
-                <MaterialIcons
-                  name="menu"
-                  size={isDesktopOrLaptop ? 32 : 28}
-                  color="#024e32"
-                />
-              </TouchableOpacity>
-            </Animatable.View>
 
             {/* ================= LEFT SIDE - BRANDING ================= */}
             {isDesktopOrLaptop && (
@@ -404,14 +482,11 @@ export default function EmployeeLogin() {
                 }}
               >
                 <Animated.View style={{
-                  backgroundColor: 'white',
+                  backgroundColor: 'rgba(255,255,255,0.25)',
                   borderRadius: 40,
                   padding: 40,
-                  shadowColor: '#024e32',
-                  shadowOffset: { width: 0, height: 20 },
-                  shadowOpacity: 0.08,
-                  shadowRadius: 40,
-                  elevation: 12,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.55)',
                   transform: [{ scale: pulseAnim }],
                 }}>
                   <Image
@@ -447,7 +522,7 @@ export default function EmployeeLogin() {
                   delay={600}
                   style={{
                     fontSize: 16,
-                    color: '#64748b',
+                    color: '#475569',
                     marginTop: 12,
                     letterSpacing: 1,
                     textAlign: 'center',
@@ -471,39 +546,45 @@ export default function EmployeeLogin() {
                       width: 48,
                       height: 48,
                       borderRadius: 24,
-                      backgroundColor: 'rgba(2, 78, 50, 0.1)',
+                      backgroundColor: 'rgba(255,255,255,0.35)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.6)',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
                       <MaterialIcons name="security" size={24} color="#024e32" />
                     </View>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Secure</Text>
+                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Secure</Text>
                   </View>
                   <View style={{ alignItems: 'center' }}>
                     <View style={{
                       width: 48,
                       height: 48,
                       borderRadius: 24,
-                      backgroundColor: 'rgba(2, 78, 50, 0.1)',
+                      backgroundColor: 'rgba(255,255,255,0.35)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.6)',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
                       <MaterialIcons name="verified" size={24} color="#024e32" />
                     </View>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Verified</Text>
+                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Verified</Text>
                   </View>
                   <View style={{ alignItems: 'center' }}>
                     <View style={{
                       width: 48,
                       height: 48,
                       borderRadius: 24,
-                      backgroundColor: 'rgba(2, 78, 50, 0.1)',
+                      backgroundColor: 'rgba(255,255,255,0.35)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.6)',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
                       <MaterialIcons name="support-agent" size={24} color="#024e32" />
                     </View>
-                    <Text style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Support</Text>
+                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Support</Text>
                   </View>
                 </Animatable.View>
               </Animatable.View>
@@ -542,18 +623,13 @@ export default function EmployeeLogin() {
                 </Animatable.View>
               )}
 
-              {/* Login Card */}
+              {/* Login Card — TRANSPARENT GLASS */}
               <Animated.View style={{
-                backgroundColor: 'white',
+                backgroundColor: 'transparent',
                 borderRadius: 32,
                 padding: isDesktopOrLaptop ? 40 : 32,
-                shadowColor: '#024e32',
-                shadowOffset: { width: 0, height: 20 },
-                shadowOpacity: 0.06,
-                shadowRadius: 40,
-                elevation: 15,
                 borderWidth: 1,
-                borderColor: 'rgba(2, 78, 50, 0.06)',
+                borderColor: 'rgba(255,255,255,0.55)',
                 overflow: 'hidden',
               }}>
                 {/* Gradient top bar */}
@@ -567,6 +643,7 @@ export default function EmployeeLogin() {
                     left: 0,
                     right: 0,
                     height: 4,
+                    opacity: 0.9,
                   }}
                 />
 
@@ -610,7 +687,7 @@ export default function EmployeeLogin() {
                         delay={700}
                         style={{
                           fontSize: 16,
-                          color: '#94a3b8',
+                          color: '#64748b',
                           textAlign: 'center',
                           marginTop: 8,
                           letterSpacing: 0.5,
@@ -627,7 +704,7 @@ export default function EmployeeLogin() {
                       delay={500}
                       style={{
                         fontSize: 14,
-                        color: '#94a3b8',
+                        color: '#64748b',
                         textAlign: 'center',
                         marginTop: 4,
                       }}
@@ -656,38 +733,41 @@ export default function EmployeeLogin() {
                     }}>
                       Employee ID
                     </Text>
-                    <Animated.View style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: '#f8fafc',
-                      borderRadius: 16,
-                      borderWidth: 2,
-                      borderColor: isFocused.empId ? '#024e32' : '#e2e8f0',
-                      paddingHorizontal: 16,
-                      paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                      transform: [
-                        {
-                          rotate: rotateAnim.interpolate({
-                            inputRange: [-0.08, 0.08],
-                            outputRange: ['-4deg', '4deg'],
-                          })
-                        }
-                      ],
-                    }}>
+                    <Animated.View style={[
+                      {
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        borderRadius: 16,
+                        paddingHorizontal: 16,
+                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+                      },
+                      glassInput(isFocused.empId),
+                      {
+                        transform: [
+                          {
+                            rotate: rotateAnim.interpolate({
+                              inputRange: [-0.08, 0.08],
+                              outputRange: ['-4deg', '4deg'],
+                            })
+                          }
+                        ],
+                      }
+                    ]}>
                       <MaterialIcons
                         name="badge"
                         size={22}
-                        color={isFocused.empId ? '#024e32' : '#94a3b8'}
+                        color={isFocused.empId ? '#024e32' : '#64748b'}
                       />
                       <TextInput
                         placeholder="Enter Employee ID"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor="#64748b"
                         style={{
                           flex: 1,
                           marginLeft: 12,
                           fontSize: 16,
                           color: '#1e293b',
                           padding: 0,
+                          backgroundColor: 'transparent',
                         }}
                         value={empId}
                         onChangeText={setEmpId}
@@ -697,7 +777,7 @@ export default function EmployeeLogin() {
                       />
                       {empId.length > 0 && (
                         <TouchableOpacity onPress={() => setEmpId('')}>
-                          <Ionicons name="close-circle" size={20} color="#94a3b8" />
+                          <Ionicons name="close-circle" size={20} color="#64748b" />
                         </TouchableOpacity>
                       )}
                     </Animated.View>
@@ -720,24 +800,24 @@ export default function EmployeeLogin() {
                     }}>
                       Password
                     </Text>
-                    <View style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: '#f8fafc',
-                      borderRadius: 16,
-                      borderWidth: 2,
-                      borderColor: isFocused.password ? '#024e32' : '#e2e8f0',
-                      paddingHorizontal: 16,
-                      paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                    }}>
+                    <View style={[
+                      {
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        borderRadius: 16,
+                        paddingHorizontal: 16,
+                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+                      },
+                      glassInput(isFocused.password),
+                    ]}>
                       <MaterialIcons
                         name="lock-outline"
                         size={22}
-                        color={isFocused.password ? '#024e32' : '#94a3b8'}
+                        color={isFocused.password ? '#024e32' : '#64748b'}
                       />
                       <TextInput
                         placeholder="Enter Password"
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor="#64748b"
                         secureTextEntry={!showPassword}
                         style={{
                           flex: 1,
@@ -745,6 +825,7 @@ export default function EmployeeLogin() {
                           fontSize: 16,
                           color: '#1e293b',
                           padding: 0,
+                          backgroundColor: 'transparent',
                         }}
                         value={password}
                         onChangeText={setPassword}
@@ -758,7 +839,7 @@ export default function EmployeeLogin() {
                         <MaterialIcons
                           name={showPassword ? "visibility" : "visibility-off"}
                           size={24}
-                          color="#94a3b8"
+                          color="#64748b"
                         />
                       </TouchableOpacity>
                     </View>
@@ -777,11 +858,6 @@ export default function EmployeeLogin() {
                       style={{
                         borderRadius: 16,
                         overflow: 'hidden',
-                        shadowColor: '#024e32',
-                        shadowOffset: { width: 0, height: 8 },
-                        shadowOpacity: 0.2,
-                        shadowRadius: 16,
-                        elevation: 6,
                       }}
                     >
                       <LinearGradient
@@ -856,12 +932,12 @@ export default function EmployeeLogin() {
                           padding: 14,
                           borderRadius: 14,
                           backgroundColor: message.includes("Welcome")
-                            ? '#dcfce7'
-                            : '#fee2e2',
+                            ? 'rgba(220, 252, 231, 0.55)'
+                            : 'rgba(254, 226, 226, 0.55)',
                           borderWidth: 1,
                           borderColor: message.includes("Welcome")
-                            ? '#86efac'
-                            : '#fca5a5',
+                            ? 'rgba(134, 239, 172, 0.9)'
+                            : 'rgba(252, 165, 165, 0.9)',
                           flexDirection: 'row',
                           alignItems: 'center',
                         }}
@@ -874,7 +950,7 @@ export default function EmployeeLogin() {
                         <Text style={{
                           flex: 1,
                           marginLeft: 10,
-                          color: message.includes("Welcome") ? '#16a34a' : '#dc2626',
+                          color: message.includes("Welcome") ? '#15803d' : '#b91c1c',
                           fontSize: 14,
                           fontWeight: '500',
                         }}>
@@ -899,24 +975,24 @@ export default function EmployeeLogin() {
                   >
                     <TouchableOpacity>
                       <Text style={{
-                        color: '#94a3b8',
+                        color: '#64748b',
                         fontSize: 14,
                         fontWeight: '500',
                       }}>
                         Forgot ID?
                       </Text>
                     </TouchableOpacity>
-                    <View style={{ width: 1, height: 20, backgroundColor: '#e2e8f0' }} />
+                    <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
                     <TouchableOpacity>
                       <Text style={{
-                        color: '#94a3b8',
+                        color: '#64748b',
                         fontSize: 14,
                         fontWeight: '500',
                       }}>
                         Forgot Password?
                       </Text>
                     </TouchableOpacity>
-                    <View style={{ width: 1, height: 20, backgroundColor: '#e2e8f0' }} />
+                    <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
                     <TouchableOpacity onPress={dialSupport}>
                       <Text style={{
                         color: '#024e32',
@@ -938,12 +1014,12 @@ export default function EmployeeLogin() {
                         marginTop: 24,
                         paddingTop: 20,
                         borderTopWidth: 1,
-                        borderTopColor: '#f1f5f9',
+                        borderTopColor: 'rgba(2,78,50,0.10)',
                       }}
                     >
                       <Text style={{
                         textAlign: 'center',
-                        color: '#94a3b8',
+                        color: '#64748b',
                         fontSize: 12,
                       }}>
                         © 2026 Employee Portal. All rights reserved.
@@ -966,7 +1042,7 @@ export default function EmployeeLogin() {
                 >
                   <Text style={{
                     textAlign: 'center',
-                    color: '#94a3b8',
+                    color: '#64748b',
                     fontSize: 12,
                   }}>
                     © 2026 Employee Portal. All rights reserved.
@@ -975,261 +1051,10 @@ export default function EmployeeLogin() {
               )}
             </Animatable.View>
           </Animated.View>
-        </ScrollView>
+        </Animated.ScrollView>
 
-        {/* ================= POPUP MENU WITH SELECTION (Employee Login - Current Page Hidden) ================= */}
-        <Modal visible={menuVisible} transparent animationType="fade">
-          <TouchableOpacity
-            style={{
-              flex: 1,
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-            activeOpacity={1}
-            onPress={() => setMenuVisible(false)}
-          >
-            <Animatable.View
-              animation="bounceIn"
-              duration={400}
-              style={{
-                backgroundColor: 'white',
-                borderRadius: 28,
-                padding: isDesktopOrLaptop ? 40 : 32,
-                width: isDesktopOrLaptop ? 420 : 340,
-                maxWidth: '90%',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 20 },
-                shadowOpacity: 0.15,
-                shadowRadius: 40,
-                elevation: 20,
-              }}
-            >
-              {/* Header with icon */}
-              <View style={{ alignItems: 'center', marginBottom: 24 }}>
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: 'rgba(2, 78, 50, 0.1)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 12,
-                }}>
-                  <MaterialIcons name="login" size={32} color="#024e32" />
-                </View>
-                <Text style={{
-                  fontSize: 22,
-                  fontWeight: '800',
-                  color: '#024e32',
-                  letterSpacing: 0.5,
-                }}>
-                  Select Login Type
-                </Text>
-                <Text style={{
-                  fontSize: 14,
-                  color: '#94a3b8',
-                  marginTop: 4,
-                }}>
-                  Choose your portal to continue
-                </Text>
-              </View>
-
-              {/* Menu Items */}
-              <View style={{ gap: 12 }}>
-
-
-
-                {/* Admin Login */}
-                <TouchableOpacity
-                  onPress={() => {
-                    setMenuVisible(false);
-                    setTimeout(() => {
-                      Animated.sequence([
-                        Animated.timing(scaleAnim, {
-                          toValue: 0.9,
-                          duration: 200,
-                          useNativeDriver: true,
-                        }),
-                        Animated.timing(scaleAnim, {
-                          toValue: 1,
-                          duration: 200,
-                          useNativeDriver: true,
-                        }),
-                      ]).start();
-                      router.replace("/admin/login");
-                    }, 300);
-                  }}
-                  style={{
-                    backgroundColor: '#f8fafc',
-                    paddingVertical: 16,
-                    paddingHorizontal: 20,
-                    borderRadius: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: '#e2e8f0',
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(2, 78, 50, 0.1)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <MaterialIcons name="admin-panel-settings" size={24} color="#024e32" />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 16 }}>
-                    <Text style={{
-                      color: '#1e293b',
-                      fontSize: 17,
-                      fontWeight: '600',
-                    }}>
-                      Admin Login
-                    </Text>
-                    <Text style={{
-                      color: '#94a3b8',
-                      fontSize: 12,
-                    }}>
-                      Switch to admin portal
-                    </Text>
-                  </View>
-                  <MaterialIcons name="arrow-forward-ios" size={20} color="#94a3b8" />
-                </TouchableOpacity>
-
-                {/* Employee Login - Active/Current (Not clickable, just showing current) */}
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: '#c64900',
-                    paddingVertical: 16,
-                    paddingHorizontal: 20,
-                    borderRadius: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderWidth: 2,
-                    borderColor: '#c64900',
-                  }}
-                  activeOpacity={1}
-                >
-                  <View style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(255,255,255,0.2)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <MaterialIcons name="badge" size={24} color="white" />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 16 }}>
-                    <Text style={{
-                      color: 'white',
-                      fontSize: 17,
-                      fontWeight: '700',
-                    }}>
-                      Employee Login
-                    </Text>
-                    <Text style={{
-                      color: 'rgba(255,255,255,0.7)',
-                      fontSize: 12,
-                    }}>
-                      Currently selected
-                    </Text>
-                  </View>
-                  <View style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: '#4ade80',
-                  }} />
-                </TouchableOpacity>
-                 {/* Member Login */}
-                 <TouchableOpacity
-                  onPress={() => {
-                    setMenuVisible(false);
-                    setTimeout(() => {
-                      Animated.sequence([
-                        Animated.timing(scaleAnim, {
-                          toValue: 0.9,
-                          duration: 200,
-                          useNativeDriver: true,
-                        }),
-                        Animated.timing(scaleAnim, {
-                          toValue: 1,
-                          duration: 200,
-                          useNativeDriver: true,
-                        }),
-                      ]).start();
-                      router.replace("/");
-                    }, 300);
-                  }}
-                  style={{
-                    backgroundColor: '#f8fafc',
-                    paddingVertical: 16,
-                    paddingHorizontal: 20,
-                    borderRadius: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: '#e2e8f0',
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(85, 85, 85, 0.1)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <MaterialIcons name="person" size={24} color="#555" />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 16 }}>
-                    <Text style={{
-                      color: '#1e293b',
-                      fontSize: 17,
-                      fontWeight: '600',
-                    }}>
-                      Member Login
-                    </Text>
-                    <Text style={{
-                      color: '#94a3b8',
-                      fontSize: 12,
-                    }}>
-                      Switch to member portal
-                    </Text>
-                  </View>
-                  <MaterialIcons name="arrow-forward-ios" size={20} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Close Button */}
-              <TouchableOpacity
-                onPress={() => setMenuVisible(false)}
-                style={{
-                  marginTop: 20,
-                  paddingVertical: 12,
-                  borderRadius: 12,
-                  backgroundColor: '#f1f5f9',
-                }}
-              >
-                <Text style={{
-                  textAlign: 'center',
-                  color: '#64748b',
-                  fontSize: 15,
-                  fontWeight: '600',
-                }}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-            </Animatable.View>
-          </TouchableOpacity>
-        </Modal>
-      </SafeAreaView>
-    </KeyboardAvoidingView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }

@@ -157,12 +157,14 @@ const SummaryCard = React.memo(function SummaryCard({
   color,
   icon,
   cardWidth,
+  subLabel,
 }: {
   label: string;
   value: number | string;
   color: string;
   icon: any;
   cardWidth: string;
+  subLabel?: string;
 }) {
   return (
     <View
@@ -198,6 +200,17 @@ const SummaryCard = React.memo(function SummaryCard({
       >
         ₹{value}
       </Text>
+
+      {subLabel ? (
+        <Text
+          className="text-gray-400 text-[9px] mt-0.5"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.1}
+        >
+          {subLabel}
+        </Text>
+      ) : null}
     </View>
   );
 });
@@ -638,13 +651,34 @@ export default function MyAccountCopy() {
     }
   }, [groups, selectedGroupKey]);
 
-  /* ================= GET USER PAID AMOUNT ================= */
-  const getUserPaidAmount = useCallback((payments: any[]) => {
+  /* ================= GET PAID AMOUNTS =================
+     Two different totals on purpose:
+       - "User Paid" is installment + penalty together (everything the
+         member has actually paid in, excluding dividend, which is the
+         admin's credit rather than a member payment). Every "User Paid"
+         label in this screen carries a "(Inst+Penalty)" note so it's
+         clear penalty is folded in, since "Penalty Paid" is also shown
+         on its own line for the itemised breakdown.
+       - "installment paid" (installment only, no penalty) is kept
+         separately for the "Installment Paid" label, which shows
+         progress against the installment alone.
+  ================================================= */
+  const getInstallmentPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType !== "DIVIDEND" && p.paymentType !== "PENALTY")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  const getNonDividendPaidAmount = useCallback((payments: any[]) => {
     if (!payments || !Array.isArray(payments)) return 0;
     return payments
       .filter((p: any) => p.paymentType !== "DIVIDEND")
       .reduce((sum, p) => sum + (p.amount || 0), 0);
   }, []);
+
+  // "User Paid" = installment + penalty combined (dividend excluded).
+  const getUserPaidAmount = getNonDividendPaidAmount;
 
   /* ================= OPEN HISTORY MODAL ================= */
   const openHistoryModal = useCallback((row: any) => {
@@ -696,16 +730,26 @@ export default function MyAccountCopy() {
 
     const totalPenalty = ledger.reduce((sum, row) => sum + (row.penaltyAmount || 0), 0);
 
-    const totalUserPaid = ledger.reduce((sum, row) => {
-      const userPaid = getUserPaidAmount(row.payments || []);
-      return sum + userPaid;
+    // Installment-only paid — used for the "Installment Paid" label.
+    const totalInstallmentPaid = ledger.reduce((sum, row) => {
+      return sum + getInstallmentPaidAmount(row.payments || []);
+    }, 0);
+
+    // Installment + penalty paid together — this is what "User Paid"
+    // shows (with its "(Inst+Penalty)" note), and it also feeds the
+    // running Total Paid / Net Balance figures below.
+    const totalNonDividendPaid = ledger.reduce((sum, row) => {
+      return sum + getNonDividendPaidAmount(row.payments || []);
     }, 0);
 
     const totalDividend = ledger.reduce((sum, row) => {
       return sum + (dividendMap[row.monthIndex] || 0);
     }, 0);
 
-    const totalPaid = totalUserPaid + totalDividend;
+    // Grand total actually paid (installment + penalty + dividend) — this
+    // is what "Total Paid (incl. Dividend)" shows, and what Net Balance
+    // nets against.
+    const totalPaid = totalNonDividendPaid + totalDividend;
 
     const totalPenaltyPaid = ledger.reduce((sum, row) => {
       const penaltyPaid = (row.payments || [])
@@ -714,7 +758,7 @@ export default function MyAccountCopy() {
       return sum + penaltyPaid;
     }, 0);
 
-    const totalInstallmentPaid = totalUserPaid;
+    const totalUserPaid = totalNonDividendPaid;
     const totalDue = totalInstallment + totalPenalty - totalPaid;
 
     return {
@@ -727,7 +771,7 @@ export default function MyAccountCopy() {
       totalDividend,
       totalUserPaid,
     };
-  }, [ledger, dividendMap, getUserPaidAmount]);
+  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount]);
 
   if (loading && groups.length === 0) {
     return <SkeletonGroupsScreen />;
@@ -1093,19 +1137,20 @@ export default function MyAccountCopy() {
 
                 <SummaryCard
                   label="User Paid"
-                  value={totals.totalUserPaid}
+                  value={totals.totalInstallmentPaid}
                   color="#16a34a"
                   icon="check-circle"
                   cardWidth={summaryCardWidth}
+                  subLabel="(Installment)"
                 />
 
-                <SummaryCard
+               {/* <SummaryCard
                   label="Total Penalty"
                   value={totals.totalPenalty}
                   color="#dc2626"
                   icon="warning"
                   cardWidth={summaryCardWidth}
-                />
+                />*/}
 
                 <SummaryCard
                   label="Total Due"
@@ -1169,15 +1214,22 @@ export default function MyAccountCopy() {
                           Installment
                         </Text>
                       </View>
-                      <View style={{ width: getColumnWidth() }}>
+                      <View style={{ width: getColumnWidth() }} className="p-3">
                         <Text
-                          className="text-white font-semibold text-sm p-3 text-center"
+                          className="text-white font-semibold text-sm text-center"
                           numberOfLines={1}
                           adjustsFontSizeToFit
                           minimumFontScale={0.75}
                           maxFontSizeMultiplier={1.15}
                         >
                           User Paid
+                        </Text>
+                        <Text
+                          className="text-white text-[9px] text-center opacity-70 mt-0.5"
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          (Inst+Penalty)
                         </Text>
                       </View>
                       <View style={{ width: getColumnWidth() }}>
@@ -1229,7 +1281,12 @@ export default function MyAccountCopy() {
                     {/* Table Rows */}
                     {ledger.map((row: any, index: number) => {
                       const dividend = dividendMap?.[row.monthIndex] || 0;
-                      const userPaid = getUserPaidAmount(row.payments || []);
+                      // Displayed "User Paid" = installment + penalty combined.
+                      const userPaid = getNonDividendPaidAmount(row.payments || []);
+                      // "Fully paid" status still checks the installment alone
+                      // (+ dividend), so a penalty payment can't make an
+                      // unpaid installment look fully paid.
+                      const installmentOnlyPaid = getInstallmentPaidAmount(row.payments || []);
                       const grossInstallment = (row.installmentAmount || 0) + dividend;
 
                       return (
@@ -1300,7 +1357,7 @@ export default function MyAccountCopy() {
                               numberOfLines={1}
                               maxFontSizeMultiplier={1.15}
                             >
-                              {userPaid >= grossInstallment ? "Fully paid" : "Partial"}
+                              {installmentOnlyPaid + dividend >= grossInstallment ? "Fully paid" : "Partial"}
                             </Text>
                           </View>
 
@@ -1447,12 +1504,12 @@ export default function MyAccountCopy() {
                       {ledger.filter((row: any) => row.penaltyAmount > 0).length}
                     </Text>
                   </View>
-                  <View className="flex-row justify-between">
+                  {/*<View className="flex-row justify-between">
                     <Text className="text-gray-600">Total Penalty Amount:</Text>
                     <Text className="font-medium text-red-600">
                       ₹{totals.totalPenalty}
                     </Text>
-                  </View>
+                  </View>*/}
                   <View className="flex-row justify-between">
                     <Text className="text-gray-600">Pending Months:</Text>
                     <Text className="font-medium text-red-600">
@@ -1483,7 +1540,13 @@ export default function MyAccountCopy() {
 
                   <View className="pt-2 border-t border-gray-300">
                     <View className="flex-row justify-between mt-1">
-                      <Text className="text-gray-700 font-semibold">User Paid:</Text>
+                      <Text className="text-gray-700 font-semibold">
+                        User Paid{" "}
+                        <Text className="text-gray-400 font-normal text-xs">
+                          (Inst+Penalty)
+                        </Text>
+                        :
+                      </Text>
                       <Text className="font-bold text-green-600">
                         ₹{totals.totalUserPaid}
                       </Text>
@@ -1528,126 +1591,331 @@ export default function MyAccountCopy() {
 
       {/* Payment History Modal */}
       <Modal visible={historyVisible} transparent animationType="slide">
-        <View className="flex-1 bg-black/50 justify-center items-center">
-          <View className="bg-white w-[90%] max-h-[80%] rounded-2xl p-5">
-            <View className="flex-row justify-between items-center mb-4">
-              <View>
-                <Text className="text-xl font-bold">
-                  Payment History - {historyMemberInfo?.memberName || "Member"}
-                </Text>
-                {selectedHistoryMonth && (
-                  <Text className="text-gray-500 text-sm mt-1">
-                    Month M{selectedHistoryMonth.monthIndex} -
-                    Gross ₹{(selectedHistoryMonth.installmentAmount || 0) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
-                  </Text>
-                )}
-              </View>
-              <TouchableOpacity onPress={() => setHistoryVisible(false)}>
-                <MaterialIcons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView>
-              {historyPayments.length === 0 ? (
-                <Text className="text-gray-400 text-center py-8">
-                  No payments recorded for this month
-                </Text>
-              ) : (
-                historyPayments.map((p: any, i: number) => {
-                  const paymentType = p?.paymentType || "INSTALLMENT";
-
-                  return (
-                    <View
-                      key={i}
-                      className="flex-row justify-between items-center mb-3 p-3 bg-gray-50 rounded-xl"
-                    >
-                      <View>
-                        <View className="flex-row items-center">
-                          <Text className="text-gray-700 font-medium">₹{p.amount}</Text>
-                          <Text
-                            className={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              paymentType === "PENALTY"
-                                ? "bg-red-100 text-red-600"
-                                : paymentType === "DIVIDEND"
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {paymentType}
-                          </Text>
-                        </View>
-                        <Text className="text-gray-500 text-sm">
-                          {new Date(p.paidAt).toLocaleDateString("en-IN")}
-                        </Text>
-                        <Text className="text-gray-400 text-xs mt-1">
-                          Collected by: {p.collectedBy || "System"}
-                        </Text>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-
-              {selectedHistoryMonth && (
-                <View className="mt-4 pt-4 border-t border-gray-200">
-                  <View className="flex-row justify-between">
-                    <Text className="text-gray-600 font-medium">Gross Installment:</Text>
-                    <Text className="font-semibold">
-                      ₹{(selectedHistoryMonth.installmentAmount || 0) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
+        <View className="flex-1 bg-black/60 justify-center items-center px-4">
+          <View
+            className="bg-white w-full rounded-3xl overflow-hidden"
+            style={{
+              maxWidth: 420,
+              maxHeight: "85%",
+              shadowColor: "#000",
+              shadowOpacity: 0.25,
+              shadowRadius: 20,
+              shadowOffset: { width: 0, height: 10 },
+              elevation: 10,
+            }}
+          >
+            {/* Header */}
+            <View className="bg-[#024e32] px-5 pt-5 pb-5">
+              <View className="flex-row justify-between items-start">
+                <View className="flex-row items-center flex-1" style={{ flexShrink: 1 }}>
+                  <View
+                    className="items-center justify-center rounded-2xl mr-3"
+                    style={{ width: 46, height: 46, backgroundColor: "rgba(255,255,255,0.18)" }}
+                  >
+                    <Text className="text-white font-bold text-base">
+                      M{selectedHistoryMonth?.monthIndex ?? "-"}
                     </Text>
                   </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600 font-medium">Net Installment:</Text>
-                    <Text className="font-semibold">₹{selectedHistoryMonth.installmentAmount}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600 font-medium">Penalty:</Text>
-                    <Text className="font-semibold text-red-600">
-                      ₹{selectedHistoryMonth.penaltyAmount || 0}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600 font-medium">Dividend:</Text>
-                    <Text className="font-semibold text-blue-600">
-                      ₹{dividendMap[selectedHistoryMonth.monthIndex] || 0}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600 font-medium">User Paid:</Text>
-                    <Text className="font-semibold text-green-600">
-                      ₹{getUserPaidAmount(selectedHistoryMonth.payments || [])}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600 font-medium">Total Paid (incl. Dividend):</Text>
-                    <Text className="font-semibold text-green-600">
-                      ₹{getUserPaidAmount(selectedHistoryMonth.payments || []) + (dividendMap[selectedHistoryMonth.monthIndex] || 0)}
-                    </Text>
-                  </View>
-                  <View className="flex-row justify-between mt-2 pt-2 border-t border-gray-200">
-                    <Text className="text-gray-700 font-semibold">Status:</Text>
+                  <View style={{ flexShrink: 1 }}>
                     <Text
-                      className={`font-semibold ${
-                        selectedHistoryMonth.status === "PAID"
-                          ? "text-green-600"
-                          : selectedHistoryMonth.status === "OVERDUE"
-                          ? "text-red-600"
-                          : "text-yellow-600"
-                      }`}
+                      className="text-white text-lg font-bold"
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      maxFontSizeMultiplier={1.2}
                     >
-                      {selectedHistoryMonth.status || "PENDING"}
+                      Payment History
+                    </Text>
+                    <Text
+                      className="text-white text-xs mt-0.5"
+                      style={{ opacity: 0.75 }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {historyMemberInfo?.memberName || "Member"}
+                      {historyMemberInfo?.groupMemberId ? ` · #${historyMemberInfo.groupMemberId}` : ""}
                     </Text>
                   </View>
                 </View>
+                <TouchableOpacity
+                  onPress={() => setHistoryVisible(false)}
+                  className="items-center justify-center rounded-full ml-2"
+                  style={{ width: 30, height: 30, backgroundColor: "rgba(255,255,255,0.18)" }}
+                >
+                  <MaterialIcons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {selectedHistoryMonth && (
+                <View className="flex-row items-center flex-wrap mt-3">
+                  <View
+                    className="flex-row items-center px-2.5 py-1 rounded-full mr-2 mb-1"
+                    style={{
+                      backgroundColor:
+                        selectedHistoryMonth.status === "PAID"
+                          ? "rgba(34,197,94,0.22)"
+                          : selectedHistoryMonth.status === "OVERDUE"
+                          ? "rgba(239,68,68,0.22)"
+                          : "rgba(234,179,8,0.22)",
+                    }}
+                  >
+                    <MaterialIcons
+                      name={
+                        selectedHistoryMonth.status === "PAID"
+                          ? "check-circle"
+                          : selectedHistoryMonth.status === "OVERDUE"
+                          ? "error"
+                          : "schedule"
+                      }
+                      size={13}
+                      color={
+                        selectedHistoryMonth.status === "PAID"
+                          ? "#86efac"
+                          : selectedHistoryMonth.status === "OVERDUE"
+                          ? "#fca5a5"
+                          : "#fde68a"
+                      }
+                    />
+                    <Text
+                      className="text-xs font-semibold ml-1"
+                      style={{
+                        color:
+                          selectedHistoryMonth.status === "PAID"
+                            ? "#bbf7d0"
+                            : selectedHistoryMonth.status === "OVERDUE"
+                            ? "#fecaca"
+                            : "#fef08a",
+                      }}
+                    >
+                      {selectedHistoryMonth.status === "PAID"
+                        ? "Fully Paid"
+                        : selectedHistoryMonth.status === "OVERDUE"
+                        ? "Overdue"
+                        : "Pending"}
+                    </Text>
+                  </View>
+                  <Text className="text-white text-xs mb-1" style={{ opacity: 0.65 }}>
+                    Month {selectedHistoryMonth.monthIndex}
+                    {selectedHistoryMonth.dueDate
+                      ? ` · Due ${new Date(selectedHistoryMonth.dueDate).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}`
+                      : ""}
+                  </Text>
+                </View>
               )}
+            </View>
+
+            <ScrollView
+              style={{ backgroundColor: "#f8faf9" }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}
+            >
+              {selectedHistoryMonth &&
+                (() => {
+                  const dividend = dividendMap[selectedHistoryMonth.monthIndex] || 0;
+                  const gross = (selectedHistoryMonth.installmentAmount || 0) + dividend;
+                  const net = selectedHistoryMonth.installmentAmount || 0;
+                  const penalty = selectedHistoryMonth.penaltyAmount || 0;
+                  const installmentOnlyPaid = getInstallmentPaidAmount(selectedHistoryMonth.payments || []);
+                  const combinedPaid = getUserPaidAmount(selectedHistoryMonth.payments || []);
+                  const penaltyPaidAmt = Math.max(combinedPaid - installmentOnlyPaid, 0);
+                  const totalPaidInclDividend = combinedPaid + dividend;
+                  const progressRatio =
+                    gross > 0 ? Math.min((installmentOnlyPaid + dividend) / gross, 1) : installmentOnlyPaid > 0 ? 1 : 0;
+                  const balanceDue = Math.max(gross + penalty - totalPaidInclDividend, 0);
+
+                  return (
+                    <>
+                      {/* Progress bar */}
+                      <View className="mb-4">
+                        <View className="flex-row justify-between mb-1.5">
+                          <Text className="text-gray-500 text-xs font-medium">Installment Progress</Text>
+                          <Text className="text-gray-700 text-xs font-semibold">
+                            ₹{installmentOnlyPaid + dividend} / ₹{gross}
+                          </Text>
+                        </View>
+                        <View className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                          <View
+                            style={{
+                              width: `${Math.round(progressRatio * 100)}%`,
+                              backgroundColor: progressRatio >= 1 ? "#16a34a" : "#024e32",
+                            }}
+                            className="h-full rounded-full"
+                          />
+                        </View>
+                      </View>
+
+                      {/* Quick stat chips */}
+                      <View className="flex-row flex-wrap justify-between mb-1">
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Gross Installment
+                          </Text>
+                          <Text className="text-[#024e32] text-base font-bold mt-0.5">₹{gross}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Dividend
+                          </Text>
+                          <Text className="text-blue-600 text-base font-bold mt-0.5">₹{dividend}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            User Paid (Inst+Penalty)
+                          </Text>
+                          <Text className="text-green-600 text-base font-bold mt-0.5">₹{combinedPaid}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Balance Due
+                          </Text>
+                          <Text
+                            className={`text-base font-bold mt-0.5 ${
+                              balanceDue > 0 ? "text-red-600" : "text-green-600"
+                            }`}
+                          >
+                            ₹{balanceDue}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {penalty > 0 && (
+                        <View className="mb-4 p-3 rounded-2xl border border-red-100 bg-red-50">
+                          <View className="flex-row items-center">
+                            <MaterialIcons name="percent" size={15} color="#dc2626" />
+                            <Text className="text-red-600 font-semibold text-sm ml-1.5">
+                              Penalty (6%) — ₹{penalty}
+                            </Text>
+                          </View>
+                          <Text className="text-red-400 text-xs mt-1">
+                            ₹{penaltyPaidAmt} paid · ₹{Math.max(penalty - penaltyPaidAmt, 0)} pending
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Payments list */}
+                      <Text className="text-gray-700 font-semibold text-sm mb-2">Payments</Text>
+                      {historyPayments.length === 0 ? (
+                        <View className="items-center py-8">
+                          <MaterialIcons name="receipt-long" size={32} color="#d1d5db" />
+                          <Text className="text-gray-400 text-sm mt-2">No payments recorded yet</Text>
+                        </View>
+                      ) : (
+                        historyPayments.map((p: any, i: number) => {
+                          const paymentType = p?.paymentType || "INSTALLMENT";
+                          const iconName =
+                            paymentType === "PENALTY"
+                              ? "percent"
+                              : paymentType === "DIVIDEND"
+                              ? "trending-up"
+                              : "payments";
+                          const bg =
+                            paymentType === "PENALTY"
+                              ? "#fee2e2"
+                              : paymentType === "DIVIDEND"
+                              ? "#dbeafe"
+                              : "#dcfce7";
+                          const fg =
+                            paymentType === "PENALTY"
+                              ? "#dc2626"
+                              : paymentType === "DIVIDEND"
+                              ? "#2563eb"
+                              : "#16a34a";
+
+                          return (
+                            <View
+                              key={i}
+                              className="flex-row items-center bg-white rounded-2xl p-3 mb-2.5 border border-gray-100"
+                            >
+                              <View
+                                className="items-center justify-center rounded-full mr-3"
+                                style={{ width: 38, height: 38, backgroundColor: bg }}
+                              >
+                                <MaterialIcons name={iconName as any} size={17} color={fg} />
+                              </View>
+                              <View className="flex-1">
+                                <View className="flex-row items-center flex-wrap">
+                                  <Text className="text-gray-800 font-bold text-sm">₹{p.amount}</Text>
+                                  <View
+                                    className="ml-2 px-2 py-0.5 rounded-full"
+                                    style={{ backgroundColor: bg }}
+                                  >
+                                    <Text className="text-[10px] font-semibold" style={{ color: fg }}>
+                                      {paymentType}
+                                    </Text>
+                                  </View>
+                                </View>
+                                <Text className="text-gray-400 text-xs mt-0.5">
+                                  {new Date(p.paidAt).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}{" "}
+                                  · {p.collectedBy || "System"}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })
+                      )}
+
+                      {/* Breakdown footer */}
+                      <View className="bg-white rounded-2xl border border-gray-100 p-4 mt-1 mb-3">
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-500 text-xs">Net Installment</Text>
+                          <Text className="text-gray-800 text-xs font-semibold">₹{net}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-2">
+                          <Text className="text-gray-500 text-xs">
+                            User Paid <Text className="text-gray-400">(Inst+Penalty)</Text>
+                          </Text>
+                          <Text className="text-green-600 text-xs font-semibold">₹{combinedPaid}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-2">
+                          <Text className="text-gray-500 text-xs">Total Paid (incl. Dividend)</Text>
+                          <Text className="text-green-600 text-xs font-semibold">₹{totalPaidInclDividend}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-3 pt-3 border-t border-gray-100">
+                          <Text className="text-gray-800 text-sm font-bold">Status</Text>
+                          <Text
+                            className={`text-sm font-bold ${
+                              selectedHistoryMonth.status === "PAID"
+                                ? "text-green-600"
+                                : selectedHistoryMonth.status === "OVERDUE"
+                                ? "text-red-600"
+                                : "text-yellow-600"
+                            }`}
+                          >
+                            {selectedHistoryMonth.status || "PENDING"}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  );
+                })()}
             </ScrollView>
 
-            <TouchableOpacity
-              onPress={() => setHistoryVisible(false)}
-              className="mt-4 bg-[#024e32] py-3 rounded-xl"
-            >
-              <Text className="text-white text-center font-semibold">Close</Text>
-            </TouchableOpacity>
+            <View className="px-5 pb-5 pt-3 bg-white border-t border-gray-100">
+              <TouchableOpacity
+                onPress={() => setHistoryVisible(false)}
+                className="bg-[#024e32] py-3.5 rounded-2xl"
+              >
+                <Text className="text-white text-center font-bold">Close</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

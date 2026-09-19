@@ -419,6 +419,113 @@ export default function MyOutstanding() {
     init();
   }, []);
 
+  /* ================= CUMULATIVE PENALTY (6%) ================= */
+
+  // ✅ Same fixed rate + same cumulative/compounding formula as the admin
+  // GroupMembers page, the employee Collect Payment page, and the member
+  // My Chits page. Ported here so this "My Outstanding" screen stops
+  // showing the old independent-per-month penalty and matches those
+  // pages for the same member.
+  const FIXED_PENALTY_PERCENTAGE = 6;
+
+  const isAfterDueDate = (dueDate: any) => {
+    if (!dueDate) return false;
+    const due = new Date(dueDate);
+    if (isNaN(due.getTime())) return false;
+    due.setHours(23, 59, 59, 999);
+    return new Date().getTime() > due.getTime();
+  };
+
+  // Rows here come from this screen's own ledger shape
+  // (monthIndex / dueDate / dividend / payments, from
+  // /groups/account-copy) — `dividend` is already a direct field on
+  // each row, so unlike mychits.tsx this needs no separate lookup.
+  //
+  //   - a month's OWN contribution is frozen using only payments made on
+  //     or before ITS OWN due date, so a late payment can never shrink a
+  //     charge that's already been assessed for that same month.
+  //   - the CARRY from an earlier month is frozen using only payments
+  //     made on or before THIS month's own due date — so it reflects
+  //     whichever earlier months were still unpaid at the moment this
+  //     month's penalty was assessed, and never moves again after that,
+  //     even if the earlier month gets paid off much later. (An earlier
+  //     month already paid off BEFORE this month's due date is correctly
+  //     excluded, since it wasn't outstanding "back then" either.)
+  const getCumulativePenaltyForRows = (rows: any[]) => {
+    const sorted = [...(rows || [])]
+      .filter((r) => r && r.installment)
+      .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
+
+    // Pending amount for `row`, using only payments made on or before
+    // `cutoffDate` — shared by the "own month" freeze (cutoff = that
+    // row's own due date) and the "carry" freeze (cutoff = the LATER
+    // row's due date, i.e. the moment that later row's penalty gets
+    // assessed).
+    const pendingAsOfDate = (row: any, cutoffDate: any) => {
+      const installment = row.installment || 0;
+      const dividend = Number(row.dividend || 0);
+      const effectiveInstallment = Math.max(installment - dividend, 0);
+      const payments = Array.isArray(row.payments) ? row.payments : [];
+
+      if (!cutoffDate) {
+        const paidAny = payments
+          .filter(
+            (p: any) =>
+              p.paymentType !== "PENALTY" &&
+              p.paymentType !== "DIVIDEND"
+          )
+          .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+        return Math.max(effectiveInstallment - paidAny, 0);
+      }
+
+      const due = new Date(cutoffDate);
+      due.setHours(23, 59, 59, 999);
+      const dueTime = due.getTime();
+      let paidByCutoff = 0;
+      payments.forEach((p: any) => {
+        if (
+          p.paymentType === "PENALTY" ||
+          p.paymentType === "DIVIDEND"
+        ) {
+          return;
+        }
+        const t = new Date(p.paidAt || p.date).getTime();
+        if (t <= dueTime) paidByCutoff += Number(p.amount || 0);
+      });
+      return Math.max(effectiveInstallment - paidByCutoff, 0);
+    };
+
+    const unpaidAsOfOwnDueDate = (row: any) =>
+      pendingAsOfDate(row, row.dueDateObj || null);
+
+    const penaltyByMonth: Record<string, number> = {};
+
+    sorted.forEach((row, i) => {
+      let penaltyIncrement = 0;
+
+      if (row.dueDateObj && isAfterDueDate(row.dueDateObj)) {
+        const thisMonthUnpaid = unpaidAsOfOwnDueDate(row);
+        let carriedUnpaid = 0;
+        for (let j = 0; j < i; j++) {
+          // Freeze each earlier row's contribution as of THIS row's own
+          // due date, not "today" — so once assessed, this penalty stays
+          // fixed no matter when the earlier row eventually gets paid.
+          const priorPending = pendingAsOfDate(sorted[j], row.dueDateObj);
+          if (priorPending > 0) carriedUnpaid += priorPending;
+        }
+
+        const base = thisMonthUnpaid + carriedUnpaid;
+        penaltyIncrement = Math.round(
+          (base * FIXED_PENALTY_PERCENTAGE) / 100
+        );
+      }
+
+      penaltyByMonth[row.monthIndex] = penaltyIncrement;
+    });
+
+    return penaltyByMonth;
+  };
+
   /* ================= LOAD FUNCTION ================= */
 
   const loadOutstanding = async (currentUser: any) => {
@@ -580,6 +687,61 @@ export default function MyOutstanding() {
             continue;
           }
 
+          /*
+            Build the cumulative penalty map for this member's group,
+            once per group, BEFORE the per-month loop below — the
+            carry-forward from earlier unpaid months needs the full
+            set of this group's rows up front (same approach as the
+            admin GroupMembers / employee Collect Payment / My Chits
+            pages).
+          */
+          const normalizedRowsForPenalty = (
+            Array.isArray(ledgerData.ledger) ? ledgerData.ledger : []
+          ).map((m: any) => {
+            const rawDueDate =
+              m.dueDate ||
+              m.endDate ||
+              m.due_date ||
+              m.collectionEndDate ||
+              null;
+
+            let rowDueDateObj: Date | null = null;
+            if (rawDueDate) {
+              try {
+                const d = new Date(rawDueDate);
+                if (!isNaN(d.getTime())) rowDueDateObj = d;
+              } catch (e) {
+                rowDueDateObj = null;
+              }
+            }
+
+            // getMyAccountCopy (the backend controller behind this
+            // /groups/account-copy endpoint) already returns
+            // `installmentAmount` NET of dividend (installment -
+            // dividend), with `dividend` sent again as its own field
+            // purely so the UI has something to label. The penalty
+            // helper below (getCumulativePenaltyForRows /
+            // pendingAsOfDate) subtracts `dividend` from `installment`
+            // itself, exactly like the admin/employee pages do — those
+            // pages get a RAW installment amount, so that's correct
+            // there, but here it would subtract dividend a SECOND
+            // time. Add it back here so `installment` is the raw
+            // amount again, matching what the penalty helper expects.
+            const dividendAmount = Number(m.dividend || 0);
+
+            return {
+              monthIndex: m.monthIndex || 0,
+              installment: Number(m.installmentAmount || 0) + dividendAmount,
+              dividend: dividendAmount,
+              payments: Array.isArray(m.payments) ? m.payments : [],
+              dueDateObj: rowDueDateObj,
+            };
+          });
+
+          const penaltyByMonth = getCumulativePenaltyForRows(
+            normalizedRowsForPenalty
+          );
+
           for (const month of ledgerData.ledger) {
             const monthIndex = month.monthIndex || 0;
 
@@ -715,49 +877,25 @@ export default function MyOutstanding() {
               const now =
                 today.getTime();
 
-              if (now > dueTime && pending > 0) {
-                status = "Overdue";
-
-                isOverdue = true;
-
-                daysOverdue = Math.ceil(
-                  (now - dueTime) /
-                    (1000 * 60 * 60 * 24)
-                );
-
+              if (now > dueTime) {
                 /*
-                  6% penalty on the amount that was unpaid
-                  as of the due date (same as Group Members page).
+                  6% CUMULATIVE / COMPOUNDING penalty — carries forward
+                  unpaid balances from earlier months, same formula as
+                  the admin Group Members page, employee Collect
+                  Payment page, and My Chits page. Computed once per
+                  group above (penaltyByMonth) so it can see the whole
+                  group's payment history, not just this one month.
+
+                  IMPORTANT: this is computed as soon as the due date
+                  has passed, REGARDLESS of whether the installment
+                  itself (`pending`) is already fully paid. A member
+                  can clear the installment but still owe the 6%
+                  penalty on it — that penalty must keep showing until
+                  it is paid too, not disappear just because the
+                  installment portion hit ₹0.
                 */
-                const dueEndTime = new Date(dueDateObj);
-                dueEndTime.setHours(23, 59, 59, 999);
-
-                let paidBeforeDue = 0;
-                safePayments.forEach((p: any) => {
-                  if (
-                    p.paymentType === "PENALTY" ||
-                    p.paymentType === "DIVIDEND"
-                  ) {
-                    return;
-                  }
-                  const paidTime = new Date(
-                    p.paidAt || p.date
-                  ).getTime();
-                  if (paidTime <= dueEndTime.getTime()) {
-                    paidBeforeDue += Number(p.amount || 0);
-                  }
-                });
-
-                const penaltyBase = Math.max(
-                  installment -
-                    dividend -
-                    paidBeforeDue,
-                  0
-                );
-
-                const penaltyDue = Math.round(
-                  (penaltyBase * 6) / 100
-                );
+                const penaltyDue =
+                  penaltyByMonth[monthIndex] || 0;
 
                 const penaltyPaid = safePayments
                   .filter(
@@ -774,6 +912,20 @@ export default function MyOutstanding() {
                   penaltyDue - penaltyPaid,
                   0
                 );
+
+                // Overdue whenever EITHER the installment itself is
+                // still pending OR the penalty on it hasn't been paid
+                // off yet — not just when the installment is pending.
+                if (pending > 0 || lateFee > 0) {
+                  status = "Overdue";
+
+                  isOverdue = true;
+
+                  daysOverdue = Math.ceil(
+                    (now - dueTime) /
+                      (1000 * 60 * 60 * 24)
+                  );
+                }
               } else {
                 daysLeft = Math.ceil(
                   (dueTime - now) /
@@ -785,9 +937,13 @@ export default function MyOutstanding() {
             /* ================= MONTH DATA ================= */
 
             /*
-              Only show months that still have outstanding amount.
+              Only skip a month when BOTH the installment and any
+              penalty on it are fully settled. A month with the
+              installment paid but penalty still unpaid (lateFee > 0)
+              must keep showing — otherwise it silently vanishes from
+              the list and the page wrongly claims "All Clear".
             */
-            if (pending <= 0) {
+            if (pending <= 0 && lateFee <= 0) {
               continue;
             }
 
@@ -1546,6 +1702,14 @@ export default function MyOutstanding() {
           <Text className="text-white text-2xl font-bold ml-4 flex-1">
             My Outstanding
           </Text>
+
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            className="w-9 h-9 rounded-full bg-white/15 items-center justify-center"
+          >
+            <MaterialIcons name="refresh" size={22} color="white" />
+          </TouchableOpacity>
         </View>
       </View>
 

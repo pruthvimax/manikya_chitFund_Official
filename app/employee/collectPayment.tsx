@@ -378,76 +378,122 @@ export default function CollectPayment() {
       );
   };
 
-  const getPenaltyBaseAmount = (
-    installmentAmount: number,
-    installmentPaidBeforeDue: number,
-    dividend: number,
+  const isOverdue = (
     endDate?: Date | null
   ) => {
-    if (!endDate) return 0;
-
-    const now =
-      new Date().getTime();
-
-    const due =
-      new Date(endDate);
-
-    due.setHours(
-      23,
-      59,
-      59,
-      999
-    );
-
-    const dueTime =
-      due.getTime();
-
-    if (now <= dueTime) return 0;
-
-    return Math.max(
-      installmentAmount -
-        (installmentPaidBeforeDue +
-          dividend),
-      0
-    );
+    if (!endDate) return false;
+    const due = new Date(endDate);
+    due.setHours(23, 59, 59, 999);
+    return new Date().getTime() > due.getTime();
   };
 
-  const calculatePenalty = (
-    penaltyBaseAmount: number,
-    endDate?: Date | null
+  // ✅ CUMULATIVE / COMPOUNDING penalty across all of this member's months —
+  // same rule as the admin Group Members page. Two different "as of"
+  // points, on purpose:
+  //   - a month's OWN contribution is frozen using only payments made on
+  //     or before ITS OWN due date, so a late payment can never shrink a
+  //     charge that's already been assessed (and possibly already
+  //     collected) for that same month.
+  //   - the CARRY from an earlier month is frozen using only payments
+  //     made on or before THIS month's own due date — so it reflects
+  //     whichever earlier months were still unpaid at the moment this
+  //     month's penalty was assessed, and never moves again after that,
+  //     even if the earlier month gets paid off much later. (An earlier
+  //     month that was already paid off BEFORE this month's due date is
+  //     correctly excluded, since it truly wasn't outstanding "back then"
+  //     either.)
+  const getCumulativePenalty = (
+    allCollections: any[],
+    instMap: Record<number, { installment: number; dividend: number }>,
+    dMap: Record<number, { endDate: Date | null; display: string }>
   ) => {
-    if (
-      !penaltyBaseAmount ||
-      !endDate
-    ) {
-      return 0;
-    }
+    const sorted = [...(allCollections || [])]
+      .filter((c) => c && instMap[c.index])
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
 
-    const now =
-      new Date().getTime();
+    // Pending amount for `collection`, using only payments made on or
+    // before `cutoffDate`. Shared by both the "own month" freeze (cutoff
+    // = that month's own due date) and the "carry" freeze (cutoff = the
+    // LATER month's due date, i.e. the point at which that later month's
+    // penalty gets assessed).
+    const pendingAsOfDate = (
+      collection: any,
+      cutoffDate: Date | null
+    ) => {
+      const installment = instMap[collection.index]?.installment || 0;
+      const dividend = instMap[collection.index]?.dividend || 0;
+      const effectiveInstallment = Math.max(installment - dividend, 0);
+      const payments = Array.isArray(collection.payments) ? collection.payments : [];
 
-    const due =
-      new Date(endDate);
+      if (!cutoffDate) {
+        const paidAny = payments
+          .filter((p: any) => p.paymentType !== "PENALTY")
+          .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+        return Math.max(effectiveInstallment - paidAny, 0);
+      }
 
-    due.setHours(
-      23,
-      59,
-      59,
-      999
-    );
+      const cutoff = new Date(cutoffDate);
+      cutoff.setHours(23, 59, 59, 999);
+      const cutoffTime = cutoff.getTime();
 
-    const dueTime =
-      due.getTime();
+      let paidByCutoff = 0;
+      payments.forEach((p: any) => {
+        if (p.paymentType === "PENALTY") return;
+        const t = new Date(p.paidAt || p.date).getTime();
+        if (t <= cutoffTime) paidByCutoff += p.amount || 0;
+      });
+      return Math.max(effectiveInstallment - paidByCutoff, 0);
+    };
 
-    if (now > dueTime) {
-      return Math.round(
-        (penaltyBaseAmount *
-          PENALTY_PERCENT) /
-          100
-      );
-    }
+    const unpaidAsOfOwnDueDate = (collection: any) => {
+      const endDate = dMap[collection.index]?.endDate || null;
+      return pendingAsOfDate(collection, endDate);
+    };
 
-    return 0;
+    const perMonth: Record<
+      number,
+      {
+        isAfterDueDate: boolean;
+        penaltyIncrement: number;
+        penaltyPaid: number;
+        pendingPenalty: number;
+      }
+    > = {};
+
+    sorted.forEach((c, i) => {
+      const payments = Array.isArray(c.payments) ? c.payments : [];
+      const penaltyPaid = payments
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+
+      const endDate = dMap[c.index]?.endDate || null;
+      const overdue = isOverdue(endDate);
+      let penaltyIncrement = 0;
+
+      if (overdue && endDate) {
+        const thisMonthUnpaid = unpaidAsOfOwnDueDate(c);
+        let carriedUnpaid = 0;
+        for (let j = 0; j < i; j++) {
+          // Freeze each earlier month's contribution at THIS month's own
+          // due date — not at "today" — so a penalty already assessed
+          // stays fixed no matter when the earlier month eventually gets
+          // paid off.
+          carriedUnpaid += pendingAsOfDate(sorted[j], endDate);
+        }
+
+        const base = thisMonthUnpaid + carriedUnpaid;
+        penaltyIncrement = Math.round((base * PENALTY_PERCENT) / 100);
+      }
+
+      perMonth[c.index] = {
+        isAfterDueDate: overdue,
+        penaltyIncrement,
+        penaltyPaid,
+        pendingPenalty: Math.max(penaltyIncrement - penaltyPaid, 0),
+      };
+    });
+
+    return perMonth;
   };
 
   /* =====================================================
@@ -526,14 +572,43 @@ export default function CollectPayment() {
       [key]: true,
     }));
 
+    const confirmMessage = `Collect ₹${amount} as ${
+      paymentType === "INSTALLMENT"
+        ? "installment"
+        : "penalty"
+    } for Month ${monthIndex}?`;
+
+    // react-native-web's Alert.alert only falls back to a plain browser
+    // alert() — it doesn't render a Cancel/Confirm button pair, so the
+    // "Confirm" onPress above never fired and the button looked dead on
+    // desktop/laptop browsers (and stayed stuck disabled, since
+    // `submitting[key]` was never reset back to false either). Use the
+    // browser's own confirm() dialog on web, and keep the native Alert on
+    // iOS/Android.
+    if (Platform.OS === "web") {
+      const confirmed =
+        typeof window !== "undefined" &&
+        window.confirm(confirmMessage);
+
+      if (confirmed) {
+        addPayment(
+          monthIndex,
+          amount,
+          paymentType,
+          key
+        );
+      } else {
+        setSubmitting((prev) => ({
+          ...prev,
+          [key]: false,
+        }));
+      }
+      return;
+    }
+
     Alert.alert(
       "Confirm Payment",
-      `Collect ₹${amount} as ${
-        paymentType ===
-        "INSTALLMENT"
-          ? "installment"
-          : "penalty"
-      } for Month ${monthIndex}?`,
+      confirmMessage,
       [
         {
           text: "Cancel",
@@ -594,10 +669,7 @@ export default function CollectPayment() {
         paymentMode[monthIndex] ||
         "Cash";
 
-      const backendPaymentMode =
-        selectedMode === "AC"
-          ? "Cheque"
-          : selectedMode;
+      const backendPaymentMode = selectedMode;
 
       await fetch(
         `${BACKEND_URL}/groups/${groupId}/members/${groupMemberId}/payments`,
@@ -849,106 +921,23 @@ export default function CollectPayment() {
           ].amount || 0
         : 0;
 
+    const penaltyByMonth =
+      getCumulativePenalty(
+        collections,
+        installmentMap,
+        dateMap
+      );
+
+    const penaltyRow =
+      penaltyByMonth[monthIndex];
+
     const isAfterDueDate =
-      (() => {
-        if (
-          !dateMap[
-            monthIndex
-          ]?.endDate
-        ) {
-          return false;
-        }
-
-        const due =
-          new Date(
-            dateMap[
-              monthIndex
-            ].endDate
-          );
-
-        due.setHours(
-          23,
-          59,
-          59,
-          999
-        );
-
-        return (
-          new Date().getTime() >
-          due.getTime()
-        );
-      })();
-
-    const installmentPaidBeforeDue =
-      installmentPayments
-        .filter((p) => {
-          if (
-            !dateMap[
-              monthIndex
-            ]?.endDate
-          ) {
-            return true;
-          }
-
-          const paidTime =
-            new Date(
-              p.paidAt ||
-                p.date
-            ).getTime();
-
-          const due =
-            new Date(
-              dateMap[
-                monthIndex
-              ].endDate
-            );
-
-          due.setHours(
-            23,
-            59,
-            59,
-            999
-          );
-
-          return (
-            paidTime <=
-            due.getTime()
-          );
-        })
-        .reduce(
-          (s, p) =>
-            s + (p.amount || 0),
-          0
-        );
-
-    const penaltyBaseAmount =
-      isAfterDueDate
-        ? getPenaltyBaseAmount(
-            installment,
-            installmentPaidBeforeDue,
-            dividend,
-            dateMap[
-              monthIndex
-            ]?.endDate
-          )
-        : 0;
-
-    const penaltyDue =
-      isAfterDueDate
-        ? calculatePenalty(
-            penaltyBaseAmount,
-            dateMap[
-              monthIndex
-            ]?.endDate
-          )
-        : 0;
+      penaltyRow?.isAfterDueDate ||
+      false;
 
     const pendingPenalty =
-      Math.max(
-        penaltyDue -
-          totalPenaltyPaid,
-        0
-      );
+      penaltyRow?.pendingPenalty ||
+      0;
 
     const totalDue =
       pendingInstallment +
@@ -1043,11 +1032,7 @@ export default function CollectPayment() {
         "-",
 
       paymentMode:
-        lastPayment?.paymentMode ===
-        "Cheque"
-          ? "AC"
-          : lastPayment?.paymentMode ||
-            "-",
+        lastPayment?.paymentMode || "-",
 
       date:
         new Date().toLocaleDateString(
@@ -1103,6 +1088,14 @@ export default function CollectPayment() {
   /* =====================================================
      UI
   ===================================================== */
+
+  // Cumulative penalty for every month, computed once per render and
+  // looked up per-card below (same rule as the admin Group Members page).
+  const penaltyByMonth = getCumulativePenalty(
+    collections,
+    installmentMap,
+    dateMap
+  );
 
   return (
     <KeyboardAvoidingView
@@ -1242,126 +1235,18 @@ export default function CollectPayment() {
                       0
                     );
 
-                  const penaltyPaid =
-                    getPenaltyPaid(
-                      c.payments ||
-                        []
-                    );
+                  const penaltyRow =
+                    penaltyByMonth[
+                      c.index
+                    ];
 
                   const isAfterDueDate =
-                    (() => {
-                      if (
-                        !dateMap[
-                          c.index
-                        ]?.endDate
-                      ) {
-                        return false;
-                      }
-
-                      const due =
-                        new Date(
-                          dateMap[
-                            c.index
-                          ].endDate
-                        );
-
-                      due.setHours(
-                        23,
-                        59,
-                        59,
-                        999
-                      );
-
-                      return (
-                        new Date().getTime() >
-                        due.getTime()
-                      );
-                    })();
-
-                  const installmentPaidBeforeDue =
-                    (
-                      c.payments ||
-                      []
-                    )
-                      .filter(
-                        (p) => {
-                          if (
-                            p.paymentType ===
-                            "PENALTY"
-                          ) {
-                            return false;
-                          }
-
-                          if (
-                            !dateMap[
-                              c.index
-                            ]?.endDate
-                          ) {
-                            return true;
-                          }
-
-                          const paidTime =
-                            new Date(
-                              p.paidAt ||
-                                p.date
-                            ).getTime();
-
-                          const due =
-                            new Date(
-                              dateMap[
-                                c.index
-                              ].endDate
-                            );
-
-                          due.setHours(
-                            23,
-                            59,
-                            59,
-                            999
-                          );
-
-                          return (
-                            paidTime <=
-                            due.getTime()
-                          );
-                        }
-                      )
-                      .reduce(
-                        (s, p) =>
-                          s +
-                          (p.amount ||
-                            0),
-                        0
-                      );
-
-                  const penaltyBaseAmount =
-                    isAfterDueDate
-                      ? getPenaltyBaseAmount(
-                          installment,
-                          installmentPaidBeforeDue,
-                          dividend,
-                          dateMap[
-                            c.index
-                          ]?.endDate
-                        )
-                      : 0;
-
-                  const penaltyDue =
-                    isAfterDueDate
-                      ? calculatePenalty(
-                          penaltyBaseAmount,
-                          dateMap[
-                            c.index
-                          ]?.endDate
-                        )
-                      : 0;
+                    penaltyRow?.isAfterDueDate ||
+                    false;
 
                   const pendingPenalty =
-                    Math.max(
-                      penaltyDue -
-                        penaltyPaid,
-                      0
-                    );
+                    penaltyRow?.pendingPenalty ||
+                    0;
 
                   const totalDue =
                     pendingInstallment +
