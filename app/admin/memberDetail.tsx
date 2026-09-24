@@ -160,7 +160,7 @@ export default function MemberDetail() {
   /* ===== LOADING ===== */
   if (loading) {
     return (
-      <SafeAreaView className="flex-1 bg-[#f9fafb]">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
         <StatusBar barStyle="light-content" backgroundColor="#024e32" />
         <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
           <View className="flex-row items-center">
@@ -196,7 +196,7 @@ export default function MemberDetail() {
   /* ===== MAIN RENDER ===== */
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1 bg-[#f9fafb]">
-      <SafeAreaView className="flex-1 bg-[#f9fafb]">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
         <StatusBar barStyle="light-content" backgroundColor="#024e32" />
 
         {/* HEADER */}

@@ -1,6 +1,6 @@
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LinearGradient } from 'expo-linear-gradient';
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,15 +12,14 @@ import {
   Linking,
   Platform,
   SafeAreaView,
-  ScrollView,
   StatusBar,
   Text,
   TextInput,
   TouchableOpacity,
   useWindowDimensions,
-  View,
+  View
 } from "react-native";
-import * as Animatable from 'react-native-animatable';
+import * as Animatable from "react-native-animatable";
 
 import BACKEND_URL from "../config";
 
@@ -29,7 +28,10 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
-  const [isFocused, setIsFocused] = useState({ userid: false, password: false });
+  const [isFocused, setIsFocused] = useState({
+    userid: false,
+    password: false,
+  });
   const [isLoading, setIsLoading] = useState(false);
 
   const router = useRouter();
@@ -61,12 +63,12 @@ export default function LoginScreen() {
   const navbarScale = scrollY.interpolate({
     inputRange: [0, 60],
     outputRange: [1, 0.82],
-    extrapolate: 'clamp',
+    extrapolate: "clamp",
   });
   const navbarTranslateY = scrollY.interpolate({
     inputRange: [0, 60],
     outputRange: [0, -6],
-    extrapolate: 'clamp',
+    extrapolate: "clamp",
   });
 
   /*
@@ -90,12 +92,61 @@ export default function LoginScreen() {
     progressAnim.setValue(0);
   };
 
+  /*
+    FIX: intermittent "correct password but shows server error".
+    A plain fetch() with no timeout and no retry means any brief
+    network hiccup (weak signal, momentary drop, slow tower
+    handoff) either hangs until the OS gives up or throws once and
+    falls straight into the generic catch block below - even though
+    the credentials were completely correct. This wraps ONLY the
+    network call with a timeout + a couple of automatic retries,
+    and retries ONLY on network-level failures (timeout/abort or
+    "Network request failed") - never once a real response comes
+    back from the server, so an actual wrong-password rejection
+    still shows immediately and is never resubmitted. Nothing about
+    the login logic, validation, or UI below is changed.
+  */
+  const REQUEST_TIMEOUT_MS = 15000;
+  const MAX_ATTEMPTS = 3;
+
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit,
+    attempt: number = 1,
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+
+      const isNetworkFailure =
+        err?.name === "AbortError" ||
+        err?.message === "Network request failed" ||
+        err?.name === "TypeError";
+
+      if (isNetworkFailure && attempt < MAX_ATTEMPTS) {
+        console.warn(
+          `Login: network issue on attempt ${attempt} (${err?.message || err?.name}), retrying...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        return fetchWithRetry(url, options, attempt + 1);
+      }
+
+      throw err;
+    }
+  };
+
   /* ================= BACK BUTTON LOCK ================= */
   useEffect(() => {
     const backAction = () => true;
     const backHandler = BackHandler.addEventListener(
       "hardwareBackPress",
-      backAction
+      backAction,
     );
 
     return () => backHandler.remove();
@@ -147,7 +198,7 @@ export default function LoginScreen() {
           useNativeDriver: true,
           easing: Easing.inOut(Easing.sin),
         }),
-      ])
+      ]),
     ).start();
 
     // Pulse animation for logo
@@ -165,7 +216,7 @@ export default function LoginScreen() {
           useNativeDriver: true,
           easing: Easing.inOut(Easing.sin),
         }),
-      ])
+      ]),
     ).start();
   }, []);
 
@@ -199,7 +250,7 @@ export default function LoginScreen() {
         duration: 800,
         easing: Easing.linear,
         useNativeDriver: false,
-      })
+      }),
     );
     spinLoopRef.current.start();
 
@@ -208,7 +259,7 @@ export default function LoginScreen() {
 
       console.log("LOGIN URL:", url);
 
-      const response = await fetch(url, {
+      const response = await fetchWithRetry(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Trim the User ID only — a stray leading/trailing space typed
@@ -245,7 +296,7 @@ export default function LoginScreen() {
         JSON.stringify({
           userid: data.member.userid,
           username: data.member.username,
-        })
+        }),
       );
 
       console.log("✅ LOGIN SUCCESS:", data.member.userid);
@@ -319,9 +370,7 @@ export default function LoginScreen() {
   };
 
   /* ================= LOGO SIZE ================= */
-  const logoSize = isDesktopOrLaptop
-    ? Math.min(width * 0.2, 280)
-    : width * 0.5;
+  const logoSize = isDesktopOrLaptop ? Math.min(width * 0.2, 280) : width * 0.5;
 
   // Floating background circles
   const float1 = floatingAnim.interpolate({
@@ -337,23 +386,21 @@ export default function LoginScreen() {
   // Shared "glass" surfaces so iOS and Android render identically.
   const glassInput = (focused: boolean) => ({
     backgroundColor: focused
-      ? 'rgba(255,255,255,0.45)'
-      : 'rgba(255,255,255,0.25)',
+      ? "rgba(255,255,255,0.45)"
+      : "rgba(255,255,255,0.25)",
     borderWidth: 1.5,
-    borderColor: focused
-      ? '#024e32'
-      : 'rgba(255,255,255,0.6)',
+    borderColor: focused ? "#024e32" : "rgba(255,255,255,0.6)",
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+    <View style={{ flex: 1, backgroundColor: "transparent" }}>
       {/* ===== FULL TRANSPARENT BACKGROUND LAYER ===== */}
       <LinearGradient
-        colors={['#e8f5ee', '#e3eef7', '#f2f7fb']}
+        colors={["#e8f5ee", "#e3eef7", "#f2f7fb"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 0,
           left: 0,
           right: 0,
@@ -364,9 +411,9 @@ export default function LoginScreen() {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1, backgroundColor: 'transparent' }}
+        style={{ flex: 1, backgroundColor: "transparent" }}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "transparent" }}>
           <StatusBar
             barStyle="dark-content"
             backgroundColor="transparent"
@@ -377,39 +424,39 @@ export default function LoginScreen() {
           <Animated.View
             pointerEvents="none"
             style={{
-              position: 'absolute',
+              position: "absolute",
               top: -100,
               right: -100,
               width: 300,
               height: 300,
               borderRadius: 150,
-              backgroundColor: 'rgba(2, 78, 50, 0.10)',
+              backgroundColor: "rgba(2, 78, 50, 0.10)",
               transform: [{ translateY: float1 }],
             }}
           />
           <Animated.View
             pointerEvents="none"
             style={{
-              position: 'absolute',
+              position: "absolute",
               bottom: -100,
               left: -100,
               width: 350,
               height: 350,
               borderRadius: 175,
-              backgroundColor: 'rgba(2, 78, 50, 0.07)',
+              backgroundColor: "rgba(2, 78, 50, 0.07)",
               transform: [{ translateY: float2 }],
             }}
           />
           <Animated.View
             pointerEvents="none"
             style={{
-              position: 'absolute',
-              top: '40%',
+              position: "absolute",
+              top: "40%",
               left: -50,
               width: 150,
               height: 150,
               borderRadius: 75,
-              backgroundColor: 'rgba(3, 105, 161, 0.07)',
+              backgroundColor: "rgba(3, 105, 161, 0.07)",
               transform: [{ translateY: float1 }],
             }}
           />
@@ -429,660 +476,825 @@ export default function LoginScreen() {
               zIndex: 20,
             }}
           >
-            <Animated.View style={{ transform: [{ scale: navbarScale }, { translateY: navbarTranslateY }] }}>
-            <View style={{
-              flexDirection: 'row',
-              backgroundColor: 'rgba(255,255,255,0.28)',
-              borderRadius: 20,
-              padding: 4,
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.55)',
-            }}>
-              <TouchableOpacity
-                onPress={() => router.replace("/admin/login")}
-                activeOpacity={0.7}
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16 }}
+            <Animated.View
+              style={{
+                transform: [
+                  { scale: navbarScale },
+                  { translateY: navbarTranslateY },
+                ],
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  backgroundColor: "rgba(255,255,255,0.28)",
+                  borderRadius: 20,
+                  padding: 4,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.55)",
+                }}
               >
-                <MaterialIcons name="admin-panel-settings" size={16} color="#475569" />
-                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#475569' }}>Admin</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => router.replace("/employee/login")}
-                activeOpacity={0.7}
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16 }}
-              >
-                <MaterialIcons name="badge" size={16} color="#475569" />
-                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#475569' }}>Employee</Text>
-              </TouchableOpacity>
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 16, backgroundColor: '#024e32' }}>
-                <MaterialIcons name="person" size={16} color="#fff" />
-                <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '700', color: '#fff' }}>Member</Text>
+                <TouchableOpacity
+                  onPress={() => router.replace("/admin/login")}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 10,
+                    borderRadius: 16,
+                  }}
+                >
+                  <MaterialIcons
+                    name="admin-panel-settings"
+                    size={16}
+                    color="#475569"
+                  />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 13,
+                      fontWeight: "600",
+                      color: "#475569",
+                    }}
+                  >
+                    Admin
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.replace("/employee/login")}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 10,
+                    borderRadius: 16,
+                  }}
+                >
+                  <MaterialIcons name="badge" size={16} color="#475569" />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 13,
+                      fontWeight: "600",
+                      color: "#475569",
+                    }}
+                  >
+                    Employee
+                  </Text>
+                </TouchableOpacity>
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 10,
+                    borderRadius: 16,
+                    backgroundColor: "#024e32",
+                  }}
+                >
+                  <MaterialIcons name="person" size={16} color="#fff" />
+                  <Text
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 13,
+                      fontWeight: "700",
+                      color: "#fff",
+                    }}
+                  >
+                    Member
+                  </Text>
+                </View>
               </View>
-            </View>
             </Animated.View>
           </Animatable.View>
 
-        <Animated.ScrollView
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: true }
-          )}
-          scrollEventThrottle={16}
-          contentContainerStyle={{
-            flexGrow: 1,
-            justifyContent: 'center',
-          }}
-          showsVerticalScrollIndicator={false}
-          style={{ backgroundColor: 'transparent' }}
-        >
-          <Animated.View style={{
-            flex: 1,
-            flexDirection: isDesktopOrLaptop ? 'row' : 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingHorizontal: isDesktopOrLaptop ? 60 : 24,
-            paddingVertical: isDesktopOrLaptop ? 40 : 20,
-            opacity: fadeAnim,
-            transform: [
-              { translateY: slideAnim },
-              { scale: scaleAnim }
-            ]
-          }}>
-
-
-            {/* ================= LEFT SIDE - BRANDING ================= */}
-            {isDesktopOrLaptop && (
-              <Animatable.View
-                animation="fadeInLeft"
-                duration={800}
-                delay={300}
-                style={{
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingRight: 60,
-                }}
-              >
-                <Animated.View style={{
-                  backgroundColor: 'rgba(255,255,255,0.25)',
-                  borderRadius: 40,
-                  padding: 40,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.55)',
-                  transform: [{ scale: pulseAnim }],
-                }}>
-                  <Image
-                    source={require("../assets/images/manikyaChits.png")}
-                    style={{
-                      width: logoSize,
-                      height: logoSize,
-                      maxWidth: 300,
-                      maxHeight: 300,
-                    }}
-                    resizeMode="contain"
-                  />
-                </Animated.View>
-
-                <Animatable.Text
-                  animation="fadeInUp"
-                  duration={800}
-                  delay={500}
-                  style={{
-                    fontSize: 40,
-                    fontWeight: '800',
-                    color: '#024e32',
-                    marginTop: 32,
-                    letterSpacing: 2,
-                  }}
-                >
-                  MANIKYA CHITS
-                </Animatable.Text>
-
-                <Animatable.Text
-                  animation="fadeInUp"
-                  duration={800}
-                  delay={600}
-                  style={{
-                    fontSize: 16,
-                    color: '#475569',
-                    marginTop: 12,
-                    letterSpacing: 1,
-                    textAlign: 'center',
-                  }}
-                >
-                  Secure member access with credentials
-                </Animatable.Text>
-
-                <Animatable.View
-                  animation="fadeInUp"
-                  duration={800}
-                  delay={700}
-                  style={{
-                    flexDirection: 'row',
-                    marginTop: 30,
-                    gap: 20,
-                  }}
-                >
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 24,
-                      backgroundColor: 'rgba(255,255,255,0.35)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,255,255,0.6)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <MaterialIcons name="security" size={24} color="#024e32" />
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Secure</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 24,
-                      backgroundColor: 'rgba(255,255,255,0.35)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,255,255,0.6)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <MaterialIcons name="verified-user" size={24} color="#024e32" />
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Verified</Text>
-                  </View>
-                  <View style={{ alignItems: 'center' }}>
-                    <View style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: 24,
-                      backgroundColor: 'rgba(255,255,255,0.35)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255,255,255,0.6)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <MaterialIcons name="account-circle" size={24} color="#024e32" />
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>Member</Text>
-                  </View>
-                </Animatable.View>
-              </Animatable.View>
+          <Animated.ScrollView
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              { useNativeDriver: true },
             )}
-
-            {/* ================= RIGHT SIDE - LOGIN FORM ================= */}
-            <Animatable.View
-              animation={isDesktopOrLaptop ? "fadeInRight" : "fadeInUp"}
-              duration={800}
-              delay={isDesktopOrLaptop ? 400 : 200}
+            scrollEventThrottle={16}
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: "center",
+            }}
+            showsVerticalScrollIndicator={false}
+            style={{ backgroundColor: "transparent" }}
+          >
+            <Animated.View
               style={{
-                width: isDesktopOrLaptop ? '42%' : '100%',
-                maxWidth: isDesktopOrLaptop ? 480 : 400,
+                flex: 1,
+                flexDirection: isDesktopOrLaptop ? "row" : "column",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingHorizontal: isDesktopOrLaptop ? 60 : 24,
+                paddingVertical: isDesktopOrLaptop ? 40 : 20,
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
               }}
             >
-              {/* Mobile Logo */}
-              {!isDesktopOrLaptop && (
+              {/* ================= LEFT SIDE - BRANDING ================= */}
+              {isDesktopOrLaptop && (
                 <Animatable.View
-                  animation="fadeInDown"
-                  duration={600}
-                  delay={100}
-                  style={{ alignItems: 'center', marginBottom: 30 }}
+                  animation="fadeInLeft"
+                  duration={800}
+                  delay={300}
+                  style={{
+                    flex: 1,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingRight: 60,
+                  }}
                 >
-                  <Animated.View style={{
-                    transform: [{ scale: pulseAnim }],
-                  }}>
+                  <Animated.View
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.25)",
+                      borderRadius: 40,
+                      padding: 40,
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.55)",
+                      transform: [{ scale: pulseAnim }],
+                    }}
+                  >
                     <Image
                       source={require("../assets/images/manikyaChits.png")}
                       style={{
                         width: logoSize,
                         height: logoSize,
+                        maxWidth: 300,
+                        maxHeight: 300,
                       }}
                       resizeMode="contain"
                     />
                   </Animated.View>
+
+                  <Animatable.Text
+                    animation="fadeInUp"
+                    duration={800}
+                    delay={500}
+                    style={{
+                      fontSize: 40,
+                      fontWeight: "800",
+                      color: "#024e32",
+                      marginTop: 32,
+                      letterSpacing: 2,
+                    }}
+                  >
+                    MANIKYA CHITS
+                  </Animatable.Text>
+
+                  <Animatable.Text
+                    animation="fadeInUp"
+                    duration={800}
+                    delay={600}
+                    style={{
+                      fontSize: 16,
+                      color: "#475569",
+                      marginTop: 12,
+                      letterSpacing: 1,
+                      textAlign: "center",
+                    }}
+                  >
+                    Secure member access with credentials
+                  </Animatable.Text>
+
+                  <Animatable.View
+                    animation="fadeInUp"
+                    duration={800}
+                    delay={700}
+                    style={{
+                      flexDirection: "row",
+                      marginTop: 30,
+                      gap: 20,
+                    }}
+                  >
+                    <View style={{ alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: "rgba(255,255,255,0.35)",
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.6)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <MaterialIcons
+                          name="security"
+                          size={24}
+                          color="#024e32"
+                        />
+                      </View>
+                      <Text
+                        style={{ fontSize: 12, color: "#475569", marginTop: 6 }}
+                      >
+                        Secure
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: "rgba(255,255,255,0.35)",
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.6)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <MaterialIcons
+                          name="verified-user"
+                          size={24}
+                          color="#024e32"
+                        />
+                      </View>
+                      <Text
+                        style={{ fontSize: 12, color: "#475569", marginTop: 6 }}
+                      >
+                        Verified
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: "rgba(255,255,255,0.35)",
+                          borderWidth: 1,
+                          borderColor: "rgba(255,255,255,0.6)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <MaterialIcons
+                          name="account-circle"
+                          size={24}
+                          color="#024e32"
+                        />
+                      </View>
+                      <Text
+                        style={{ fontSize: 12, color: "#475569", marginTop: 6 }}
+                      >
+                        Member
+                      </Text>
+                    </View>
+                  </Animatable.View>
                 </Animatable.View>
               )}
 
-              {/* Login Card — TRANSPARENT GLASS */}
-              <Animated.View style={{
-                backgroundColor: 'transparent',
-                borderRadius: 32,
-                padding: isDesktopOrLaptop ? 40 : 32,
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.55)',
-                overflow: 'hidden',
-              }}>
-                {/* Gradient top bar */}
-                <LinearGradient
-                  colors={['#024e32', '#0369a1']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 4,
-                    opacity: 0.9,
-                  }}
-                />
-
-                {/* Header */}
-                <View style={{ marginBottom: 32, marginTop: 4 }}>
-                  {!isDesktopOrLaptop && (
-                    <Animatable.Text
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={400}
+              {/* ================= RIGHT SIDE - LOGIN FORM ================= */}
+              <Animatable.View
+                animation={isDesktopOrLaptop ? "fadeInRight" : "fadeInUp"}
+                duration={800}
+                delay={isDesktopOrLaptop ? 400 : 200}
+                style={{
+                  width: isDesktopOrLaptop ? "42%" : "100%",
+                  maxWidth: isDesktopOrLaptop ? 480 : 400,
+                }}
+              >
+                {/* Mobile Logo */}
+                {!isDesktopOrLaptop && (
+                  <Animatable.View
+                    animation="fadeInDown"
+                    duration={600}
+                    delay={100}
+                    style={{ alignItems: "center", marginBottom: 30 }}
+                  >
+                    <Animated.View
                       style={{
-                        fontSize: 28,
-                        fontWeight: '800',
-                        color: '#024e32',
-                        textAlign: 'center',
-                        letterSpacing: 1,
+                        transform: [{ scale: pulseAnim }],
                       }}
                     >
-                      Member Login
-                    </Animatable.Text>
-                  )}
-                  {isDesktopOrLaptop && (
-                    <>
+                      <Image
+                        source={require("../assets/images/manikyaChits.png")}
+                        style={{
+                          width: logoSize,
+                          height: logoSize,
+                        }}
+                        resizeMode="contain"
+                      />
+                    </Animated.View>
+                  </Animatable.View>
+                )}
+
+                {/* Login Card — TRANSPARENT GLASS */}
+                <Animated.View
+                  style={{
+                    backgroundColor: "transparent",
+                    borderRadius: 32,
+                    padding: isDesktopOrLaptop ? 40 : 32,
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.55)",
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Gradient top bar */}
+                  <LinearGradient
+                    colors={["#024e32", "#0369a1"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 4,
+                      opacity: 0.9,
+                    }}
+                  />
+
+                  {/* Header */}
+                  <View style={{ marginBottom: 32, marginTop: 4 }}>
+                    {!isDesktopOrLaptop && (
                       <Animatable.Text
                         animation="fadeInUp"
                         duration={600}
-                        delay={600}
+                        delay={400}
                         style={{
-                          fontSize: 34,
-                          fontWeight: '800',
-                          color: '#024e32',
-                          textAlign: 'center',
+                          fontSize: 28,
+                          fontWeight: "800",
+                          color: "#024e32",
+                          textAlign: "center",
                           letterSpacing: 1,
                         }}
                       >
-                        Welcome Back
+                        Member Login
                       </Animatable.Text>
+                    )}
+                    {isDesktopOrLaptop && (
+                      <>
+                        <Animatable.Text
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={600}
+                          style={{
+                            fontSize: 34,
+                            fontWeight: "800",
+                            color: "#024e32",
+                            textAlign: "center",
+                            letterSpacing: 1,
+                          }}
+                        >
+                          Welcome Back
+                        </Animatable.Text>
+                        <Animatable.Text
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={700}
+                          style={{
+                            fontSize: 16,
+                            color: "#64748b",
+                            textAlign: "center",
+                            marginTop: 8,
+                            letterSpacing: 0.5,
+                          }}
+                        >
+                          Sign in to your member account
+                        </Animatable.Text>
+                      </>
+                    )}
+                    {!isDesktopOrLaptop && (
                       <Animatable.Text
                         animation="fadeInUp"
                         duration={600}
-                        delay={700}
+                        delay={500}
                         style={{
-                          fontSize: 16,
-                          color: '#64748b',
-                          textAlign: 'center',
-                          marginTop: 8,
-                          letterSpacing: 0.5,
+                          fontSize: 14,
+                          color: "#64748b",
+                          textAlign: "center",
+                          marginTop: 4,
                         }}
                       >
-                        Sign in to your member account
+                        Secure access for registered members
                       </Animatable.Text>
-                    </>
-                  )}
-                  {!isDesktopOrLaptop && (
-                    <Animatable.Text
+                    )}
+                  </View>
+
+                  {/* Form */}
+                  <View>
+                    {/* User ID */}
+                    <Animatable.View
                       animation="fadeInUp"
                       duration={600}
-                      delay={500}
-                      style={{
-                        fontSize: 14,
-                        color: '#64748b',
-                        textAlign: 'center',
-                        marginTop: 4,
-                      }}
+                      delay={isDesktopOrLaptop ? 800 : 600}
+                      style={{ marginBottom: 20 }}
                     >
-                      Secure access for registered members
-                    </Animatable.Text>
-                  )}
-                </View>
-
-                {/* Form */}
-                <View>
-                  {/* User ID */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 800 : 600}
-                    style={{ marginBottom: 20 }}
-                  >
-                    <Text style={{
-                      fontSize: 13,
-                      fontWeight: '600',
-                      color: '#1e293b',
-                      marginBottom: 8,
-                      letterSpacing: 0.5,
-                      textTransform: 'uppercase',
-                    }}>
-                      User ID
-                    </Text>
-                    <Animated.View style={[
-                      {
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderRadius: 16,
-                        paddingHorizontal: 16,
-                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                      },
-                      glassInput(isFocused.userid),
-                      {
-                        transform: [
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "600",
+                          color: "#1e293b",
+                          marginBottom: 8,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        User ID
+                      </Text>
+                      <Animated.View
+                        style={[
                           {
-                            rotate: rotateAnim.interpolate({
-                              inputRange: [-0.08, 0.08],
-                              outputRange: ['-4deg', '4deg'],
-                            })
-                          }
-                        ],
-                      }
-                    ]}>
-                      <MaterialIcons
-                        name="person"
-                        size={22}
-                        color={isFocused.userid ? '#024e32' : '#64748b'}
-                      />
-                      <TextInput
-                        placeholder="Enter User ID"
-                        placeholderTextColor="#64748b"
-                        style={{
-                          flex: 1,
-                          marginLeft: 12,
-                          fontSize: 16,
-                          color: '#1e293b',
-                          padding: 0,
-                          backgroundColor: 'transparent',
-                        }}
-                        value={userid}
-                        onChangeText={setUserid}
-                        onFocus={() => setIsFocused({ ...isFocused, userid: true })}
-                        onBlur={() => setIsFocused({ ...isFocused, userid: false })}
-                        autoCapitalize="none"
-                      />
-                      {userid.length > 0 && (
-                        <TouchableOpacity onPress={() => setUserid('')}>
-                          <Ionicons name="close-circle" size={20} color="#64748b" />
-                        </TouchableOpacity>
-                      )}
-                    </Animated.View>
-                  </Animatable.View>
-
-                  {/* Password */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 900 : 700}
-                    style={{ marginBottom: 16 }}
-                  >
-                    <Text style={{
-                      fontSize: 13,
-                      fontWeight: '600',
-                      color: '#1e293b',
-                      marginBottom: 8,
-                      letterSpacing: 0.5,
-                      textTransform: 'uppercase',
-                    }}>
-                      Password
-                    </Text>
-                    <Animated.View style={[
-                      {
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderRadius: 16,
-                        paddingHorizontal: 16,
-                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                      },
-                      glassInput(isFocused.password),
-                    ]}>
-                      <MaterialIcons
-                        name="lock-outline"
-                        size={22}
-                        color={isFocused.password ? '#024e32' : '#64748b'}
-                      />
-                      <TextInput
-                        placeholder="Enter Password"
-                        placeholderTextColor="#64748b"
-                        secureTextEntry={!showPassword}
-                        style={{
-                          flex: 1,
-                          marginLeft: 12,
-                          fontSize: 16,
-                          color: '#1e293b',
-                          padding: 0,
-                          backgroundColor: 'transparent',
-                        }}
-                        value={password}
-                        onChangeText={setPassword}
-                        onFocus={() => setIsFocused({ ...isFocused, password: true })}
-                        onBlur={() => setIsFocused({ ...isFocused, password: false })}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={{ padding: 4 }}
+                            flexDirection: "row",
+                            alignItems: "center",
+                            borderRadius: 16,
+                            paddingHorizontal: 16,
+                            paddingVertical: Platform.OS === "ios" ? 16 : 12,
+                          },
+                          glassInput(isFocused.userid),
+                          {
+                            transform: [
+                              {
+                                rotate: rotateAnim.interpolate({
+                                  inputRange: [-0.08, 0.08],
+                                  outputRange: ["-4deg", "4deg"],
+                                }),
+                              },
+                            ],
+                          },
+                        ]}
                       >
                         <MaterialIcons
-                          name={showPassword ? "visibility" : "visibility-off"}
-                          size={24}
-                          color="#64748b"
+                          name="person"
+                          size={22}
+                          color={isFocused.userid ? "#024e32" : "#64748b"}
                         />
-                      </TouchableOpacity>
-                    </Animated.View>
-                  </Animatable.View>
-
-                  {/* New User Register */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 950 : 750}
-                    style={{ marginBottom: 24 }}
-                  >
-                    <TouchableOpacity
-                      onPress={() => router.push("/new-user")}
-                      style={{ alignSelf: 'flex-end' }}
-                    >
-                      <Text style={{
-                        color: '#024e32',
-                        fontWeight: '600',
-                        fontSize: 14,
-                      }}>
-                        New Member? Register →
-                      </Text>
-                    </TouchableOpacity>
-                  </Animatable.View>
-
-                  {/* Login Button */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 1000 : 800}
-                  >
-                    <TouchableOpacity
-                      onPress={handleLogin}
-                      activeOpacity={0.85}
-                      disabled={isLoading}
-                      style={{
-                        borderRadius: 16,
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <LinearGradient
-                        colors={['#024e32', '#0369a1']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={{
-                          paddingVertical: 18,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexDirection: 'row',
-                        }}
-                      >
-                        {isLoading ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Animated.View style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 10,
-                              borderWidth: 3,
-                              borderColor: 'white',
-                              borderTopColor: 'transparent',
-                              transform: [{
-                                rotate: progressAnim.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: ['0deg', '360deg'],
-                                })
-                              }],
-                            }} />
-                            <Text style={{
-                              color: 'white',
-                              fontSize: 18,
-                              fontWeight: '700',
-                              letterSpacing: 0.5,
-                              marginLeft: 12,
-                            }}>
-                              Logging in...
-                            </Text>
-                          </View>
-                        ) : (
-                          <>
-                            <Text style={{
-                              color: 'white',
-                              fontSize: 18,
-                              fontWeight: '700',
-                              letterSpacing: 0.5,
-                            }}>
-                              Login
-                            </Text>
-                            <Animatable.View
-                              animation="pulse"
-                              easing="ease-out"
-                              iterationCount="infinite"
-                              style={{ marginLeft: 12 }}
-                            >
-                              <MaterialIcons name="arrow-forward" size={24} color="white" />
-                            </Animatable.View>
-                          </>
+                        <TextInput
+                          placeholder="Enter User ID"
+                          placeholderTextColor="#64748b"
+                          style={{
+                            flex: 1,
+                            marginLeft: 12,
+                            fontSize: 16,
+                            color: "#1e293b",
+                            padding: 0,
+                            backgroundColor: "transparent",
+                          }}
+                          value={userid}
+                          onChangeText={setUserid}
+                          onFocus={() =>
+                            setIsFocused({ ...isFocused, userid: true })
+                          }
+                          onBlur={() =>
+                            setIsFocused({ ...isFocused, userid: false })
+                          }
+                          autoCapitalize="none"
+                        />
+                        {userid.length > 0 && (
+                          <TouchableOpacity onPress={() => setUserid("")}>
+                            <Ionicons
+                              name="close-circle"
+                              size={20}
+                              color="#64748b"
+                            />
+                          </TouchableOpacity>
                         )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animatable.View>
-
-                  {/* Message */}
-                  {message ? (
-                    <Animatable.View
-                      animation={message.includes("Successful") ? "bounceIn" : "shake"}
-                      duration={600}
-                      style={{
-                        marginTop: 20,
-                        padding: 14,
-                        borderRadius: 14,
-                        backgroundColor: message.includes("Successful")
-                          ? 'rgba(220, 252, 231, 0.55)'
-                          : 'rgba(254, 226, 226, 0.55)',
-                        borderWidth: 1,
-                        borderColor: message.includes("Successful")
-                          ? 'rgba(134, 239, 172, 0.9)'
-                          : 'rgba(252, 165, 165, 0.9)',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <MaterialIcons
-                        name={message.includes("Successful") ? "check-circle" : "error-outline"}
-                        size={20}
-                        color={message.includes("Successful") ? '#16a34a' : '#dc2626'}
-                      />
-                      <Text style={{
-                        flex: 1,
-                        marginLeft: 10,
-                        color: message.includes("Successful") ? '#15803d' : '#b91c1c',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}>
-                        {message}
-                      </Text>
+                      </Animated.View>
                     </Animatable.View>
-                  ) : null}
 
-                  {/* Footer */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 1100 : 900}
-                    style={{
-                      marginTop: 24,
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <TouchableOpacity>
-                      <Text style={{
-                        color: '#64748b',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}>
-                        Need help?
-                      </Text>
-                    </TouchableOpacity>
-                    <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
-                    <TouchableOpacity onPress={dialSupport}>
-                      <Text style={{
-                        color: '#024e32',
-                        fontSize: 14,
-                        fontWeight: '600',
-                      }}>
-                        Contact Support
-                      </Text>
-                    </TouchableOpacity>
-                  </Animatable.View>
-
-                  {!isDesktopOrLaptop && (
+                    {/* Password */}
                     <Animatable.View
                       animation="fadeInUp"
                       duration={600}
-                      delay={1000}
+                      delay={isDesktopOrLaptop ? 900 : 700}
+                      style={{ marginBottom: 16 }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "600",
+                          color: "#1e293b",
+                          marginBottom: 8,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Password
+                      </Text>
+                      <Animated.View
+                        style={[
+                          {
+                            flexDirection: "row",
+                            alignItems: "center",
+                            borderRadius: 16,
+                            paddingHorizontal: 16,
+                            paddingVertical: Platform.OS === "ios" ? 16 : 12,
+                          },
+                          glassInput(isFocused.password),
+                        ]}
+                      >
+                        <MaterialIcons
+                          name="lock-outline"
+                          size={22}
+                          color={isFocused.password ? "#024e32" : "#64748b"}
+                        />
+                        <TextInput
+                          placeholder="Enter Password"
+                          placeholderTextColor="#64748b"
+                          secureTextEntry={!showPassword}
+                          style={{
+                            flex: 1,
+                            marginLeft: 12,
+                            fontSize: 16,
+                            color: "#1e293b",
+                            padding: 0,
+                            backgroundColor: "transparent",
+                          }}
+                          value={password}
+                          onChangeText={setPassword}
+                          onFocus={() =>
+                            setIsFocused({ ...isFocused, password: true })
+                          }
+                          onBlur={() =>
+                            setIsFocused({ ...isFocused, password: false })
+                          }
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          style={{ padding: 4 }}
+                        >
+                          <MaterialIcons
+                            name={
+                              showPassword ? "visibility" : "visibility-off"
+                            }
+                            size={24}
+                            color="#64748b"
+                          />
+                        </TouchableOpacity>
+                      </Animated.View>
+                    </Animatable.View>
+
+                    {/* New User Register */}
+                    <Animatable.View
+                      animation="fadeInUp"
+                      duration={600}
+                      delay={isDesktopOrLaptop ? 950 : 750}
+                      style={{ marginBottom: 24 }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => router.push("/new-user")}
+                        style={{ alignSelf: "flex-end" }}
+                      >
+                        <Text
+                          style={{
+                            color: "#024e32",
+                            fontWeight: "600",
+                            fontSize: 14,
+                          }}
+                        >
+                          New Member? Register →
+                        </Text>
+                      </TouchableOpacity>
+                    </Animatable.View>
+
+                    {/* Login Button */}
+                    <Animatable.View
+                      animation="fadeInUp"
+                      duration={600}
+                      delay={isDesktopOrLaptop ? 1000 : 800}
+                    >
+                      <TouchableOpacity
+                        onPress={handleLogin}
+                        activeOpacity={0.85}
+                        disabled={isLoading}
+                        style={{
+                          borderRadius: 16,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <LinearGradient
+                          colors={["#024e32", "#0369a1"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={{
+                            paddingVertical: 18,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexDirection: "row",
+                          }}
+                        >
+                          {isLoading ? (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Animated.View
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 10,
+                                  borderWidth: 3,
+                                  borderColor: "white",
+                                  borderTopColor: "transparent",
+                                  transform: [
+                                    {
+                                      rotate: progressAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: ["0deg", "360deg"],
+                                      }),
+                                    },
+                                  ],
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  color: "white",
+                                  fontSize: 18,
+                                  fontWeight: "700",
+                                  letterSpacing: 0.5,
+                                  marginLeft: 12,
+                                }}
+                              >
+                                Logging in...
+                              </Text>
+                            </View>
+                          ) : (
+                            <>
+                              <Text
+                                style={{
+                                  color: "white",
+                                  fontSize: 18,
+                                  fontWeight: "700",
+                                  letterSpacing: 0.5,
+                                }}
+                              >
+                                Login
+                              </Text>
+                              <Animatable.View
+                                animation="pulse"
+                                easing="ease-out"
+                                iterationCount="infinite"
+                                style={{ marginLeft: 12 }}
+                              >
+                                <MaterialIcons
+                                  name="arrow-forward"
+                                  size={24}
+                                  color="white"
+                                />
+                              </Animatable.View>
+                            </>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </Animatable.View>
+
+                    {/* Message */}
+                    {message ? (
+                      <Animatable.View
+                        animation={
+                          message.includes("Successful") ? "bounceIn" : "shake"
+                        }
+                        duration={600}
+                        style={{
+                          marginTop: 20,
+                          padding: 14,
+                          borderRadius: 14,
+                          backgroundColor: message.includes("Successful")
+                            ? "rgba(220, 252, 231, 0.55)"
+                            : "rgba(254, 226, 226, 0.55)",
+                          borderWidth: 1,
+                          borderColor: message.includes("Successful")
+                            ? "rgba(134, 239, 172, 0.9)"
+                            : "rgba(252, 165, 165, 0.9)",
+                          flexDirection: "row",
+                          alignItems: "center",
+                        }}
+                      >
+                        <MaterialIcons
+                          name={
+                            message.includes("Successful")
+                              ? "check-circle"
+                              : "error-outline"
+                          }
+                          size={20}
+                          color={
+                            message.includes("Successful")
+                              ? "#16a34a"
+                              : "#dc2626"
+                          }
+                        />
+                        <Text
+                          style={{
+                            flex: 1,
+                            marginLeft: 10,
+                            color: message.includes("Successful")
+                              ? "#15803d"
+                              : "#b91c1c",
+                            fontSize: 14,
+                            fontWeight: "500",
+                          }}
+                        >
+                          {message}
+                        </Text>
+                      </Animatable.View>
+                    ) : null}
+
+                    {/* Footer */}
+                    <Animatable.View
+                      animation="fadeInUp"
+                      duration={600}
+                      delay={isDesktopOrLaptop ? 1100 : 900}
                       style={{
                         marginTop: 24,
-                        paddingTop: 20,
-                        borderTopWidth: 1,
-                        borderTopColor: 'rgba(2,78,50,0.10)',
+                        flexDirection: "row",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        gap: 8,
                       }}
                     >
-                      <Text style={{
-                        textAlign: 'center',
-                        color: '#64748b',
-                        fontSize: 12,
-                      }}>
-                        © 2026 Manikya Chits. All rights reserved.
-                      </Text>
+                      <TouchableOpacity>
+                        <Text
+                          style={{
+                            color: "#64748b",
+                            fontSize: 14,
+                            fontWeight: "500",
+                          }}
+                        >
+                          Need help?
+                        </Text>
+                      </TouchableOpacity>
+                      <View
+                        style={{
+                          width: 1,
+                          height: 20,
+                          backgroundColor: "rgba(2,78,50,0.15)",
+                        }}
+                      />
+                      <TouchableOpacity onPress={dialSupport}>
+                        <Text
+                          style={{
+                            color: "#024e32",
+                            fontSize: 14,
+                            fontWeight: "600",
+                          }}
+                        >
+                          Contact Support
+                        </Text>
+                      </TouchableOpacity>
                     </Animatable.View>
-                  )}
-                </View>
-              </Animated.View>
 
-              {/* Desktop Footer */}
-              {isDesktopOrLaptop && (
-                <Animatable.View
-                  animation="fadeInUp"
-                  duration={600}
-                  delay={1200}
-                  style={{
-                    marginTop: 20,
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text style={{
-                    textAlign: 'center',
-                    color: '#64748b',
-                    fontSize: 12,
-                  }}>
-                    © 2026 Manikya Chits. All rights reserved.
-                  </Text>
-                </Animatable.View>
-              )}
-            </Animatable.View>
-          </Animated.View>
-        </Animated.ScrollView>
+                    {!isDesktopOrLaptop && (
+                      <Animatable.View
+                        animation="fadeInUp"
+                        duration={600}
+                        delay={1000}
+                        style={{
+                          marginTop: 24,
+                          paddingTop: 20,
+                          borderTopWidth: 1,
+                          borderTopColor: "rgba(2,78,50,0.10)",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            textAlign: "center",
+                            color: "#64748b",
+                            fontSize: 12,
+                          }}
+                        >
+                          © 2026 Manikya Chits. All rights reserved.
+                        </Text>
+                      </Animatable.View>
+                    )}
+                  </View>
+                </Animated.View>
 
+                {/* Desktop Footer */}
+                {isDesktopOrLaptop && (
+                  <Animatable.View
+                    animation="fadeInUp"
+                    duration={600}
+                    delay={1200}
+                    style={{
+                      marginTop: 20,
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        textAlign: "center",
+                        color: "#64748b",
+                        fontSize: 12,
+                      }}
+                    >
+                      © 2026 Manikya Chits. All rights reserved.
+                    </Text>
+                  </Animatable.View>
+                )}
+              </Animatable.View>
+            </Animated.View>
+          </Animated.ScrollView>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </View>

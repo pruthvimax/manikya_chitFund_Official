@@ -1160,6 +1160,247 @@ export default function GroupMembers() {
     }
   };
 
+  // ✅ SINGLE MEMBER HISTORY PRINT — same Web/iOS/Android pattern as
+  // printFullTable above, but scoped to just the member currently open
+  // in the Payment History modal: every month's installment/dividend/
+  // penalty breakdown plus the full payment-by-payment list, so admins
+  // can hand a customer (or file) a clean printed/PDF record of just
+  // their account instead of the whole group table.
+  const printMemberHistory = async (member: any) => {
+    if (!member) {
+      Alert.alert("Error", "No member selected to print");
+      return;
+    }
+
+    const collections = member.collections || [];
+    const { perMonth, totalPenaltyPending } = getCumulativePenaltyForMember(
+      collections,
+      plansMap,
+    );
+
+    const validRows = collections
+      .map((c: any) => ({ c, meta: getCollectionMeta(c) }))
+      .filter(({ meta }: any) => meta.installmentAmount && meta.endDate);
+
+    let totalInstallment = 0;
+    let totalPaidInstallment = 0;
+    let totalDividend = 0;
+
+    let rowsHtml = "";
+
+    validRows.forEach(({ c, meta }: any) => {
+      const { installmentAmount, endDate } = meta;
+      const rowPosition = perMonth.findIndex((row) => row.index === c.index);
+      const penaltyRow = rowPosition >= 0 ? perMonth[rowPosition] : null;
+
+      const pendingInstallment = penaltyRow?.pendingInstallment ?? 0;
+      const penaltyIncrement = penaltyRow?.penaltyIncrement ?? 0;
+      const pendingPenalty = penaltyRow?.pendingPenalty ?? 0;
+
+      const installmentPaid = (c.payments || [])
+        .filter((p: any) => p.paymentType !== "PENALTY")
+        .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+      const dividend = Number(plansMap[c?.index]?.dividend || 0);
+      const displayPaid = dividend + installmentPaid;
+
+      totalInstallment += installmentAmount;
+      totalPaidInstallment += installmentPaid;
+      totalDividend += dividend;
+
+      const isFullyClear = pendingInstallment === 0 && pendingPenalty === 0;
+      const isOverdue = isAfterDueDate(c.endDate);
+      const statusLabel = isFullyClear
+        ? "Fully Paid"
+        : isOverdue
+          ? "Overdue"
+          : "Pending";
+      const statusClass = isFullyClear
+        ? "paid"
+        : isOverdue
+          ? "penalty"
+          : "due";
+
+      const dividendPayment =
+        dividend > 0
+          ? [
+              {
+                amount: dividend,
+                paidAt: c.startDate || new Date(),
+                paymentType: "DIVIDEND",
+                collectedBy: "System",
+              },
+            ]
+          : [];
+      const allPayments = [...dividendPayment, ...(c.payments || [])];
+
+      const paymentsHtml =
+        allPayments.length === 0
+          ? `<div class="no-payments">No payments recorded</div>`
+          : allPayments
+              .map(
+                (p: any) => `
+                  <div class="payment-line">
+                    <span class="ptype ptype-${(p.paymentType || "INSTALLMENT").toLowerCase()}">${p.paymentType || "INSTALLMENT"}</span>
+                    <span>₹${p.amount}</span>
+                    <span class="pdate">${new Date(p.paidAt).toLocaleDateString("en-IN")} • ${p.collectedBy || "System"} • ${p.paymentMode || "Cash"}</span>
+                  </div>
+                `,
+              )
+              .join("");
+
+      rowsHtml += `
+        <div class="month-card">
+          <div class="month-header">
+            <div>
+              <span class="month-badge">M${c.index}</span>
+              <span class="month-title">Month ${c.index} · ₹${installmentAmount}</span>
+              ${endDate ? `<span class="due-date">Due ${new Date(endDate).toLocaleDateString("en-IN")}</span>` : ""}
+            </div>
+            <span class="status status-${statusClass}">${statusLabel}</span>
+          </div>
+          <div class="month-summary">
+            Paid ₹${displayPaid} / ₹${installmentAmount}
+            ${penaltyIncrement > 0 ? `&nbsp;•&nbsp;<span class="penalty-text">Penalty (6%) ₹${pendingPenalty}${pendingPenalty !== penaltyIncrement ? ` of ₹${penaltyIncrement}` : ""}</span>` : ""}
+            ${
+              penaltyRow && penaltyRow.carriedFromMonths.length > 0
+                ? `<div class="carry-text">M${penaltyRow.carriedFromMonths.join("+M")} ₹${penaltyRow.carriedPenaltyPart} previous + M${c.index} ₹${penaltyRow.ownPenaltyPart} current = ₹${penaltyRow.carriedPenaltyPart + penaltyRow.ownPenaltyPart} total</div>`
+                : ""
+            }
+          </div>
+          <div class="payments">
+            ${paymentsHtml}
+          </div>
+        </div>
+      `;
+    });
+
+    const printedOn = new Date().toLocaleString("en-IN");
+
+    const html = `
+      <html>
+      <head>
+        <title>Payment History - ${member.memberName || "Member"}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+          .header { text-align: center; margin-bottom: 24px; }
+          .header h2 { margin: 0 0 4px 0; color: #024e32; }
+          .header .sub { color: #6b7280; font-size: 13px; }
+          .info-box { border: 1px solid #d1d5db; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 16px; }
+          .info-item { min-width: 160px; }
+          .info-item .label { font-size: 11px; color: #6b7280; text-transform: uppercase; }
+          .info-item .value { font-size: 14px; font-weight: bold; color: #111827; }
+          .summary { display: flex; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+          .summary-box { flex: 1; min-width: 140px; border: 1px solid #d1d5db; border-radius: 10px; padding: 12px 14px; text-align: center; }
+          .summary-box .label { font-size: 11px; color: #6b7280; }
+          .summary-box .value { font-size: 18px; font-weight: bold; color: #024e32; margin-top: 2px; }
+          .month-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; page-break-inside: avoid; }
+          .month-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+          .month-badge { background: #eafaf1; color: #024e32; font-weight: bold; padding: 3px 8px; border-radius: 6px; font-size: 12px; margin-right: 8px; }
+          .month-title { font-weight: bold; font-size: 14px; }
+          .due-date { color: #9ca3af; font-size: 11px; margin-left: 10px; }
+          .status { font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 999px; }
+          .status-paid { background: #dcfce7; color: #16a34a; }
+          .status-penalty { background: #fee2e2; color: #dc2626; }
+          .status-due { background: #fef3c7; color: #b45309; }
+          .month-summary { font-size: 12.5px; color: #4b5563; margin-bottom: 8px; }
+          .penalty-text { color: #dc2626; font-weight: bold; }
+          .carry-text { color: #dc2626; font-size: 11px; margin-top: 2px; }
+          .payments { border-top: 1px dashed #e5e7eb; padding-top: 8px; }
+          .payment-line { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid #f3f4f6; }
+          .payment-line:last-child { border-bottom: none; }
+          .ptype { font-weight: bold; font-size: 10.5px; padding: 2px 6px; border-radius: 5px; }
+          .ptype-installment { background: #dcfce7; color: #16a34a; }
+          .ptype-penalty { background: #fee2e2; color: #dc2626; }
+          .ptype-dividend { background: #dbeafe; color: #2563eb; }
+          .pdate { color: #9ca3af; }
+          .no-payments { color: #9ca3af; font-size: 12px; padding: 6px 0; }
+          .footer { margin-top: 26px; border-top: 1px solid #e5e7eb; padding-top: 12px; text-align: center; color: #6b7280; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>MANIKYA CHITS PVT LTD</h2>
+          <div class="sub">Member Payment History</div>
+        </div>
+
+        <div class="info-box">
+          <div class="info-item">
+            <div class="label">Member Name</div>
+            <div class="value">${member.memberName || "-"}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Member ID</div>
+            <div class="value">${member.memberId || "-"}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Group Member ID</div>
+            <div class="value">${member.groupMemberId || "-"}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Phone</div>
+            <div class="value">${member.phone || "-"}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Group</div>
+            <div class="value">${groupId}</div>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div class="summary-box">
+            <div class="label">Total Installment</div>
+            <div class="value">₹${totalInstallment}</div>
+          </div>
+          <div class="summary-box">
+            <div class="label">Installment Paid</div>
+            <div class="value">₹${totalPaidInstallment}</div>
+          </div>
+          <div class="summary-box">
+            <div class="label">Dividend</div>
+            <div class="value">₹${totalDividend}</div>
+          </div>
+          <div class="summary-box">
+            <div class="label">Pending Penalty</div>
+            <div class="value">₹${totalPenaltyPending}</div>
+          </div>
+        </div>
+
+        ${rowsHtml || `<div class="no-payments">No collection data available</div>`}
+
+        <div class="footer">
+          Printed on ${printedOn} • © ${new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+        </div>
+      </body>
+      </html>
+    `;
+
+    if (Platform.OS === "web") {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        Alert.alert("Error", "Please allow pop-ups to print the report.");
+        return;
+      }
+      printWindow.document.write(
+        html.replace(
+          "</body>",
+          `<script>window.print(); window.onafterprint = () => window.close();</script></body>`,
+        ),
+      );
+      printWindow.document.close();
+      return;
+    }
+
+    try {
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.log("Failed to print member history:", error);
+      Alert.alert(
+        "Error",
+        "Could not open the print dialog. Please try again.",
+      );
+    }
+  };
+
   // ============ RENDER CONFIRMATION MODALS ============
 
   // Add Member Confirmation Modal
@@ -1297,7 +1538,7 @@ export default function GroupMembers() {
   // ============ MAIN RENDER ============
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* Header */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center justify-between">
@@ -1319,7 +1560,7 @@ export default function GroupMembers() {
               <Text className="text-white text-sm ml-1">Print</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
+           {/* <TouchableOpacity
               onPress={() => setShowAdminUpdates(true)}
               className="bg-white/20 px-3 py-1 rounded-full flex-row items-center"
             >
@@ -1332,7 +1573,7 @@ export default function GroupMembers() {
                   </Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </TouchableOpacity>*/}
           </View>
         </View>
       </View>
@@ -2035,13 +2276,71 @@ export default function GroupMembers() {
                     </Text>
                   </View>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setHistoryVisible(false)}
-                  className="w-8 h-8 rounded-full items-center justify-center"
-                  style={{ backgroundColor: "rgba(255,255,255,0.16)" }}
+
+                {/* Print + Close actions */}
+                {/*
+                  FIX: the wrapping row previously used style={{ gap: 8 }}
+                  to space these two buttons. RN's flexbox `gap` on a plain
+                  View isn't reliably supported on native (Android/iOS)
+                  across all Expo/RN versions the way it is in a web
+                  preview - on native it can render with zero effective
+                  spacing/layout, which pushed the Print button out of
+                  the visible header area next to the member name. Using
+                  marginLeft on the second child instead works identically
+                  on web, Android and iOS. flexShrink: 0 + a fixed
+                  minWidth on the Print button also stop it from ever
+                  being squeezed down to nothing when the member name is
+                  long.
+                */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
                 >
-                  <MaterialIcons name="close" size={18} color="white" />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => printMemberHistory(historyMember)}
+                    activeOpacity={0.8}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      flexShrink: 0,
+                      minWidth: 64,
+                      paddingHorizontal: 12,
+                      paddingVertical: 7,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(255,255,255,0.16)",
+                    }}
+                  >
+                    <MaterialIcons name="print" size={16} color="white" />
+                    <Text
+                      style={{
+                        color: "white",
+                        fontSize: 12,
+                        fontWeight: "600",
+                        marginLeft: 4,
+                      }}
+                    >
+                      Print
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setHistoryVisible(false)}
+                    style={{
+                      flexShrink: 0,
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "rgba(255,255,255,0.16)",
+                      marginLeft: 8,
+                    }}
+                  >
+                    <MaterialIcons name="close" size={18} color="white" />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Summary chips */}

@@ -1107,7 +1107,7 @@ export default function CollectPayment() {
       className="flex-1 bg-gray-50"
     >
 
-      <SafeAreaView className="flex-1">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
         {/* =================================================
             FIXED HEADER

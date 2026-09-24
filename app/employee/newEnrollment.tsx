@@ -58,6 +58,54 @@ export default function NewEnrollment() {
   const paymentTypes = ["Cash", "AC", "NEFT", "Online Banking", "Netbanking"];
 
   /*
+    FIX: intermittent "sometimes works, sometimes fails".
+    A plain fetch() has no timeout and no retry, so any brief mobile
+    network hiccup (weak signal, momentary drop, slow tower handoff)
+    either hangs until the OS gives up or throws once and gives up
+    immediately - even though nothing was wrong with the submitted
+    data. This wraps ONLY the network call with a timeout + a couple
+    of automatic retries, and retries ONLY on network-level failures
+    (timeout/abort or "Network request failed") - never on a real
+    response from the server, so a genuine validation rejection from
+    your backend still surfaces immediately and is never resubmitted.
+    No validation, state, or submit logic below is changed.
+  */
+  const REQUEST_TIMEOUT_MS = 15000;
+  const MAX_ATTEMPTS = 3;
+
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit,
+    attempt: number = 1
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+
+      const isNetworkFailure =
+        err?.name === "AbortError" ||
+        err?.message === "Network request failed" ||
+        err?.name === "TypeError";
+
+      if (isNetworkFailure && attempt < MAX_ATTEMPTS) {
+        console.warn(
+          `Enrollment submit: network issue on attempt ${attempt} (${err?.message || err?.name}), retrying...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        return fetchWithRetry(url, options, attempt + 1);
+      }
+
+      throw err;
+    }
+  };
+
+  /*
     FIX:
     date.toISOString() converts the Date to UTC before slicing the
     date part. On a device in IST (UTC+5:30), a date picked at local
@@ -132,7 +180,7 @@ export default function NewEnrollment() {
 
       const employee = JSON.parse(stored);
 
-      const response = await fetch(`${BACKEND_URL}/enrollment/add`, {
+      const response = await fetchWithRetry(`${BACKEND_URL}/enrollment/add`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -155,7 +203,15 @@ export default function NewEnrollment() {
           panNumber,
           occupation,
           mobileNumber,
-          enrollmentDate,
+          // FIX: was sending the raw Date object here, which
+          // JSON.stringify serializes via Date.toISOString() (UTC).
+          // That reintroduces the same day-shift bug documented above
+          // for formatDate, AND sends a different shape
+          // ("2026-09-21T18:30:00.000Z") than dateOfBirth
+          // ("2026-09-22"), which is a common reason a backend's date
+          // validation silently rejects the request. Format it the
+          // same way as every other date field for consistency.
+          enrollmentDate: formatDate(enrollmentDate),
           enrolledByEmpId: employee.emp_id,
           enrolledByEmpName: employee.name,
           advancePaid,
@@ -163,7 +219,28 @@ export default function NewEnrollment() {
         }),
       });
 
-      const data = await response.json();
+      // FIX: read the raw response text first so a non-JSON response
+      // (an HTML error page from a crashed/misrouted backend, a proxy
+      // error, etc.) doesn't just throw an opaque exception inside
+      // response.json() and fall through to the generic catch-block
+      // alert below with zero information about what actually failed.
+      const rawText = await response.text();
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch (parseErr) {
+        console.error(
+          "Enrollment submit: server did not return JSON. Status:",
+          response.status,
+          "Body:",
+          rawText
+        );
+        Alert.alert(
+          "Error",
+          `Server error (status ${response.status}). Check backend logs / BACKEND_URL.`
+        );
+        return;
+      }
 
       if (response.ok) {
         Alert.alert("Success", "Enrollment submitted successfully");
@@ -188,10 +265,19 @@ export default function NewEnrollment() {
         setPaymentType("Cash");
         setEnrollmentDate(getTodayDate());
       } else {
-        Alert.alert("Error", data.message || "Failed to submit enrollment");
+        // FIX: log the full error payload so the actual backend
+        // rejection reason (validation error, duplicate, etc.) shows
+        // up in your console instead of being swallowed.
+        console.error("Enrollment submit failed:", response.status, data);
+        Alert.alert(
+          "Error",
+          data.message || `Failed to submit enrollment (status ${response.status})`
+        );
       }
     } catch (error) {
-      console.error(error);
+      // FIX: log the real error (network failure, JSON parse error,
+      // etc.) instead of only ever showing the generic alert text.
+      console.error("Enrollment submit error:", error);
       Alert.alert("Error", "Failed to submit enrollment");
     } finally {
       setLoading(false);
@@ -259,7 +345,7 @@ export default function NewEnrollment() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER - SAME STANDARD EMPLOYEE HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
@@ -368,7 +454,45 @@ export default function NewEnrollment() {
             <MaterialIcons name="calendar-today" size={22} color="#024e32" />
           </TouchableOpacity>
 
-          {showDobPicker && (
+          {/*
+            FIX: "date selector is not working" on laptop/web.
+            @react-native-community/datetimepicker has no built-in web
+            UI - on Platform.OS === "web" it either renders nothing or
+            errors, which is exactly why tapping the DOB field did
+            nothing on a laptop even though it worked fine on an
+            Android/iOS device. On web we now render the browser's own
+            native <input type="date">, which every desktop/laptop
+            browser supports out of the box; native mobile keeps using
+            the exact same DateTimePicker as before, completely
+            unchanged.
+          */}
+          {showDobPicker && Platform.OS === "web" ? (
+            React.createElement("input", {
+              type: "date",
+              autoFocus: true,
+              value: dateOfBirth ? formatDate(dateOfBirth) : "",
+              max: formatDate(getTodayDate()),
+              onChange: (e: any) => {
+                const val = e.target.value;
+                if (val) {
+                  const [y, m, d] = val.split("-").map(Number);
+                  setDateOfBirth(new Date(y, m - 1, d));
+                }
+              },
+              onBlur: () => setShowDobPicker(false),
+              style: {
+                marginTop: -8,
+                marginBottom: 16,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#f9fafb",
+                fontSize: 15,
+                width: "100%",
+                boxSizing: "border-box",
+              },
+            })
+          ) : showDobPicker ? (
             <DateTimePicker
               value={getValidDate(dateOfBirth)}
               mode="date"
@@ -382,7 +506,7 @@ export default function NewEnrollment() {
                 }
               }}
             />
-          )}
+          ) : null}
 
           <Text className="font-semibold text-gray-800 mb-2">Father/Husband Name *</Text>
           <TextInput
@@ -501,7 +625,39 @@ export default function NewEnrollment() {
           </TouchableOpacity>
         </View>
 
-        {showDatePicker && (
+        {/*
+          FIX: same web-picker issue as DOB above, applied here too
+          for consistency since this uses the exact same
+          DateTimePicker component - so it silently failed on
+          laptop/web the same way. Native Android/iOS behavior is
+          completely unchanged.
+        */}
+        {showDatePicker && Platform.OS === "web" ? (
+          React.createElement("input", {
+            type: "date",
+            autoFocus: true,
+            value: formatDate(enrollmentDate),
+            onChange: (e: any) => {
+              const val = e.target.value;
+              if (val) {
+                const [y, m, d] = val.split("-").map(Number);
+                setEnrollmentDate(new Date(y, m - 1, d));
+              }
+            },
+            onBlur: () => setShowDatePicker(false),
+            style: {
+              marginTop: -8,
+              marginBottom: 16,
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid #d1d5db",
+              backgroundColor: "#f9fafb",
+              fontSize: 15,
+              width: "100%",
+              boxSizing: "border-box",
+            },
+          })
+        ) : showDatePicker ? (
           <DateTimePicker
             value={enrollmentDate}
             mode="date"
@@ -513,7 +669,7 @@ export default function NewEnrollment() {
               }
             }}
           />
-        )}
+        ) : null}
 
         {/* Payment Details Section */}
         <View className="bg-white rounded-xl p-4 mb-4 shadow-sm border border-gray-100">

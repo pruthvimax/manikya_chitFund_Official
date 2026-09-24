@@ -48,7 +48,7 @@ export default function AdminPaymentHistory() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View className="bg-[#024e32] px-5 pt-12 pb-4 flex-row items-center">
         <TouchableOpacity onPress={() => router.back()} className="mr-3">

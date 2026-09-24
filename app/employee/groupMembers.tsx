@@ -228,7 +228,7 @@ const sorted = (data.groupMembers || []).sort((a: any, b: any) => {
   ===================================================== */
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f9fafb]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =====================================================
           HEADER

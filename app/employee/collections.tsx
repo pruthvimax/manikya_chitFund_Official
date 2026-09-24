@@ -991,7 +991,7 @@ export default function EmployeeCollection() {
   /* ================= UI ================= */
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f9fafb]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =====================================================
           HEADER

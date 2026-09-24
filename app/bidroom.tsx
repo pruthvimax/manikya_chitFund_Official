@@ -699,7 +699,7 @@ import { useEffect, useRef, useState } from "react";
 
     /* ================= UI ================= */
     return (
-      <SafeAreaView className="flex-1 bg-white">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
         <StatusBar backgroundColor="#024e32" barStyle="light-content" />
 
         {/* HEADER */}

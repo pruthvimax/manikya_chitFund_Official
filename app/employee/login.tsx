@@ -109,6 +109,64 @@ export default function EmployeeLogin() {
     progressAnim.setValue(0);
   };
 
+  /*
+    FIX: intermittent "wrong Employee ID/password" or "Server
+    unreachable" on genuinely correct credentials, plus no
+    protection against a fast double-tap.
+
+    1. Double-submit guard: `disabled={isLoading}` on the button only
+       takes effect after a React re-render, so a fast double-tap (or
+       the touch system firing onPress twice) could slip a SECOND
+       request through before the first re-render landed. Two
+       concurrent /employee/login calls for the same account can race
+       each other on the backend or trip anti-bruteforce/lockout logic
+       there - stopped here at the source, same guard already used on
+       the Member login screen.
+    2. Network timeout + retry: a plain fetch() with no timeout means
+       any brief connection hiccup (weak signal, momentary drop) either
+       hangs until the OS gives up or throws once straight into the
+       generic catch block below, showing "Server unreachable" even
+       though the credentials and backend were fine. This wraps ONLY
+       the network call with a timeout + a couple of automatic
+       retries, and retries ONLY on network-level failures - never
+       once a real response comes back from the server, so an actual
+       wrong-password rejection still shows immediately.
+  */
+  const REQUEST_TIMEOUT_MS = 15000;
+  const MAX_ATTEMPTS = 3;
+
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit,
+    attempt: number = 1,
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+
+      const isNetworkFailure =
+        err?.name === "AbortError" ||
+        err?.message === "Network request failed" ||
+        err?.name === "TypeError";
+
+      if (isNetworkFailure && attempt < MAX_ATTEMPTS) {
+        console.warn(
+          `Employee login: network issue on attempt ${attempt} (${err?.message || err?.name}), retrying...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        return fetchWithRetry(url, options, attempt + 1);
+      }
+
+      throw err;
+    }
+  };
+
   useEffect(() => {
     if (message) {
       // Make sure it starts fully visible even if a previous
@@ -187,6 +245,11 @@ export default function EmployeeLogin() {
   }, []);
 
   const handleLogin = async () => {
+    // See the FIX comment above fetchWithRetry: hard guard against a
+    // fast double-tap slipping a second request through before the
+    // disabled={isLoading} re-render lands.
+    if (isLoading) return;
+
     if (!empId || !password) {
       Animated.sequence([
         Animated.timing(rotateAnim, {
@@ -234,7 +297,7 @@ export default function EmployeeLogin() {
     spinLoopRef.current.start();
 
     try {
-      const res = await fetch(EMPLOYEE_LOGIN_URL, {
+      const res = await fetchWithRetry(EMPLOYEE_LOGIN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emp_id: empId, password }),
@@ -283,6 +346,14 @@ export default function EmployeeLogin() {
       ]).start();
 
       setTimeout(() => {
+        // FIX: every failure path below stops the spinner and clears
+        // isLoading, but the success path previously didn't - it just
+        // navigated away while isLoading stayed true and the rotation
+        // loop kept running. If navigation is ever slow/interrupted,
+        // the button was left stuck disabled and spinning with no way
+        // to recover. Stopping it here matches every other path.
+        stopSpinner();
+        setIsLoading(false);
         router.replace("/employee");
       }, 800);
     } catch (err) {

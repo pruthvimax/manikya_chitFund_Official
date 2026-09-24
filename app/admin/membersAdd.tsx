@@ -1,13 +1,13 @@
-import React, { useState } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
-  View,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
+  View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { MaterialIcons } from "@expo/vector-icons";
 import BACKEND_URL from "../../config.js";
 
 export default function MembersAdd() {
@@ -56,7 +56,7 @@ export default function MembersAdd() {
       }
 
       setMessage("Member Added Successfully!");
-      
+
       // Clear form after success
       setUserid("");
       setUsername("");
@@ -65,10 +65,9 @@ export default function MembersAdd() {
       setAddress("");
       setAadhaar("");
       setEmail("");
-      
+
       // Go back after success
       setTimeout(() => router.push("/admin"), 800);
-
     } catch (err) {
       console.log("❌ Add Member Error:", err);
       setMessage("Server not responding");
@@ -79,8 +78,8 @@ export default function MembersAdd() {
     <View className="flex-1 bg-white">
       {/* HEADER WITH BACK BUTTON - MATCHING EMPLOYEES PAGE STYLE */}
       <View className="flex-row items-center bg-[#024e32] px-5 pt-12 pb-4">
-        <TouchableOpacity 
-          onPress={() => router.push("/admin/membersView")} 
+        <TouchableOpacity
+          onPress={() => router.push("/admin/membersView")}
           className="mt-1"
         >
           <MaterialIcons name="arrow-back" size={26} color="white" />
@@ -131,9 +130,7 @@ export default function MembersAdd() {
             secureTextEntry={!showPassword}
             className="flex-1 py-4 text-base"
           />
-          <TouchableOpacity
-            onPress={() => setShowPassword(!showPassword)}
-          >
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
             <MaterialIcons
               name={showPassword ? "visibility-off" : "visibility"}
               size={24}
@@ -172,7 +169,7 @@ export default function MembersAdd() {
 
         {/* MESSAGE */}
         {message ? (
-          <Text 
+          <Text
             className={`text-center mt-4 ${
               message.includes("Success") ? "text-green-600" : "text-red-600"
             }`}

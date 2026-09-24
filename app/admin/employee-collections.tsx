@@ -679,7 +679,7 @@ export default function EmployeeCollections() {
 
   if (loadingEmployees) {
     return (
-      <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
         <View
           className={`bg-[#024e32] absolute top-0 left-0 right-0 z-50 ${
             isDesktopOrLaptop
@@ -744,7 +744,7 @@ export default function EmployeeCollections() {
   // =====================================================
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View
         className={`bg-[#024e32] absolute top-0 left-0 right-0 z-50 ${

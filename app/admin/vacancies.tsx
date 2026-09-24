@@ -420,7 +420,7 @@ export default function AdminVacancies() {
 
   /* ================= UI ================= */
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">

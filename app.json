@@ -2,18 +2,12 @@
   "expo": {
     "name": "Manikya Chits",
     "slug": "manikya-chits",
-    "version": "1.1.5",
+    "version": "1.1.7",
     "orientation": "portrait",
     "icon": "./assets/images/maxxxxx.png",
     "scheme": "manikya-chits",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-
-    "splash": {
-      "image": "./assets/images/manikyaChits.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
 
     "ios": {
       "supportsTablet": true,

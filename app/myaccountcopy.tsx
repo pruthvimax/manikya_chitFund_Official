@@ -52,7 +52,7 @@ const preventScreenshot = async () => {
       try {
         const { NativeModules } = require("react-native");
         const { SecureViewManager } = NativeModules;
-        
+
         if (SecureViewManager?.setSecure) {
           await SecureViewManager.setSecure(true);
           console.log("✅ Screenshots prevented (native)");
@@ -78,7 +78,7 @@ const allowScreenshot = async () => {
       try {
         const { NativeModules } = require("react-native");
         const { SecureViewManager } = NativeModules;
-        
+
         if (SecureViewManager?.setSecure) {
           await SecureViewManager.setSecure(false);
           console.log("✅ Screenshots allowed (native)");
@@ -216,7 +216,7 @@ const SummaryCard = React.memo(function SummaryCard({
 });
 
 const SkeletonGroupsScreen = () => (
-  <SafeAreaView className="flex-1 bg-white">
+  <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
     <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
       <View className="flex-row items-center">
         <TouchableOpacity className="mt-1" disabled>
@@ -318,6 +318,96 @@ const Footer = () => (
     </View>
   </View>
 );
+
+/* =========================================================
+   CUMULATIVE PENALTY (6%)  —  ported from the My Outstanding page
+
+   That page hits the SAME backend endpoint this page does
+   (/groups/account-copy) but never trusts a raw `penaltyAmount`
+   field off the ledger row — it works the 6% cumulative /
+   compounding penalty out itself from due dates and actual
+   payments (same formula as the admin Group Members page, the
+   employee Collect Payment page, and My Chits). This page used to
+   read `row.penaltyAmount` straight off the backend for its
+   Penalty column and the History modal's penalty section, which is
+   exactly the same kind of stale-snapshot problem the Status badge
+   had earlier — a value set once and never re-checked. Porting the
+   same computation here (unchanged) makes the Penalty figures, and
+   the new "penalty still pending" note below, reliable instead of
+   possibly stale.
+========================================================= */
+const FIXED_PENALTY_PERCENTAGE = 6;
+
+const isAfterPenaltyDueDate = (dueDate: any) => {
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  if (isNaN(due.getTime())) return false;
+  due.setHours(23, 59, 59, 999);
+  return new Date().getTime() > due.getTime();
+};
+
+const getCumulativePenaltyForRows = (rows: any[]) => {
+  const sorted = [...(rows || [])]
+    .filter((r) => r && r.installment)
+    .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
+
+  // Pending amount for `row`, using only payments made on or before
+  // `cutoffDate` — shared by the "own month" freeze (cutoff = that
+  // row's own due date) and the "carry" freeze (cutoff = the LATER
+  // row's due date, i.e. the moment that later row's penalty gets
+  // assessed).
+  const pendingAsOfDate = (row: any, cutoffDate: any) => {
+    const installment = row.installment || 0;
+    const dividend = Number(row.dividend || 0);
+    const effectiveInstallment = Math.max(installment - dividend, 0);
+    const payments = Array.isArray(row.payments) ? row.payments : [];
+
+    if (!cutoffDate) {
+      const paidAny = payments
+        .filter((p: any) => p.paymentType !== "PENALTY" && p.paymentType !== "DIVIDEND")
+        .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      return Math.max(effectiveInstallment - paidAny, 0);
+    }
+
+    const due = new Date(cutoffDate);
+    due.setHours(23, 59, 59, 999);
+    const dueTime = due.getTime();
+    let paidByCutoff = 0;
+    payments.forEach((p: any) => {
+      if (p.paymentType === "PENALTY" || p.paymentType === "DIVIDEND") return;
+      const t = new Date(p.paidAt || p.date).getTime();
+      if (t <= dueTime) paidByCutoff += Number(p.amount || 0);
+    });
+    return Math.max(effectiveInstallment - paidByCutoff, 0);
+  };
+
+  const unpaidAsOfOwnDueDate = (row: any) => pendingAsOfDate(row, row.dueDateObj || null);
+
+  const penaltyByMonth: Record<string, number> = {};
+
+  sorted.forEach((row, i) => {
+    let penaltyIncrement = 0;
+
+    if (row.dueDateObj && isAfterPenaltyDueDate(row.dueDateObj)) {
+      const thisMonthUnpaid = unpaidAsOfOwnDueDate(row);
+      let carriedUnpaid = 0;
+      for (let j = 0; j < i; j++) {
+        // Freeze each earlier row's contribution as of THIS row's own
+        // due date, not "today" — so once assessed, this penalty stays
+        // fixed no matter when the earlier row eventually gets paid.
+        const priorPending = pendingAsOfDate(sorted[j], row.dueDateObj);
+        if (priorPending > 0) carriedUnpaid += priorPending;
+      }
+
+      const base = thisMonthUnpaid + carriedUnpaid;
+      penaltyIncrement = Math.round((base * FIXED_PENALTY_PERCENTAGE) / 100);
+    }
+
+    penaltyByMonth[row.monthIndex] = penaltyIncrement;
+  });
+
+  return penaltyByMonth;
+};
 
 export default function MyAccountCopy() {
   const router = useRouter();
@@ -680,6 +770,84 @@ export default function MyAccountCopy() {
   // "User Paid" = installment + penalty combined (dividend excluded).
   const getUserPaidAmount = getNonDividendPaidAmount;
 
+  const getPenaltyPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType === "PENALTY")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  // Cumulative 6% penalty per month, computed from this ledger +
+  // dividend data the same way the My Outstanding page does (see the
+  // getCumulativePenaltyForRows helper above) — recomputed whenever the
+  // ledger or dividend map changes. Everywhere below that used to read
+  // `row.penaltyAmount` / `selectedHistoryMonth.penaltyAmount` directly
+  // now looks this up instead.
+  const penaltyByMonth = useMemo(() => {
+    if (!Array.isArray(ledger) || ledger.length === 0) return {};
+
+    const normalizedRows = ledger.map((row: any) => {
+      const dividend = dividendMap[row.monthIndex] || 0;
+      return {
+        monthIndex: row.monthIndex,
+        installment: Number(row.installmentAmount || 0) + dividend,
+        dividend,
+        payments: Array.isArray(row.payments) ? row.payments : [],
+        dueDateObj: row.dueDate ? new Date(row.dueDate) : null,
+      };
+    });
+
+    return getCumulativePenaltyForRows(normalizedRows);
+  }, [ledger, dividendMap]);
+
+  /* =========================================================
+     EFFECTIVE STATUS  (FIX)
+
+     The backend's `row.status` field ("PAID"/"OVERDUE"/"PENDING")
+     was being shown as-is everywhere - the ledger table's Status
+     pill, the History modal's "Fully Paid" header badge, and its
+     footer "Status" line. But every OTHER number on these same
+     screens (Balance Due, the progress bar, the table's own
+     "Fully paid"/"Partial" caption) is worked out fresh on the
+     frontend from installment + dividend vs. what was actually
+     paid. When those two disagree - e.g. gross due is 6666, only
+     6500 has been paid in (4834 installment + 1666 dividend), so
+     ₹166 is still outstanding - the backend's stored status can
+     still say "PAID" (it was likely set at the moment of the last
+     payment without re-checking against a dividend added
+     afterwards), which is exactly the "still ₹166 pending but
+     showing Fully Paid" mismatch.
+
+     This computes the status the SAME way the Balance Due number
+     already is, and uses that wherever "PAID"/"Fully Paid" is
+     displayed, so the badge can never disagree with the balance
+     shown right next to it. It only ever downgrades an
+     incorrectly-early "PAID" to "PENDING"/"OVERDUE" when money is
+     still owed - it never overrides a genuine OVERDUE from the
+     backend.
+
+     FIX: penalty is intentionally left OUT of this check, matching
+     how "Fully paid"/"Partial" underneath User Paid already worked
+     out (installment + dividend vs. gross - penalty was never part
+     of that either). Folding penalty in here made a row show
+     PENDING even when the member had paid the full installment +
+     dividend, just because a separate penalty was still
+     outstanding. A penalty balance is still visible on its own via
+     the "Includes penalty" note and the penalty column - it no
+     longer drags the main PAID/PENDING status down with it.
+  ========================================================= */
+  const getEffectiveStatus = useCallback(
+    (row: any, dividend: number) => {
+      const gross = (row?.installmentAmount || 0) + dividend;
+      const installmentOnlyPaid = getInstallmentPaidAmount(row?.payments || []);
+      const balanceDue = Math.max(gross - (installmentOnlyPaid + dividend), 0);
+
+      if (balanceDue <= 0) return "PAID";
+      return row?.status === "OVERDUE" ? "OVERDUE" : "PENDING";
+    },
+    [getInstallmentPaidAmount]
+  );
+
   /* ================= OPEN HISTORY MODAL ================= */
   const openHistoryModal = useCallback((row: any) => {
     const payments = row.payments || [];
@@ -707,6 +875,16 @@ export default function MyAccountCopy() {
     setHistoryVisible(true);
   }, [dividendMap, selectedGroupData, selectedGroupMemberId]);
 
+  // Effective status for whichever month the History modal is currently
+  // showing - computed once here so the header badge and the footer
+  // Status line (further down, inside the modal) always agree with each
+  // other and with the Balance Due figure.
+  const selectedHistoryStatus = useMemo(() => {
+    if (!selectedHistoryMonth) return null;
+    const dividend = dividendMap[selectedHistoryMonth.monthIndex] || 0;
+    return getEffectiveStatus(selectedHistoryMonth, dividend);
+  }, [selectedHistoryMonth, dividendMap, getEffectiveStatus]);
+
   // ✅ PERF: only recompute totals when ledger or dividendMap actually change,
   // instead of on every render (dropdown open/close, modal state, etc.)
   const totals = useMemo(() => {
@@ -728,7 +906,11 @@ export default function MyAccountCopy() {
       0
     );
 
-    const totalPenalty = ledger.reduce((sum, row) => sum + (row.penaltyAmount || 0), 0);
+    // FIX: total assessed penalty across the ledger, now from the
+    // computed penaltyByMonth map (see above) instead of the raw
+    // per-row `penaltyAmount` field, so Net Balance and this figure
+    // agree with the Penalty column and the "penalty pending" note.
+    const totalPenalty = ledger.reduce((sum, row) => sum + (penaltyByMonth[row.monthIndex] || 0), 0);
 
     // Installment-only paid — used for the "Installment Paid" label.
     const totalInstallmentPaid = ledger.reduce((sum, row) => {
@@ -771,7 +953,7 @@ export default function MyAccountCopy() {
       totalDividend,
       totalUserPaid,
     };
-  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount]);
+  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount, penaltyByMonth]);
 
   if (loading && groups.length === 0) {
     return <SkeletonGroupsScreen />;
@@ -794,7 +976,7 @@ export default function MyAccountCopy() {
   const summaryCardWidth = isDesktopOrLaptop ? "31.5%" : "48%";
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
@@ -1288,6 +1470,21 @@ export default function MyAccountCopy() {
                       // unpaid installment look fully paid.
                       const installmentOnlyPaid = getInstallmentPaidAmount(row.payments || []);
                       const grossInstallment = (row.installmentAmount || 0) + dividend;
+                      // FIX: same reasoning as getEffectiveStatus above -
+                      // don't trust row.status blindly for the pill, since
+                      // it can go stale once a dividend is added after the
+                      // month was marked paid. Derive it from the actual
+                      // balance instead, so it always matches the "Fully
+                      // paid"/"Partial" caption right below it.
+                      const effectiveStatus = getEffectiveStatus(row, dividend);
+                      // FIX: computed penalty (see penaltyByMonth above)
+                      // instead of the raw row.penaltyAmount field, plus
+                      // how much of it is still unpaid — this is what
+                      // "identify pending penalty" needed: a number that
+                      // doesn't go stale.
+                      const penaltyDue = penaltyByMonth[row.monthIndex] || 0;
+                      const penaltyPaidAmt = getPenaltyPaidAmount(row.payments || []);
+                      const pendingPenalty = Math.max(penaltyDue - penaltyPaidAmt, 0);
 
                       return (
                         <View
@@ -1390,7 +1587,7 @@ export default function MyAccountCopy() {
                           </View>
 
                           <View style={{ width: getColumnWidth() }} className="p-3 items-center">
-                            {row.penaltyAmount > 0 ? (
+                            {pendingPenalty > 0 ? (
                               <>
                                 <Text
                                   className="text-red-600 font-medium text-center"
@@ -1399,7 +1596,7 @@ export default function MyAccountCopy() {
                                   minimumFontScale={0.7}
                                   maxFontSizeMultiplier={1.15}
                                 >
-                                  ₹{row.penaltyAmount}
+                                  ₹{pendingPenalty}
                                 </Text>
                                 <Text
                                   className="text-red-500 text-xs text-center mt-1"
@@ -1407,7 +1604,16 @@ export default function MyAccountCopy() {
                                   ellipsizeMode="tail"
                                   maxFontSizeMultiplier={1.15}
                                 >
-                                  Penalty applied
+                                  Penalty pending
+                                </Text>
+                              </>
+                            ) : penaltyDue > 0 ? (
+                              <>
+                                <Text className="text-green-600 font-medium text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹{penaltyPaidAmt}
+                                </Text>
+                                <Text className="text-green-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  Penalty paid
                                 </Text>
                               </>
                             ) : (
@@ -1425,18 +1631,18 @@ export default function MyAccountCopy() {
                           <View style={{ width: getColumnWidth() }} className="p-3 items-center">
                             <View
                               className={`px-2 py-1 rounded-full items-center ${
-                                row.status === "PAID"
+                                effectiveStatus === "PAID"
                                   ? "bg-green-100"
-                                  : row.status === "OVERDUE"
+                                  : effectiveStatus === "OVERDUE"
                                   ? "bg-red-100"
                                   : "bg-yellow-100"
                               }`}
                             >
                               <Text
                                 className={`text-xs font-semibold ${
-                                  row.status === "PAID"
+                                  effectiveStatus === "PAID"
                                     ? "text-green-700"
-                                    : row.status === "OVERDUE"
+                                    : effectiveStatus === "OVERDUE"
                                     ? "text-red-700"
                                     : "text-yellow-700"
                                 }`}
@@ -1445,19 +1651,37 @@ export default function MyAccountCopy() {
                                 minimumFontScale={0.7}
                                 maxFontSizeMultiplier={1.15}
                               >
-                                {row.status}
+                                {effectiveStatus}
                               </Text>
                             </View>
-                            {row.penaltyAmount > 0 && row.status !== "PAID" && (
-                              <Text
-                                className="text-red-500 text-xs text-center mt-1"
-                                numberOfLines={1}
-                                ellipsizeMode="tail"
-                                maxFontSizeMultiplier={1.15}
-                              >
-                                Includes penalty
-                              </Text>
-                            )}
+                            {/* ADDED: small explicit note, mirroring the
+                                My Outstanding page, for the case that used
+                                to be invisible - installment (+dividend)
+                                is fully paid, so the badge above now
+                                correctly says PAID, but a penalty is
+                                still owed on top of it. Disappears on its
+                                own once the penalty is paid too, since
+                                pendingPenalty then becomes 0. */}
+                            {pendingPenalty > 0 &&
+                              (effectiveStatus === "PAID" ? (
+                                <Text
+                                  className="text-amber-600 text-xs text-center mt-1"
+                                  numberOfLines={2}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Penalty pending
+                                </Text>
+                              ) : (
+                                <Text
+                                  className="text-red-500 text-xs text-center mt-1"
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Includes penalty
+                                </Text>
+                              ))}
                           </View>
 
                           <View style={{ width: getColumnWidth() }} className="p-3 items-center justify-center">
@@ -1495,13 +1719,13 @@ export default function MyAccountCopy() {
                   <View className="flex-row justify-between">
                     <Text className="text-gray-600">Paid Months:</Text>
                     <Text className="font-medium text-green-600">
-                      {ledger.filter((row: any) => row.status === "PAID").length}
+                      {ledger.filter((row: any) => getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0) === "PAID").length}
                     </Text>
                   </View>
                   <View className="flex-row justify-between">
                     <Text className="text-gray-600">Months with Penalty:</Text>
                     <Text className="font-medium text-red-600">
-                      {ledger.filter((row: any) => row.penaltyAmount > 0).length}
+                      {ledger.filter((row: any) => (penaltyByMonth[row.monthIndex] || 0) > 0).length}
                     </Text>
                   </View>
                   {/*<View className="flex-row justify-between">
@@ -1513,7 +1737,7 @@ export default function MyAccountCopy() {
                   <View className="flex-row justify-between">
                     <Text className="text-gray-600">Pending Months:</Text>
                     <Text className="font-medium text-red-600">
-                      {ledger.filter((row: any) => row.status !== "PAID").length}
+                      {ledger.filter((row: any) => getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0) !== "PAID").length}
                     </Text>
                   </View>
 
@@ -1651,26 +1875,26 @@ export default function MyAccountCopy() {
                     className="flex-row items-center px-2.5 py-1 rounded-full mr-2 mb-1"
                     style={{
                       backgroundColor:
-                        selectedHistoryMonth.status === "PAID"
+                        selectedHistoryStatus === "PAID"
                           ? "rgba(34,197,94,0.22)"
-                          : selectedHistoryMonth.status === "OVERDUE"
+                          : selectedHistoryStatus === "OVERDUE"
                           ? "rgba(239,68,68,0.22)"
                           : "rgba(234,179,8,0.22)",
                     }}
                   >
                     <MaterialIcons
                       name={
-                        selectedHistoryMonth.status === "PAID"
+                        selectedHistoryStatus === "PAID"
                           ? "check-circle"
-                          : selectedHistoryMonth.status === "OVERDUE"
+                          : selectedHistoryStatus === "OVERDUE"
                           ? "error"
                           : "schedule"
                       }
                       size={13}
                       color={
-                        selectedHistoryMonth.status === "PAID"
+                        selectedHistoryStatus === "PAID"
                           ? "#86efac"
-                          : selectedHistoryMonth.status === "OVERDUE"
+                          : selectedHistoryStatus === "OVERDUE"
                           ? "#fca5a5"
                           : "#fde68a"
                       }
@@ -1679,16 +1903,16 @@ export default function MyAccountCopy() {
                       className="text-xs font-semibold ml-1"
                       style={{
                         color:
-                          selectedHistoryMonth.status === "PAID"
+                          selectedHistoryStatus === "PAID"
                             ? "#bbf7d0"
-                            : selectedHistoryMonth.status === "OVERDUE"
+                            : selectedHistoryStatus === "OVERDUE"
                             ? "#fecaca"
                             : "#fef08a",
                       }}
                     >
-                      {selectedHistoryMonth.status === "PAID"
+                      {selectedHistoryStatus === "PAID"
                         ? "Fully Paid"
-                        : selectedHistoryMonth.status === "OVERDUE"
+                        : selectedHistoryStatus === "OVERDUE"
                         ? "Overdue"
                         : "Pending"}
                     </Text>
@@ -1716,11 +1940,19 @@ export default function MyAccountCopy() {
                   const dividend = dividendMap[selectedHistoryMonth.monthIndex] || 0;
                   const gross = (selectedHistoryMonth.installmentAmount || 0) + dividend;
                   const net = selectedHistoryMonth.installmentAmount || 0;
-                  const penalty = selectedHistoryMonth.penaltyAmount || 0;
+                  // FIX: computed penalty (penaltyByMonth), not the raw
+                  // selectedHistoryMonth.penaltyAmount field — same
+                  // "don't trust a stale stored value" fix as the Status
+                  // badge and the table's Penalty column above.
+                  const penalty = penaltyByMonth[selectedHistoryMonth.monthIndex] || 0;
                   const installmentOnlyPaid = getInstallmentPaidAmount(selectedHistoryMonth.payments || []);
-                  const combinedPaid = getUserPaidAmount(selectedHistoryMonth.payments || []);
+                  const combinedPaid = getUserPaidAmount(selectedHistoryMonth.payments || []);  
                   const penaltyPaidAmt = Math.max(combinedPaid - installmentOnlyPaid, 0);
                   const totalPaidInclDividend = combinedPaid + dividend;
+
+                  const pendingInstallment = Math.max(gross - (installmentOnlyPaid + dividend), 0);
+                  const pendingPenaltyAmt = Math.max(penalty - penaltyPaidAmt, 0);
+
                   const progressRatio =
                     gross > 0 ? Math.min((installmentOnlyPaid + dividend) / gross, 1) : installmentOnlyPaid > 0 ? 1 : 0;
                   const balanceDue = Math.max(gross + penalty - totalPaidInclDividend, 0);
@@ -1780,17 +2012,35 @@ export default function MyAccountCopy() {
                           style={{ width: "48%" }}
                         >
                           <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
-                            Balance Due
+                            Balance Due (Inst+Penalty)
                           </Text>
                           <Text
                             className={`text-base font-bold mt-0.5 ${
                               balanceDue > 0 ? "text-red-600" : "text-green-600"
                             }`}
                           >
-                            ₹{balanceDue}
+                             ₹{pendingInstallment} + ₹{pendingPenaltyAmt} = ₹{balanceDue}
                           </Text>
                         </View>
                       </View>
+
+                      {/* ADDED: same small friendly note as the My
+                          Outstanding page - shown only when the
+                          installment (+ dividend) is fully paid but the
+                          penalty on it is not, so it's clear the
+                          progress bar above being full doesn't mean
+                          nothing is owed. Goes away on its own once the
+                          penalty itself is paid off. */}
+                      {progressRatio >= 1 && penalty > 0 && penaltyPaidAmt < penalty && (
+                        <View className="flex-row items-center bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4">
+                          <MaterialIcons name="info-outline" size={16} color="#b45309" />
+                          <Text className="text-amber-700 text-xs ml-2 flex-1">
+                            Installment paid ✓ — your penalty (₹
+                            {Math.max(penalty - penaltyPaidAmt, 0)}) is still pending this
+                            month
+                          </Text>
+                        </View>
+                      )}
 
                       {penalty > 0 && (
                         <View className="mb-4 p-3 rounded-2xl border border-red-100 bg-red-50">
@@ -1892,14 +2142,14 @@ export default function MyAccountCopy() {
                           <Text className="text-gray-800 text-sm font-bold">Status</Text>
                           <Text
                             className={`text-sm font-bold ${
-                              selectedHistoryMonth.status === "PAID"
+                              selectedHistoryStatus === "PAID"
                                 ? "text-green-600"
-                                : selectedHistoryMonth.status === "OVERDUE"
+                                : selectedHistoryStatus === "OVERDUE"
                                 ? "text-red-600"
                                 : "text-yellow-600"
                             }`}
                           >
-                            {selectedHistoryMonth.status || "PENDING"}
+                            {selectedHistoryStatus || "PENDING"}
                           </Text>
                         </View>
                       </View>

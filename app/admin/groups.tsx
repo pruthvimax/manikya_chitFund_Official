@@ -262,7 +262,7 @@ export default function Groups() {
 
   /* ================= UI ================= */
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View className={`bg-[#024e32] absolute top-0 left-0 right-0 z-50 ${
         isDesktopOrLaptop ? 'px-8 pt-20 pb-8' : 'px-5 pt-16 pb-6'

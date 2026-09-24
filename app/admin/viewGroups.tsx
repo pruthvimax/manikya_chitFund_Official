@@ -514,7 +514,7 @@ export default function ViewGroups() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {renderHeader()}
 
       {/* Delete Confirmation Modal */}

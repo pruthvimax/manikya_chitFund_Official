@@ -225,7 +225,7 @@ export default function NewlyCommencedGroups() {
   /* ================= UI ================= */
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+   <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =====================================================
           HEADER

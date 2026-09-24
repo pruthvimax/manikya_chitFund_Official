@@ -29,31 +29,45 @@ import vacancyRoutes from "./routes/vacancyRoutes.js";
 const app = express();
 
 // ----------------- DEBUG ENV VARIABLES -----------------
-console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID ? "Loaded ✅" : "Missing ❌");
-console.log("TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN ? "Loaded ✅" : "Missing ❌");
+
+console.log(
+  "TWILIO_ACCOUNT_SID:",
+  process.env.TWILIO_ACCOUNT_SID ? "Loaded ✅" : "Missing ❌"
+);
+
+console.log(
+  "TWILIO_AUTH_TOKEN:",
+  process.env.TWILIO_AUTH_TOKEN ? "Loaded ✅" : "Missing ❌"
+);
+
 console.log("TWILIO_WHATSAPP_FROM:", process.env.TWILIO_WHATSAPP_FROM);
 
 // ----------------- MIDDLEWARE -----------------
+
 app.use(cors());
 app.use(express.json());
 
 // ----------------- DATABASE CONNECTION -----------------
+
 connectDB().then((connected) => {
   if (connected) {
     console.log("✅ MongoDB Connected Successfully");
   } else {
-    console.warn("⚠️ MongoDB connection unavailable; continuing without database access");
+    console.warn(
+      "⚠️ MongoDB connection unavailable; continuing without database access"
+    );
   }
 });
 
 // ----------------- ROUTES -----------------
+
 app.use("/api/chitscheme", chitSchemeRoutes);
 app.use("/api/admin", adminRoutes);
 
 app.use("/api/employee", employeeRoutes);
 app.use("/api/members", memberRoutes);
 
-app.use("/api/member-interest", memberInterestRoutes); // Make sure this line exists
+app.use("/api/member-interest", memberInterestRoutes);
 app.use("/api/member-history", memberHistoryRoutes);
 app.use("/api/groups", groupRoutes);
 app.use("/api/notifications", notificationRoutes);
@@ -69,6 +83,7 @@ app.use("/api/bids", bidRoutes);
 app.use("/api/vacancy", vacancyRoutes);
 
 // ----------------- TEST ROUTE -----------------
+
 app.get("/", (req, res) => {
   res.send("✅ Manikya Backend Running Successfully 🚀");
 });
@@ -83,15 +98,18 @@ app.get("/api/check-leave", (req, res) => {
       add: "/api/leave-request/add",
       delete: "/api/leave-request/:id",
       updateStatus: "/api/leave-request/:id/status",
-    }
+    },
   });
 });
 
 // ----------------- SERVER -----------------
+
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || "0.0.0.0";
 
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on http://${HOST}:${PORT}`);
-  console.log(`🌐 Access from LAN using your laptop IP: http://<YOUR_LAN_IP>:${PORT}`);
+  console.log(
+    `🌐 Access from LAN using your laptop IP: http://<YOUR_LAN_IP>:${PORT}`
+  );
 });

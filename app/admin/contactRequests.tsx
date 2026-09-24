@@ -298,7 +298,7 @@ export default function ContactRequestsScreen() {
   const unreadCount = requests.filter((item) => !item.read).length;
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f9fafb]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       <StatusBar barStyle="light-content" backgroundColor="#024e32" />
 
       {/* HEADER */}

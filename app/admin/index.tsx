@@ -307,7 +307,7 @@ export default function AdminIndex() {
   const totalOpenSlots = groupCapacity.reduce((sum, g) => sum + g.vacancy, 0);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* =====================================================
           HEADER
       ===================================================== */}

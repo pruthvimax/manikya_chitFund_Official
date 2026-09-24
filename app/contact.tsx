@@ -133,7 +133,7 @@ export default function Contact() {
     Linking.openURL("mailto:dynamicwebwork@gmail.com");
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f6fbf8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* ================= PREMIUM HEADER ================= */}
       <View
         className="bg-[#024e32] px-5 pb-6 absolute top-0 left-0 right-0 z-50"

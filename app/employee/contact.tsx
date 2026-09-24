@@ -68,7 +68,7 @@ export default function Contact() {
     );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f6fbf8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =====================================================
           FIXED HEADER

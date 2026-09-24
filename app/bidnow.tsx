@@ -513,6 +513,11 @@ const [showGroupMemberDropdown, setShowGroupMemberDropdown] =
     70000,
     80000,
     90000,
+    100000,
+    150000,
+    200000,
+    250000,
+    300000,
   ];
 
 
@@ -2222,12 +2227,14 @@ const body = {
         }}
       />
 
-      <View className="flex-row justify-between px-1">
+     <View className="flex-row justify-between px-1">
         <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹10K</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹30K</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹50K</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹70K</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹90K</Text>
+       {/* <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹60K</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹1lakh</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹1.5lakh</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹2lakh</Text>
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹2.5lakh</Text>*/}
+        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹3lakh</Text>
       </View>
 
     </View>

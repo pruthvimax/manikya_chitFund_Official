@@ -107,6 +107,62 @@ export default function AdminLogin() {
     spinLoopRef.current.start();
   };
 
+  /*
+    FIX: same class of bug already fixed on the Member and Employee
+    login screens.
+
+    1. Network timeout + retry: a plain fetch() with no timeout means
+       any brief connection hiccup (weak signal, momentary drop) either
+       hangs until the OS gives up or throws once straight into the
+       generic catch block below - showing "Server connection error" /
+       "Server error" even though the mobile number / OTP and backend
+       were fine. This wraps ONLY the network call with a timeout + a
+       couple of automatic retries, and retries ONLY on network-level
+       failures - never once a real response comes back from the
+       server, so an actual "invalid OTP" rejection still shows
+       immediately and is never resubmitted.
+    2. Double-submit guard (added at the top of sendOtp/verifyOtp
+       below): disabled={isLoading} on each button only takes effect
+       after a React re-render, so a fast double-tap could slip a
+       SECOND request through before that re-render lands. Two
+       concurrent /admin/send-otp or /admin/verify-otp calls can race
+       each other or trigger duplicate OTPs - stopped at the source.
+  */
+  const REQUEST_TIMEOUT_MS = 15000;
+  const MAX_ATTEMPTS = 3;
+
+  const fetchWithRetry = async (
+    url: string,
+    options: RequestInit,
+    attempt: number = 1,
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+
+      const isNetworkFailure =
+        err?.name === "AbortError" ||
+        err?.message === "Network request failed" ||
+        err?.name === "TypeError";
+
+      if (isNetworkFailure && attempt < MAX_ATTEMPTS) {
+        console.warn(
+          `Admin login: network issue on attempt ${attempt} (${err?.message || err?.name}), retrying...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        return fetchWithRetry(url, options, attempt + 1);
+      }
+
+      throw err;
+    }
+  };
+
   // Auto-hide message after 3-4 seconds
   useEffect(() => {
     if (message) {
@@ -130,7 +186,7 @@ export default function AdminLogin() {
         toValue: 0,
         duration: 800,
         useNativeDriver: true,
-        easing: Easing.out(Easing.back(1.8)),
+        easing: Easing.out(Easing.cubic),
       }),
       Animated.timing(scaleAnim, {
         toValue: 1,
@@ -178,6 +234,11 @@ export default function AdminLogin() {
   }, []);
 
   const sendOtp = async () => {
+    // Hard guard against double-submit (see FIX comment above
+    // fetchWithRetry): a fast double-tap can slip a second request
+    // through before disabled={isLoading} takes effect.
+    if (isLoading) return;
+
     if (!mobile) {
       shakeAnimation();
       setMessage("Enter mobile number");
@@ -194,7 +255,7 @@ export default function AdminLogin() {
     startSpinner();
 
     try {
-      const response = await fetch(`${BACKEND_URL}/admin/send-otp`, {
+      const response = await fetchWithRetry(`${BACKEND_URL}/admin/send-otp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -226,6 +287,9 @@ export default function AdminLogin() {
   };
 
   const verifyOtp = async () => {
+    // Same double-submit guard as sendOtp above.
+    if (isLoading) return;
+
     if (!otp) {
       shakeAnimation();
       setMessage("Enter OTP");
@@ -236,7 +300,7 @@ export default function AdminLogin() {
     startSpinner();
 
     try {
-      const response = await fetch(`${BACKEND_URL}/admin/verify-otp`, {
+      const response = await fetchWithRetry(`${BACKEND_URL}/admin/verify-otp`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

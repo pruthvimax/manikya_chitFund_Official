@@ -1699,9 +1699,14 @@ export default function MyOutstanding() {
             />
           </TouchableOpacity>
 
-          <Text className="text-white text-2xl font-bold ml-4 flex-1">
-            My Outstanding
-          </Text>
+<View className="flex-1 ml-4">
+  <Text className="text-white text-2xl font-bold">
+    My Live payments 
+  </Text>
+  <Text className="text-green-100 text-xs mt-0.5">
+    My Outstanding
+  </Text>
+</View>
 
           <TouchableOpacity
             onPress={handleRefresh}

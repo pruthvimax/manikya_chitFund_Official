@@ -273,7 +273,7 @@ const SkeletonChitCard = () => (
 );
 
 const SkeletonMyChitsScreen = () => (
-  <SafeAreaView className="flex-1 bg-white">
+  <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
     <View
       className={`bg-[#024e32] px-5 ${
         A ? "pt-14 pb-5" : "pt-16 pb-6"
@@ -680,7 +680,16 @@ export default function MyChits() {
     loadMyChits();
   }, []);
 
-  /* ================= USER PAID (EXCLUDING DIVIDEND) ================= */
+  /* ================= PAID AMOUNTS =================
+     Two different sums on purpose, same distinction Account Copy makes:
+       - getUserPaidAmount excludes only DIVIDEND — installment + penalty
+         together — used internally to net out Due amount (a penalty
+         payment does reduce what's still owed).
+       - getInstallmentOnlyPaidAmount excludes DIVIDEND *and* PENALTY —
+         this is what the "Paid amount" card displays, so it reads as
+         pure installment progress and never gets inflated by a penalty
+         payment.
+  ================================================= */
   const getUserPaidAmount = (payments: any[]) => {
     if (!payments || !Array.isArray(payments)) return 0;
     return payments
@@ -688,109 +697,11 @@ export default function MyChits() {
       .reduce((sum, p) => sum + (p.amount || 0), 0);
   };
 
-  // ✅ 6% fixed penalty — same rate as the admin (groupmembers.tsx) and
-  // employee (collectionpayment.tsx) pages.
-  const FIXED_PENALTY_PERCENTAGE = 6;
-
-  const isAfterDueDate = (dueDate: any) => {
-    if (!dueDate) return false;
-    const due = new Date(dueDate);
-    if (isNaN(due.getTime())) return false;
-    due.setHours(23, 59, 59, 999);
-    return new Date().getTime() > due.getTime();
-  };
-
-  // ✅ CUMULATIVE / COMPOUNDING penalty — this is the exact same formula
-  // used on the admin GroupMembers page and the employee Collect Payment
-  // page, just adapted to this screen's ledger row shape (monthIndex /
-  // dueDate / payments, from /groups/account-copy) instead of the raw
-  // collections shape (index / endDate / payments) those two pages use.
-  //
-  // Without this, "Payable amount" / "Due amount" here were trusting the
-  // ledger row's own `penaltyAmount` field, which does NOT carry forward
-  // correctly once an earlier month gets paid off — it's the same bug
-  // that was fixed on the admin/employee side. Recomputing it here from
-  // the actual payment history keeps all three pages showing the same
-  // number for the same member.
-  //
-  //   - a month's OWN contribution is frozen using only payments made on
-  //     or before ITS OWN due date, so a late payment can never shrink a
-  //     charge that's already been assessed (and possibly already
-  //     collected) for that same month.
-  //   - the CARRY from an earlier month is frozen using only payments
-  //     made on or before THIS month's own due date — so it reflects
-  //     whichever earlier months were still unpaid at the moment this
-  //     month's penalty was assessed, and never moves again after that,
-  //     even if the earlier month gets paid off much later. (An earlier
-  //     month already paid off BEFORE this month's due date is correctly
-  //     excluded, since it wasn't outstanding "back then" either.)
-  const getCumulativePenaltyForLedger = (
-    ledgerRows: any[],
-    dividendForMonth: (monthIndex: any) => number
-  ) => {
-    const sorted = [...(ledgerRows || [])]
-      .filter((r) => r && r.installmentAmount)
-      .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
-
-    // Pending amount for `row`, using only payments made on or before
-    // `cutoffDate` — shared by the "own month" freeze (cutoff = that
-    // row's own due date) and the "carry" freeze (cutoff = the LATER
-    // row's due date, i.e. the moment that later row's penalty gets
-    // assessed).
-    const pendingAsOfDate = (row: any, cutoffDate: any) => {
-      const installment = row.installmentAmount || 0;
-      const dividend = Number(dividendForMonth(row.monthIndex) || 0);
-      const effectiveInstallment = Math.max(installment - dividend, 0);
-      const payments = Array.isArray(row.payments) ? row.payments : [];
-
-      if (!cutoffDate) {
-        const paidAny = payments
-          .filter((p: any) => p.paymentType !== "PENALTY")
-          .reduce((s: number, p: any) => s + (p.amount || 0), 0);
-        return Math.max(effectiveInstallment - paidAny, 0);
-      }
-
-      const due = new Date(cutoffDate);
-      due.setHours(23, 59, 59, 999);
-      const dueTime = due.getTime();
-      let paidByCutoff = 0;
-      payments.forEach((p: any) => {
-        if (p.paymentType === "PENALTY") return;
-        const t = new Date(p.paidAt || p.date).getTime();
-        if (t <= dueTime) paidByCutoff += p.amount || 0;
-      });
-      return Math.max(effectiveInstallment - paidByCutoff, 0);
-    };
-
-    const unpaidAsOfOwnDueDate = (row: any) =>
-      pendingAsOfDate(row, row.dueDate || null);
-
-    const penaltyByMonth: Record<string, number> = {};
-    let totalPenaltyAssessed = 0;
-
-    sorted.forEach((row, i) => {
-      let penaltyIncrement = 0;
-
-      if (row.dueDate && isAfterDueDate(row.dueDate)) {
-        const thisMonthUnpaid = unpaidAsOfOwnDueDate(row);
-        let carriedUnpaid = 0;
-        for (let j = 0; j < i; j++) {
-          // Freeze each earlier row's contribution as of THIS row's own
-          // due date, not "today" — so once assessed, this penalty stays
-          // fixed no matter when the earlier row eventually gets paid.
-          const priorPending = pendingAsOfDate(sorted[j], row.dueDate);
-          if (priorPending > 0) carriedUnpaid += priorPending;
-        }
-
-        const base = thisMonthUnpaid + carriedUnpaid;
-        penaltyIncrement = Math.round((base * FIXED_PENALTY_PERCENTAGE) / 100);
-        totalPenaltyAssessed += penaltyIncrement;
-      }
-
-      penaltyByMonth[row.monthIndex] = penaltyIncrement;
-    });
-
-    return { penaltyByMonth, totalPenaltyAssessed };
+  const getInstallmentOnlyPaidAmount = (payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType !== "DIVIDEND" && p.paymentType !== "PENALTY")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
   };
 
   const fetchLedgerForChit = async (
@@ -839,6 +750,31 @@ export default function MyChits() {
     }
 
     return [];
+  };
+
+  // ✅ Dividend per month, fetched the SAME way My Account Copy fetches it
+  // (one call per ledger month to /groups/:groupId/collection-plan/:monthIndex),
+  // instead of trusting the ledger row's own `dividend` field or
+  // groupDetail.collectionPlans. Keeping both pages on the exact same
+  // dividend source is what keeps their totals in agreement for the
+  // same member.
+  const fetchDividendMapForLedger = async (groupId: string, ledgerRows: any[]) => {
+    const map: Record<string, number> = {};
+    await Promise.all(
+      (ledgerRows || []).map(async (row: any) => {
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
+          );
+          const plan = await res.json();
+          map[row.monthIndex] = plan?.dividend || 0;
+        } catch (err) {
+          console.log("Dividend fetch error for month", row.monthIndex);
+          map[row.monthIndex] = 0;
+        }
+      })
+    );
+    return map;
   };
 
   /** Auction notifications for a group, newest first */
@@ -941,60 +877,33 @@ export default function MyChits() {
             fetchGroupDetail(groupId),
           ]);
 
-          // Found the actual cause by reading the backend controller
-          // (getMyAccountCopy, /groups/account-copy/:userid/:groupId):
-          // it does THREE things to dividend, all at once, for what's
-          // meant to be a display convenience —
-          //   1. `installmentAmount` in the response is already
-          //      NET of dividend (`effectiveInstallment = installment
-          //      - dividend`), not the raw installment.
-          //   2. `dividend` is ALSO sent back as its own field.
-          //   3. a synthetic `{ paymentType: "DIVIDEND", amount:
-          //      dividend, ... }` entry is unshifted onto `payments`,
-          //      purely so a payment-history UI has something to show
-          //      for it.
-          // This page's penalty/payable math (ported from the
-          // admin/employee pages, which get a RAW installmentAmount
-          // with dividend as a separate field and no synthetic
-          // payment) subtracts `dividend` a second time via
-          // dividendFor(), and — since only "PENALTY" was excluded
-          // from the payments sum, not "DIVIDEND" — the synthetic
-          // payment got summed in as real cash paid on top of that.
-          // Dividend was effectively subtracted three times over,
-          // which is exactly why Payable/Due came out lower here than
-          // My Account Copy / Collect Payment for the same member.
-          // Undoing it once here (add dividend back to get the RAW
-          // installment, drop the synthetic payment) makes every
-          // ledger row look like the admin/employee shape everywhere
-          // below, and fixes the same due-date field-name issue while
-          // we're normalizing (My Outstanding needed the same
-          // `endDate` fallback — a row missing `dueDate` would
-          // otherwise silently skip its own penalty while still
-          // correctly carrying into a later month's base).
+          // ✅ MATCHES MY ACCOUNT COPY EXACTLY
+          //
+          // Kept RAW here on purpose — installmentAmount stays NET (as the
+          // backend returns it), payments are left untouched, and penalty
+          // is trusted straight from each row's own `penaltyAmount` field.
+          // This mirrors My Account Copy's calculation line for line
+          // (which does the same thing) instead of the gross-installment /
+          // locally-recomputed-cumulative-penalty approach this page used
+          // before. The two pages now compute Payable / Paid / Due /
+          // Dividend the same way, so they show the same numbers for the
+          // same member. `dueDate` still gets a fallback for display,
+          // since some rows only carry `endDate`.
           const ledger = (Array.isArray(rawLedger) ? rawLedger : []).map(
-            (row: any) => {
-              const dividendAmount = Number(row.dividend || 0);
-              const grossInstallment =
-                Number(row.installmentAmount || 0) + dividendAmount;
-              const realPayments = Array.isArray(row.payments)
-                ? row.payments.filter(
-                    (p: any) => p.paymentType !== "DIVIDEND"
-                  )
-                : [];
-
-              return {
-                ...row,
-                installmentAmount: grossInstallment,
-                payments: realPayments,
-                dueDate:
-                  row.dueDate ||
-                  row.endDate ||
-                  row.due_date ||
-                  row.collectionEndDate ||
-                  null,
-              };
-            }
+            (row: any) => ({
+              ...row,
+              dueDate:
+                row.dueDate ||
+                row.endDate ||
+                row.due_date ||
+                row.collectionEndDate ||
+                null,
+            })
           );
+
+          const monthDividendMap = await fetchDividendMapForLedger(groupId, ledger);
+          const dividendFor = (monthIndex: any) =>
+            Number(monthDividendMap[monthIndex] || 0);
 
           const groupAuctions = auctionsForGroup(notifications, groupId);
 
@@ -1010,40 +919,6 @@ export default function MyChits() {
           /* past auctions that already have a declared winner */
           const resultHistory = groupAuctions.filter((n: any) => n.winnerName);
 
-          /* dividend per month */
-          //
-          // ledger rows (from /groups/account-copy, same endpoint My
-          // Outstanding uses) already carry their own `dividend` field
-          // directly — that's the reliable source. groupDetail's
-          // collectionPlans (from the separate /groups/{groupId}
-          // endpoint) is kept only as a fallback for older responses
-          // that don't include it, since relying on it alone was why
-          // "Dividend earned" was always showing ₹0 here: that endpoint
-          // either doesn't return collectionPlans with a per-month
-          // dividend, or the two lists don't line up by monthIndex.
-          const plans: any[] = Array.isArray(groupDetail?.collectionPlans)
-            ? groupDetail.collectionPlans
-            : [];
-
-          const dividendFor = (monthIndex: any) => {
-            const ledgerRow = ledger.find(
-              (r: any) => String(r.monthIndex) === String(monthIndex)
-            );
-
-            if (
-              ledgerRow &&
-              ledgerRow.dividend !== undefined &&
-              ledgerRow.dividend !== null
-            ) {
-              return Number(ledgerRow.dividend || 0);
-            }
-
-            const plan = plans.find(
-              (p: any) => String(p.monthIndex) === String(monthIndex)
-            );
-            return Number(plan?.dividend || 0);
-          };
-
           const totalMonths =
             ledger.length > 0
               ? ledger.length
@@ -1057,64 +932,61 @@ export default function MyChits() {
             (row: any) => row.status !== "PAID"
           ).length;
 
-          /* ---------- MONEY ---------- */
+          /* ---------- MONEY ----------
+             totalGrossInstallment = the FULL monthly instalment amount
+                              (installment + dividend, every month) -
+                              this is what the "Payable amount" card
+                              displays. `row.installmentAmount` stored on
+                              the ledger is NET (dividend already netted
+                              off it), so the dividend has to be added
+                              back on to show the full instalment figure
+                              (e.g. 13k installment + 2k dividend = 15k
+                              full instalment) - penalty is deliberately
+                              NOT included, since penalty is a separate
+                              late fee, not part of the instalment itself.
+             payableForDue = totalGrossInstallment + penalty (every
+                              month, trusted from the backend's own
+                              penaltyAmount). Same formula My Account
+                              Copy uses. Kept ONLY to compute dueAmount
+                              below - not displayed directly, so Due
+                              amount keeps including penalty even though
+                              the Payable-amount card above does not.
+             totalUserPaid = installment+penalty actually paid by the
+                              member (every month) — used to net out
+                              dueAmount below, dividend NOT included
+                              since that's the admin's credit, already
+                              shown on its own in "Dividend earned".
+             paidAmount    = totalUserPaid + dividend (every month) —
+                              used ONLY to net out dueAmount below, same
+                              as Account Copy's "Total Paid (incl.
+                              Dividend)" feeding its Net Balance. Not
+                              displayed directly anywhere.
+             dueAmount     = payableForDue - paidAmount. Unchanged from
+                              before.
+          ---------------------------------------------------------- */
 
-          const now = Date.now();
-
-          const dueSoFar = ledger.filter((row: any) => {
-            if (!row.dueDate) return true;
-            const d = new Date(row.dueDate).getTime();
-            return isNaN(d) ? true : d <= now;
-          });
-
-          // Recomputed cumulatively (same formula as the admin/employee
-          // pages) instead of trusting the ledger row's own penaltyAmount
-          // field, so "Payable amount" / "Due amount" here always match
-          // what those two pages show for the same member.
-          const { penaltyByMonth } = getCumulativePenaltyForLedger(ledger, dividendFor);
-
-          // TEMPORARY DEBUG — safe to remove once Payable/Due amounts are
-          // confirmed matching My Account Copy / Collect Payment for every
-          // group. Prints exactly what each row's calculation used, so a
-          // mismatch can be pinned to a specific field instead of guessed
-          // at. Open the browser console (F12 → Console) on this page and
-          // look for a line starting with "[MYCHITS DEBUG]".
-          if (typeof console !== "undefined") {
-            console.log(
-              `[MYCHITS DEBUG] ${groupId}-${groupMemberId}`,
-              ledger.map((row: any) => ({
-                monthIndex: row.monthIndex,
-                installmentAmount: row.installmentAmount,
-                dividend: dividendFor(row.monthIndex),
-                dueDate: row.dueDate,
-                paymentsCount: Array.isArray(row.payments)
-                  ? row.payments.length
-                  : 0,
-                penalty: penaltyByMonth[row.monthIndex],
-              }))
-            );
-          }
-
-          // Gross amount owed per month = installment + penalty. Dividend
-          // is NOT added here — it's credited on the "paid" side instead
-          // (see paidAmount below), which is what actually makes it
-          // reduce Due amount. Adding it here too used to cancel itself
-          // straight back out in the payable-minus-paid subtraction,
-          // so dividend had ZERO real effect on Due amount even though
-          // it was displayed as "already paid" — and Due amount didn't
-          // match the sum of each month's "Total Pending" on the account
-          // copy / Collect Payment pages, which DO subtract dividend
-          // from what's owed for that month.
-          const payableAmount = dueSoFar.reduce(
+          const totalGrossInstallment = ledger.reduce(
             (sum: number, row: any) =>
-              sum +
-              Number(row.installmentAmount || 0) +
-              Number(penaltyByMonth[row.monthIndex] || 0),
+              sum + Number(row.installmentAmount || 0) + dividendFor(row.monthIndex),
             0
           );
 
+          const totalPenalty = ledger.reduce(
+            (sum: number, row: any) => sum + Number(row.penaltyAmount || 0),
+            0
+          );
+
+          const payableForDue = totalGrossInstallment + totalPenalty;
+
           const totalUserPaid = ledger.reduce(
             (sum: number, row: any) => sum + getUserPaidAmount(row.payments || []),
+            0
+          );
+
+          // Installment only (no penalty, no dividend) — what the "Paid
+          // amount" card displays.
+          const totalInstallmentOnlyPaid = ledger.reduce(
+            (sum: number, row: any) => sum + getInstallmentOnlyPaidAmount(row.payments || []),
             0
           );
 
@@ -1124,7 +996,7 @@ export default function MyChits() {
           );
 
           const paidAmount = totalUserPaid + dividendEarned;
-          const dueAmount = Math.max(payableAmount - paidAmount, 0);
+          const dueAmount = Math.max(payableForDue - paidAmount, 0);
 
           /* ---------- NEXT DUE DATE ---------- */
 
@@ -1185,8 +1057,20 @@ export default function MyChits() {
             frequency: chit.frequency || groupDetail?.frequency || null,
             chitStatus: chit.status || null,
 
-            payableAmount,
-            paidAmount,
+            // "Payable amount" card shows the FULL monthly instalment
+            // (installment + dividend) — no penalty folded in.
+            payableAmount: totalGrossInstallment,
+            // "Paid amount" card shows PURE installment paid — no
+            // penalty, no dividend — matching Account Copy's
+            // "Installment Paid" line. Penalty paid and dividend are
+            // each already visible on their own (penalty is not folded
+            // into Payable amount, and dividend has its own "Dividend
+            // earned" card), so folding either into this figure would
+            // double up. dueAmount below is still computed against the
+            // full payable+paid totals (installment + dividend +
+            // penalty), same as before, so Due amount itself doesn't
+            // change.
+            paidAmount: totalInstallmentOnlyPaid,
             dueAmount,
             dividendEarned,
             dueDate,
@@ -1273,7 +1157,7 @@ export default function MyChits() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View
         className={`bg-[#024e32] px-5 ${
@@ -1460,6 +1344,7 @@ export default function MyChits() {
                       >
                         {chit.dueDate}
                       </Text>
+
                     </View>
 
                     {/* RELATIONSHIP MANAGER */}
@@ -1495,6 +1380,7 @@ export default function MyChits() {
                             </Text>
                           </TouchableOpacity>
                         ) : null}
+
                       </View>
                     ) : null}
                   </View>
@@ -1692,6 +1578,7 @@ export default function MyChits() {
                     className={`bg-white rounded-2xl border border-gray-200 shadow-sm mt-3 ${T.rowPx} ${T.rowPy} flex-row items-center justify-between`}
                   >
                     <View className="flex-1 mr-3" style={{ minWidth: 0 }}>
+
                       <Text
                         className={`text-[#e8501f] ${
                           A ? "text-lg" : "text-xl"
@@ -1703,9 +1590,11 @@ export default function MyChits() {
                       >
                         {money(chit.dueAmount)}
                       </Text>
+
                       <Text className={`text-gray-400 ${T.sm} mt-0.5`}>
                         My due
                       </Text>
+
                     </View>
 
                     {/* Pay now goes here once the gateway is ready */}
@@ -1782,23 +1671,45 @@ export default function MyChits() {
         statusBarTranslucent
         onRequestClose={() => setHistoryVisible(false)}
       >
-        <Pressable
-          onPress={() => setHistoryVisible(false)}
+        {/* FIX: scrolling needed several presses before it would move.
+            The backdrop Pressable used to WRAP the card (and therefore
+            the ScrollView too), so every scroll gesture first had to
+            "win" a touch-responder negotiation against that Pressable's
+            onPress before React Native would let the ScrollView start
+            panning - that's what made it take multiple taps/swipes to
+            get going. Fix: the backdrop is now a separate, absolutely
+            positioned Pressable sitting BEHIND the card instead of
+            wrapping it, so the ScrollView has no Pressable ancestor to
+            fight with and responds on the first touch. Tapping the dark
+            area still closes the modal (nothing on top of it there to
+            block the touch); tapping inside the card no longer needs a
+            stopPropagation wrapper because the backdrop is behind it,
+            not around it. Nothing else in this modal or the rest of the
+            page was touched. */}
+        <View
           style={{
             flex: 1,
-            backgroundColor: "rgba(15, 23, 42, 0.55)",
             justifyContent: "center",
             alignItems: "center",
             padding: 20,
           }}
         >
           <Pressable
-            onPress={(e) => e.stopPropagation()}
-            style={{ width: "100%", maxWidth: 460 }}
-          >
+            onPress={() => setHistoryVisible(false)}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(15, 23, 42, 0.55)",
+            }}
+          />
+
+          <View style={{ width: "100%", maxWidth: 460, maxHeight: "88%", flexShrink: 1 }}>
             <View
               className="bg-white rounded-3xl overflow-hidden"
-              style={{ maxHeight: 620 }}
+              style={{ maxHeight: 620, flexShrink: 1 }}
             >
               {/* HEADER */}
               <View
@@ -1839,9 +1750,19 @@ export default function MyChits() {
                 </TouchableOpacity>
               </View>
 
-              {/* LIST */}
+              {/* LIST
+
+                  FIX (all devices): flexShrink:1 alone was not enough -
+                  by default a flex child won't shrink below the height
+                  of its own content ("min-height: auto"), so the list
+                  kept expanding/getting stuck instead of respecting the
+                  space left over between the header and footer. flex:1
+                  + minHeight:0 together are what actually make it
+                  scroll reliably on Android, iOS and web. Nothing else
+                  in this modal or the rest of the page was touched. */}
               <ScrollView
                 showsVerticalScrollIndicator={false}
+                style={{ flex: 1, minHeight: 0 }}
                 contentContainerStyle={{ padding: A ? 12 : 14 }}
               >
                 {historyLoading ? (
@@ -2069,8 +1990,8 @@ export default function MyChits() {
                 </TouchableOpacity>
               </View>
             </View>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );

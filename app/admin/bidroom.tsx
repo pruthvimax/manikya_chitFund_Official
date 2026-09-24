@@ -44,6 +44,31 @@ type CustomerHistory = {
 };
 
 /* =========================================================
+   STATIC STYLES
+
+   NativeWind's `shadow-*` utilities (and color-opacity slash
+   classes like `bg-[#024E32]/10`) can crash native-stack
+   navigators with a "Couldn't find a navigation context" error
+   when they appear inside a className that toggles or repeats
+   across many rendered items (react-native-css-interop /
+   nativewind#1711). These are plain RN style objects instead,
+   which sidesteps the bug entirely.
+========================================================= */
+
+const CARD_SHADOW = {
+  shadowColor: "#000000",
+  shadowOffset: { width: 0, height: 1 },
+  shadowOpacity: 0.05,
+  shadowRadius: 3,
+  elevation: 2,
+} as const;
+
+const GREEN_10 = "rgba(2, 78, 50, 0.1)";
+const GREEN_20 = "rgba(2, 78, 50, 0.2)";
+const AMBER_70 = "rgba(180, 83, 9, 0.7)";
+const BLACK_50 = "rgba(0, 0, 0, 0.5)";
+
+/* =========================================================
    ADMIN BID ROOM
 ========================================================= */
 
@@ -480,7 +505,7 @@ export default function AdminBidRoom() {
       ===================================================== */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => router.back()}
             className="mt-1"
             activeOpacity={0.7}
@@ -501,7 +526,7 @@ export default function AdminBidRoom() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        contentContainerStyle={{ 
+        contentContainerStyle={{
           paddingTop: 110,
           paddingBottom: 20
         }}
@@ -510,7 +535,10 @@ export default function AdminBidRoom() {
           {/* ===================================================
               AUCTION INFO
           =================================================== */}
-          <View className="bg-white rounded-3xl p-5 border border-gray-100 shadow-sm shadow-black/5">
+          <View
+            className="bg-white rounded-3xl p-5 border border-gray-100"
+            style={CARD_SHADOW}
+          >
             <View className="flex-row items-center">
               <View className="w-12 h-12 rounded-2xl bg-[#EAF5EF] items-center justify-center">
                 <MaterialIcons name="gavel" size={27} color="#024E32" />
@@ -575,7 +603,7 @@ export default function AdminBidRoom() {
 
               <View className="flex-row flex-wrap">
                 <View className="flex-1 min-w-[100px]">
-                  <Text className="text-amber-700/70 text-[10px] font-semibold tracking-wider uppercase">
+                  <Text style={{ color: AMBER_70 }} className="text-[10px] font-semibold tracking-wider uppercase">
                     Member ID
                   </Text>
                   <Text className="text-gray-800 font-semibold mt-1 text-sm">
@@ -583,7 +611,7 @@ export default function AdminBidRoom() {
                   </Text>
                 </View>
                 <View className="flex-1 min-w-[100px]">
-                  <Text className="text-amber-700/70 text-[10px] font-semibold tracking-wider uppercase">
+                  <Text style={{ color: AMBER_70 }} className="text-[10px] font-semibold tracking-wider uppercase">
                     Group Member ID
                   </Text>
                   <Text className="text-gray-800 font-semibold mt-1 text-sm">
@@ -591,7 +619,7 @@ export default function AdminBidRoom() {
                   </Text>
                 </View>
                 <View className="flex-1 min-w-[100px]">
-                  <Text className="text-amber-700/70 text-[10px] font-semibold tracking-wider uppercase">
+                  <Text style={{ color: AMBER_70 }} className="text-[10px] font-semibold tracking-wider uppercase">
                     Winning Bid
                   </Text>
                   <Text className="text-amber-700 font-extrabold mt-1 text-base">
@@ -600,7 +628,7 @@ export default function AdminBidRoom() {
                 </View>
               </View>
 
-              <Text className="text-amber-700/70 text-[10px] mt-3">
+              <Text style={{ color: AMBER_70 }} className="text-[10px] mt-3">
                 Winner of {passedAuctionDate || displayDate}
                 {passedAuctionTime ? ` • ${passedAuctionTime}` : ""}
               </Text>
@@ -611,7 +639,10 @@ export default function AdminBidRoom() {
               SUMMARY
           =================================================== */}
           <View className="flex-row mt-4">
-            <View className="flex-1 bg-white rounded-2xl p-4 mr-2 border border-gray-100 shadow-sm shadow-black/5">
+            <View
+              className="flex-1 bg-white rounded-2xl p-4 mr-2 border border-gray-100"
+              style={CARD_SHADOW}
+            >
               <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
                 Total Bids
               </Text>
@@ -619,7 +650,10 @@ export default function AdminBidRoom() {
                 {bids.length}
               </Text>
             </View>
-            <View className="flex-1 bg-white rounded-2xl p-4 ml-2 border border-gray-100 shadow-sm shadow-black/5">
+            <View
+              className="flex-1 bg-white rounded-2xl p-4 ml-2 border border-gray-100"
+              style={CARD_SHADOW}
+            >
               <Text className="text-gray-400 text-[10px] font-semibold tracking-wider uppercase">
                 Highest Bid
               </Text>
@@ -678,7 +712,10 @@ export default function AdminBidRoom() {
             /* ================================================
                NO BIDS
             ================================================= */
-            <View className="bg-white rounded-3xl p-8 items-center border border-gray-100 shadow-sm">
+            <View
+              className="bg-white rounded-3xl p-8 items-center border border-gray-100"
+              style={CARD_SHADOW}
+            >
               <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center">
                 <MaterialIcons name="gavel" size={36} color="#9CA3AF" />
               </View>
@@ -700,7 +737,8 @@ export default function AdminBidRoom() {
                   key={bid._id || `${bid.memberId}-${index}`}
                   activeOpacity={0.88}
                   onPress={() => openBidDetails(bid)}
-                  className={`bg-white rounded-3xl p-5 mb-4 border shadow-sm ${
+                  style={CARD_SHADOW}
+                  className={`bg-white rounded-3xl p-5 mb-4 border ${
                     isHighest
                       ? "border-[#024E32] border-2 bg-[#FAFDFB]"
                       : "border-gray-100"
@@ -827,7 +865,7 @@ export default function AdminBidRoom() {
             })
           )}
 
-          
+
 
           {/* ===================================================
               FOOTER - SAME AS CHIT SCHEMES PAGE
@@ -857,7 +895,7 @@ export default function AdminBidRoom() {
         animationType="slide"
         onRequestClose={closeCustomerHistory}
       >
-        <View className="flex-1 bg-black/50 justify-end">
+        <View style={{ flex: 1, backgroundColor: BLACK_50, justifyContent: "flex-end" }}>
           <View
             className="bg-[#F5F7F6] rounded-t-3xl overflow-hidden"
             style={{ maxHeight: "80%" }}
@@ -944,7 +982,10 @@ export default function AdminBidRoom() {
                   </View>
 
                   {/* CURRENT BID HIGHLIGHT */}
-                  <View className="bg-[#EAF5EF] rounded-xl px-3 py-2.5 flex-row items-center justify-between border border-[#024E32]/10">
+                  <View
+                    className="rounded-xl px-3 py-2.5 flex-row items-center justify-between border"
+                    style={{ backgroundColor: "#EAF5EF", borderColor: GREEN_10 }}
+                  >
                     <Text className="text-gray-500 text-[10px] font-semibold tracking-wider uppercase">
                       Current Bid
                     </Text>
@@ -961,7 +1002,7 @@ export default function AdminBidRoom() {
                   Bidding History
                 </Text>
                 {selectedCustomer?.bids && selectedCustomer.bids.length > 0 && (
-                  <View className="bg-[#024e32]/10 px-2 py-0.5 rounded-full">
+                  <View style={{ backgroundColor: GREEN_10 }} className="px-2 py-0.5 rounded-full">
                     <Text className="text-[#024e32] text-[10px] font-bold">
                       {selectedCustomer.bids.length}
                     </Text>
@@ -1039,11 +1080,12 @@ export default function AdminBidRoom() {
                       <View key={key} className="mb-3">
                         {/* AUCTION SECTION HEADER */}
                         <View
-                          className={`flex-row items-center justify-between rounded-xl px-3 py-2 mb-2 border ${
+                          className="flex-row items-center justify-between rounded-xl px-3 py-2 mb-2 border"
+                          style={
                             isCurrentAuction
-                              ? "bg-[#EAF5EF] border-[#024E32]/20"
-                              : "bg-gray-100 border-gray-200"
-                          }`}
+                              ? { backgroundColor: "#EAF5EF", borderColor: GREEN_20 }
+                              : { backgroundColor: "#f3f4f6", borderColor: "#e5e7eb" }
+                          }
                         >
                           <View className="flex-row items-center flex-1">
                             <MaterialIcons

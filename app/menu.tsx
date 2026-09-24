@@ -1,6 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import Constants from "expo-constants";
+
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
@@ -9,6 +10,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Image,
   BackHandler,
   Alert,
   Linking,
@@ -91,6 +93,11 @@ const allowScreenshot = async () => {
 };
 
 // =========================================================
+// WEBSITE LINK FOR THE "EXPLORE" BUTTON ON IMAGE SLIDES
+// =========================================================
+const WEBSITE_URL = "https://www.manikyachitsprivatelimited.com/";
+
+// =========================================================
 // MAIN COMPONENT
 // =========================================================
 
@@ -122,38 +129,70 @@ export default function HomeScreen() {
   const userInteractingRef = useRef(false);
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Slogan slides — Kannada line as the headline, its English
-  // translation underneath as the subtitle (per your Kannada set).
-  const slogans = [
+  // Slideshow slides — two promo photo slides (each with an "Explore"
+  // button that opens the website) followed by the original Kannada
+  // slogan slides. Everything else about the carousel (auto-advance,
+  // swipe, arrows, dots) is unchanged and works the same for both
+  // slide types.
+  // buttonPos is the centre of the "Explore" button that's already
+  // drawn onto the image (as a fraction of the image's width/height,
+  // 0-1) -- used to place an invisible tap target exactly over it.
+  type HeroSlide =
+    | { type: "image"; source: any; link: string; buttonPos: { xFrac: number; yFrac: number; wFrac: number; hFrac: number } }
+    | { type: "text"; kn: string; en: string };
+
+  const slogans: HeroSlide[] = [
     {
+      type: "image",
+      source: require("../assets/images/member_slider_1_brand.png"),
+      link: WEBSITE_URL,
+      // button sits top-centre on this slide
+      buttonPos: { xFrac: 0.5, yFrac: 0.073, wFrac: 0.16, hFrac: 0.09 },
+    },
+    {
+      type: "image",
+      source: require("../assets/images/member_slider_2_trust.png"),
+      link: WEBSITE_URL,
+      // button sits on the right edge, vertically centred, on this slide
+      buttonPos: { xFrac: 0.882, yFrac: 0.689, wFrac: 0.16, hFrac: 0.09 },
+    },
+    {
+      type: "text",
       kn: "ನಿಮ್ಮ ಪ್ರಗತಿಗೆ ನಮ್ಮ ಆಸರೆ.",
       en: "Our support for your progress.",
     },
     {
+      type: "text",
       kn: "ಸಣ್ಣ ಉಳಿತಾಯ, ದೊಡ್ಡ ಕನಸು.",
       en: "Small savings, big dreams.",
     },
     {
+      type: "text",
       kn: "ಸುರಕ್ಷಿತ ಹೂಡಿಕೆ, ಸುಖಿ ಜೀವನ.",
       en: "Safe investment, a happy life.",
     },
     {
+      type: "text",
       kn: "ಒಟ್ಟಾಗಿ ಉಳಿಸೋಣ, ಜೊತೆಯಾಗಿ ಬೆಳೆಯೋಣ.",
       en: "Let's save together, grow together.",
     },
     {
+      type: "text",
       kn: "ಬೇಕಾದಾಗ ಹಣ, ಬೇಡದಿದ್ದಾಗ ಉಳಿತಾಯ.",
       en: "Money when you need it, savings when you don't.",
     },
     {
+      type: "text",
       kn: "ಸ್ವಾವಲಂಬಿ ಬದುಕಿಗೆ, ನಮ್ಮ ಚಿಟ್ ಫಂಡ್ ಆಸರೆ.",
       en: "For a self-reliant life, our chit fund is your support.",
     },
     {
+      type: "text",
       kn: "ದಿನದ ಸಣ್ಣ ಉಳಿತಾಯ, ಮನೆಗೆ ತರುವುದು ಮಹಾ ಆದಾಯ.",
       en: "A small daily saving brings great income home.",
     },
     {
+      type: "text",
       kn: "ಇಂದಿನ ಉಳಿತಾಯ, ಮುಂದಿನ ಆಸ್ತಿ ಆಯ.",
       en: "Today's saving is tomorrow's chosen asset.",
     },
@@ -179,6 +218,12 @@ export default function HomeScreen() {
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
   const isTablet = width >= 768 && width < 1024;
+  // Extra breakpoint used ONLY by the text slogan slides below, so very
+  // small phones (older/compact devices, ~320-359px wide) get their own
+  // tighter sizing instead of falling into the same bucket as a normal
+  // phone -- that's what was letting the longer Kannada slogans crowd or
+  // clip on smaller screens.
+  const isSmallPhone = width < 360;
 
   // =========================================================
   // VIDEO PLAYBACK -> SLIDESHOW HANDOFF
@@ -706,11 +751,40 @@ export default function HomeScreen() {
   };
 
   // =========================================================
+  // TEXT-SLIDE RESPONSIVE TYPOGRAPHY
+  //
+  // The image slides are untouched (still exactly what they were).
+  // These sizes are used ONLY by the Kannada/English slogan slides
+  // below, and now span 4 breakpoints instead of 2 (isSmallPhone /
+  // phone / isTablet / isDesktopOrLaptop / isLargeScreen) so a
+  // compact older phone and a wide desktop each get sizing tuned to
+  // them, instead of both being lumped into "phone" or "desktop".
+  // The Kannada + English Text elements below also get
+  // adjustsFontSizeToFit with a numberOfLines cap, so a longer
+  // slogan shrinks gracefully to fit the fixed-height slide instead
+  // of ever being clipped by the container's overflow:hidden.
+  // =========================================================
+  const textSlideKnFontSize = isLargeScreen ? 28 : isDesktopOrLaptop ? 24 : isTablet ? 20 : isSmallPhone ? 14 : 17;
+  const textSlideKnLineHeight = Math.round(textSlideKnFontSize * 1.4);
+  const textSlideEnFontSize = isLargeScreen ? 15 : isDesktopOrLaptop ? 13 : isTablet ? 12 : isSmallPhone ? 10 : 11;
+  const textSlideEnLineHeight = Math.round(textSlideEnFontSize * 1.5);
+  const textSlideQuoteIconSize = isLargeScreen ? 52 : isDesktopOrLaptop ? 44 : isTablet ? 36 : isSmallPhone ? 26 : 32;
+  const textSlidePaddingH = isLargeScreen ? 80 : isDesktopOrLaptop ? 64 : isTablet ? 40 : isSmallPhone ? 18 : 28;
+  const textSlidePaddingB = isLargeScreen ? 50 : isDesktopOrLaptop ? 46 : isTablet ? 40 : isSmallPhone ? 28 : 36;
+  const textSlideDividerMargin = isLargeScreen ? 18 : isDesktopOrLaptop ? 14 : isTablet ? 12 : isSmallPhone ? 7 : 10;
+  const textSlideExploreFontSize = isLargeScreen ? 15 : isDesktopOrLaptop ? 14 : isTablet ? 13 : 12;
+  const textSlideExplorePadH = isLargeScreen ? 20 : isDesktopOrLaptop ? 18 : 14;
+  const textSlideExplorePadV = isLargeScreen ? 11 : isDesktopOrLaptop ? 10 : 7;
+  const textSlideExploreMarginTop = isLargeScreen ? 22 : isDesktopOrLaptop ? 20 : isSmallPhone ? 11 : 15;
+  const textSlideCircle1Size = isLargeScreen ? 300 : isDesktopOrLaptop ? 260 : isTablet ? 210 : isSmallPhone ? 130 : 170;
+  const textSlideCircle2Size = isLargeScreen ? 210 : isDesktopOrLaptop ? 180 : isTablet ? 145 : isSmallPhone ? 90 : 120;
+
+  // =========================================================
   // RENDER
   // =========================================================
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
       <View ref={headerRef} className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
@@ -762,12 +836,10 @@ export default function HomeScreen() {
               INTRO VIDEO / SLOGAN SLIDESHOW CONTAINER
 
               Video logic is unchanged — it still plays once, then
-              hands off to the slideshow. Only what plays AFTER the
-              video changed: instead of image slides, this now cycles
-              through brand-green "wow" cards with a Kannada slogan
-              as the headline and its English translation underneath,
-              using the exact same swipe / auto-advance / arrows /
-              dots mechanics as before.
+              hands off to the slideshow. The slideshow now mixes two
+              photo slides (with an Explore button) in with the
+              original Kannada/English slogan slides, using the exact
+              same swipe / auto-advance / arrows / dots mechanics.
           =================================================== */}
           <View
             onLayout={(e) => {
@@ -820,90 +892,192 @@ export default function HomeScreen() {
                           backgroundColor: "#024e32",
                           alignItems: "center",
                           justifyContent: "center",
-                          paddingHorizontal: isDesktopOrLaptop ? 64 : 28,
+                          paddingHorizontal: slide.type === "image" ? 0 : textSlidePaddingH,
                           // Reserve clear space at the bottom so the
                           // pagination dots never sit on top of the
-                          // English subtitle text.
-                          paddingBottom: isDesktopOrLaptop ? 46 : 36,
+                          // English subtitle text / Explore button.
+                          paddingBottom: slide.type === "image" ? 0 : textSlidePaddingB,
                           overflow: "hidden",
                         }}
                       >
-                        {/* decorative glow circles for that "wow" depth */}
-                        <View
-                          pointerEvents="none"
-                          style={{
-                            position: "absolute",
-                            width: isDesktopOrLaptop ? 260 : 170,
-                            height: isDesktopOrLaptop ? 260 : 170,
-                            borderRadius: 999,
-                            backgroundColor: "rgba(255,255,255,0.07)",
-                            top: isDesktopOrLaptop ? -110 : -70,
-                            right: isDesktopOrLaptop ? -90 : -55,
-                          }}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={{
-                            position: "absolute",
-                            width: isDesktopOrLaptop ? 180 : 120,
-                            height: isDesktopOrLaptop ? 180 : 120,
-                            borderRadius: 999,
-                            backgroundColor: "rgba(255,255,255,0.05)",
-                            bottom: isDesktopOrLaptop ? -70 : -40,
-                            left: isDesktopOrLaptop ? -60 : -35,
-                          }}
-                        />
-                        <View
-                          pointerEvents="none"
-                          style={{
-                            position: "absolute",
-                            width: 2,
-                            height: "70%",
-                            backgroundColor: "rgba(255,255,255,0.06)",
-                            left: "18%",
-                          }}
-                        />
+                        {slide.type === "image" ? (
+                          <>
+                            {/* PHOTO SLIDE -- the Explore button is already
+                                drawn onto this image; below is just an
+                                invisible tap target placed over it. */}
+                            <Image
+                              source={slide.source}
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                width: "100%",
+                                height: "100%",
+                              }}
+                              resizeMode="cover"
+                            />
 
-                        <MaterialIcons
-                          name="format-quote"
-                          size={isDesktopOrLaptop ? 44 : 32}
-                          color="rgba(255,255,255,0.4)"
-                          style={{ marginBottom: 6, transform: [{ scaleX: -1 }] }}
-                        />
+                            {(() => {
+                              const slideH = sliderWidth * (9 / 16);
+                              const btnW = slide.buttonPos.wFrac * sliderWidth;
+                              const btnH = slide.buttonPos.hFrac * slideH;
+                              const btnLeft = slide.buttonPos.xFrac * sliderWidth - btnW / 2;
+                              const btnTop = slide.buttonPos.yFrac * slideH - btnH / 2;
+                              return (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    pauseAutoSlide();
+                                    Linking.openURL(slide.link).catch(() =>
+                                      Alert.alert("Unable to open link", "Please try again later.")
+                                    );
+                                  }}
+                                  activeOpacity={0.6}
+                                  style={{
+                                    position: "absolute",
+                                    left: btnLeft,
+                                    top: btnTop,
+                                    width: btnW,
+                                    height: btnH,
+                                  }}
+                                />
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <>
+                            {/* TEXT SLOGAN SLIDE -- responsive sizing now
+                                spans 5 breakpoints (small phone / phone /
+                                tablet / laptop / large desktop) instead
+                                of just 2, and the Kannada + English text
+                                shrink to fit via adjustsFontSizeToFit
+                                instead of risking a clip on a narrow or
+                                long-worded slide. */}
+                            {/* decorative glow circles for that "wow" depth */}
+                            <View
+                              pointerEvents="none"
+                              style={{
+                                position: "absolute",
+                                width: textSlideCircle1Size,
+                                height: textSlideCircle1Size,
+                                borderRadius: 999,
+                                backgroundColor: "rgba(255,255,255,0.07)",
+                                top: -(textSlideCircle1Size * 0.42),
+                                right: -(textSlideCircle1Size * 0.34),
+                              }}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={{
+                                position: "absolute",
+                                width: textSlideCircle2Size,
+                                height: textSlideCircle2Size,
+                                borderRadius: 999,
+                                backgroundColor: "rgba(255,255,255,0.05)",
+                                bottom: -(textSlideCircle2Size * 0.36),
+                                left: -(textSlideCircle2Size * 0.3),
+                              }}
+                            />
+                            <View
+                              pointerEvents="none"
+                              style={{
+                                position: "absolute",
+                                width: 2,
+                                height: "70%",
+                                backgroundColor: "rgba(255,255,255,0.06)",
+                                left: "18%",
+                              }}
+                            />
 
-                        <Text
-                          style={{
-                            color: "#ffffff",
-                            fontSize: isDesktopOrLaptop ? 30 : isTablet ? 26 : 21,
-                            fontWeight: "800",
-                            textAlign: "center",
-                            lineHeight: isDesktopOrLaptop ? 42 : isTablet ? 36 : 29,
-                          }}
-                        >
-                          {slide.kn}
-                        </Text>
+                            <MaterialIcons
+                              name="format-quote"
+                              size={textSlideQuoteIconSize}
+                              color="rgba(255,255,255,0.4)"
+                              style={{ marginBottom: 6, transform: [{ scaleX: -1 }] }}
+                            />
 
-                        <View
-                          style={{
-                            width: 44,
-                            height: 3,
-                            borderRadius: 2,
-                            backgroundColor: "#e8501f",
-                            marginVertical: isDesktopOrLaptop ? 18 : 14,
-                          }}
-                        />
+                            <Text
+                              style={{
+                                color: "#ffffff",
+                                fontSize: textSlideKnFontSize,
+                                fontWeight: "800",
+                                textAlign: "center",
+                                lineHeight: textSlideKnLineHeight,
+                              }}
+                              numberOfLines={3}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.55}
+                            >
+                              {slide.kn}
+                            </Text>
 
-                        <Text
-                          style={{
-                            color: "rgba(255,255,255,0.85)",
-                            fontSize: isDesktopOrLaptop ? 16 : 13,
-                            fontWeight: "500",
-                            textAlign: "center",
-                            lineHeight: isDesktopOrLaptop ? 24 : 19,
-                          }}
-                        >
-                          {slide.en}
-                        </Text>
+                            <View
+                              style={{
+                                width: 44,
+                                height: 3,
+                                borderRadius: 2,
+                                backgroundColor: "#e8501f",
+                                marginVertical: textSlideDividerMargin,
+                              }}
+                            />
+
+                            <Text
+                              style={{
+                                color: "rgba(255,255,255,0.85)",
+                                fontSize: textSlideEnFontSize,
+                                fontWeight: "500",
+                                textAlign: "center",
+                                lineHeight: textSlideEnLineHeight,
+                              }}
+                              numberOfLines={2}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.6}
+                            >
+                              {slide.en}
+                            </Text>
+
+                            {/* EXPLORE BUTTON -- sits in normal flow,
+                                below the subtitle, so it can never
+                                overlap the Kannada/English text above
+                                it (flex column stacks, never overlaps). */}
+                            <TouchableOpacity
+                              onPress={() => {
+                                pauseAutoSlide();
+                                Linking.openURL(WEBSITE_URL).catch(() =>
+                                  Alert.alert("Unable to open link", "Please try again later.")
+                                );
+                              }}
+                              activeOpacity={0.85}
+                              style={{
+                                marginTop: textSlideExploreMarginTop,
+                                backgroundColor: "#e8501f",
+                                paddingHorizontal: textSlideExplorePadH,
+                                paddingVertical: textSlideExplorePadV,
+                                borderRadius: 999,
+                                flexDirection: "row",
+                                alignItems: "center",
+                                shadowColor: "#000",
+                                shadowOffset: { width: 0, height: 2 },
+                                shadowOpacity: 0.25,
+                                shadowRadius: 4,
+                                elevation: 4,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: "#ffffff",
+                                  fontWeight: "700",
+                                  fontSize: textSlideExploreFontSize,
+                                  marginRight: 4,
+                                }}
+                              >
+                                Explore
+                              </Text>
+                              <MaterialIcons name="arrow-forward" size={textSlideExploreFontSize} color="#ffffff" />
+                            </TouchableOpacity>
+                          </>
+                        )}
                       </View>
                     ))}
                 </ScrollView>
@@ -956,18 +1130,19 @@ export default function HomeScreen() {
                   <MaterialIcons name="chevron-right" size={28} color="#ffffff" />
                 </TouchableOpacity>
 
-                {/* PAGINATION DOTS */}
+                {/* PAGINATION DOTS -- kept small and low-opacity so they
+                    don't sit on top of / distract from slide content */}
                 <View
                   style={{
                     position: "absolute",
-                    bottom: 12,
+                    bottom: 8,
                     flexDirection: "row",
                     alignSelf: "center",
-                    gap: 8,
-                    backgroundColor: "rgba(0,0,0,0.18)",
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 12,
+                    gap: 4,
+                    backgroundColor: "rgba(0,0,0,0.10)",
+                    paddingHorizontal: 6,
+                    paddingVertical: 4,
+                    borderRadius: 8,
                   }}
                 >
                   {slogans.map((_, idx) => (
@@ -980,10 +1155,10 @@ export default function HomeScreen() {
                       }}
                       hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
                       style={{
-                        width: idx === slideIndex ? 18 : 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: idx === slideIndex ? "#ffffff" : "rgba(255,255,255,0.5)",
+                        width: idx === slideIndex ? 10 : 5,
+                        height: 5,
+                        borderRadius: 2.5,
+                        backgroundColor: idx === slideIndex ? "#ffffff" : "rgba(255,255,255,0.45)",
                       }}
                     />
                   ))}
@@ -997,7 +1172,7 @@ export default function HomeScreen() {
             {[
               { title: "My Chits", iconName: "folder", route: "/mychits" },
               { title: "My Account Copy", iconName: "credit-card", route: "/myaccountcopy" },
-              { title: "My Outstanding", iconName: "attach-money", route: "/myoutstanding" },
+              { title: "My Live payments", subtitle: "My Outstanding", iconName: "attach-money", route: "/myoutstanding" },
               { title: "Newly Commenced Groups", iconName: "group", route: "/newgroups" },
               { title: "Vacancies", iconName: "event-seat", route: "/vacancy" },
               { title: "Contact Us", iconName: "contact-mail", route: "/contact" },
@@ -1007,6 +1182,7 @@ export default function HomeScreen() {
               <MenuCard
                 key={index}
                 title={item.title}
+                subtitle={(item as any).subtitle}
                 iconName={item.iconName}
                 route={item.route}
                 isDesktopOrLaptop={isDesktopOrLaptop}
@@ -1121,6 +1297,7 @@ export default function HomeScreen() {
 
 function MenuCard({
   title,
+  subtitle,
   iconName,
   route,
   isDesktopOrLaptop,
@@ -1129,6 +1306,7 @@ function MenuCard({
   badgeCount = 0,
 }: {
   title: string;
+  subtitle?: string;
   iconName: any;
   route: string;
   isDesktopOrLaptop: boolean;
@@ -1176,6 +1354,14 @@ function MenuCard({
       <Text className={`text-[#024e32] font-semibold text-center ${isDesktopOrLaptop ? "text-lg" : "text-base"}`}>
         {title}
       </Text>
+      {subtitle ? (
+        <Text
+          className={`text-gray-500 text-center mt-1 px-2 ${isDesktopOrLaptop ? "text-sm" : "text-xs"}`}
+          numberOfLines={2}
+        >
+          {subtitle}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }

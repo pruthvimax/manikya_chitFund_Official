@@ -146,7 +146,7 @@ export default function Reference() {
   ];
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f9fafb]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =====================================================
           HEADER

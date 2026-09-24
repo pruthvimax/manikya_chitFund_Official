@@ -301,7 +301,7 @@ const sendContactRequest = async (scheme: any) => {
 };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       <Modal
   visible={showContactConfirm}
   transparent

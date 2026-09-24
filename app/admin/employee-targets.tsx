@@ -1,6 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { Picker } from "@react-native-picker/picker";
+import * as Print from "expo-print";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
@@ -28,22 +27,10 @@ const isDesktopOrLaptop = screenWidth >= 768;
 
 /* =========================================================
    NATIVE MODAL HELPERS  (iOS + Android fix)
-
-   iOS cannot present one Modal on top of another: opening the
-   "Edit Payment Log" modal while the History modal was still
-   visible left an invisible layer that swallowed every touch —
-   the Edit button looked dead and the page froze.
-
-   MODAL_SWAP_DELAY gives the first modal time to finish its
-   dismiss animation before the next one is presented. Alerts are
-   also deferred, because an Alert fired mid-dismiss on iOS never
-   shows and blocks the UI the same way.
 ========================================================= */
 const MODAL_SWAP_DELAY = Platform.OS === "ios" ? 420 : 180;
 const ALERT_DELAY = Platform.OS === "ios" ? 320 : 120;
 
-// Props every Modal on this screen needs so it layers correctly on
-// both platforms (overFullScreen on iOS, under-status-bar on Android).
 const NATIVE_MODAL_PROPS: any = {
   transparent: true,
   statusBarTranslucent: true,
@@ -51,11 +38,11 @@ const NATIVE_MODAL_PROPS: any = {
   ...(Platform.OS === "ios" ? { presentationStyle: "overFullScreen" } : {}),
 };
 
-// Comfortable tap area for small icon buttons (Apple/Material both
-// want ~44dp; a bare 16-20px icon is far too small to hit reliably).
 const ICON_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 };
 
-// ============ PREMIUM SKELETON LOADER ============
+/* =========================================================
+   PREMIUM SKELETON LOADER
+========================================================= */
 const SkeletonLoader = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) => {
   const skeletonOpacity = useRef(new Animated.Value(0.5)).current;
 
@@ -202,6 +189,323 @@ function TableCell({
 }
 
 /* =========================================================
+   CUSTOM CALENDAR  (replaces DateTimePicker entirely)
+
+   - Pure JS / RN primitives, no native popover issues on iOS.
+   - Tap a day to pick, chevrons to change month, Today to jump.
+========================================================= */
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+const DAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function SimpleCalendar({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: Date;
+  onChange: (d: Date) => void;
+  onClose: () => void;
+}) {
+  const safeValue = value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+  const [viewMonth, setViewMonth] = useState(safeValue.getMonth());
+  const [viewYear, setViewYear] = useState(safeValue.getFullYear());
+
+  useEffect(() => {
+    // Re-sync the visible month if the parent value changes while open
+    setViewMonth(safeValue.getMonth());
+    setViewYear(safeValue.getFullYear());
+  }, [safeValue]);
+
+  const today = new Date();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const isSelected = (d: number) =>
+    safeValue.getFullYear() === viewYear &&
+    safeValue.getMonth() === viewMonth &&
+    safeValue.getDate() === d;
+
+  const isToday = (d: number) =>
+    today.getFullYear() === viewYear &&
+    today.getMonth() === viewMonth &&
+    today.getDate() === d;
+
+  const prevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const handleSelect = (d: number) => {
+    onChange(new Date(viewYear, viewMonth, d));
+    onClose();
+  };
+
+  const CELL = 40;
+
+  return (
+    <View
+      className="bg-white rounded-2xl shadow-2xl"
+      style={{ width: CELL * 7 + 24, padding: 12 }}
+    >
+      {/* Month / Year header */}
+      <View className="flex-row justify-between items-center mb-2">
+        <TouchableOpacity
+          onPress={prevMonth}
+          hitSlop={ICON_HIT_SLOP}
+          className="p-2 rounded-full"
+          activeOpacity={0.6}
+        >
+          <MaterialIcons name="chevron-left" size={26} color="#024e32" />
+        </TouchableOpacity>
+
+        <Text className="text-gray-800 font-bold text-base">
+          {MONTH_NAMES[viewMonth]} {viewYear}
+        </Text>
+
+        <TouchableOpacity
+          onPress={nextMonth}
+          hitSlop={ICON_HIT_SLOP}
+          className="p-2 rounded-full"
+          activeOpacity={0.6}
+        >
+          <MaterialIcons name="chevron-right" size={26} color="#024e32" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Weekday row */}
+      <View className="flex-row mb-1">
+        {DAY_NAMES.map((d) => (
+          <View key={d} style={{ width: CELL, alignItems: "center" }}>
+            <Text className="text-gray-500 text-xs font-semibold">{d}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Day grid */}
+      <View className="flex-row flex-wrap">
+        {cells.map((d, i) => {
+          if (d === null) {
+            return <View key={`e-${i}`} style={{ width: CELL, height: CELL }} />;
+          }
+          const sel = isSelected(d);
+          const tod = isToday(d);
+          return (
+            <TouchableOpacity
+              key={d}
+              onPress={() => handleSelect(d)}
+              activeOpacity={0.7}
+              style={{
+                width: CELL,
+                height: CELL,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <View
+                style={{
+                  width: CELL - 6,
+                  height: CELL - 6,
+                  borderRadius: (CELL - 6) / 2,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: sel ? "#024e32" : "transparent",
+                  borderWidth: tod && !sel ? 1.5 : 0,
+                  borderColor: "#024e32",
+                }}
+              >
+                <Text
+                  style={{
+                    color: sel ? "#ffffff" : "#1f2937",
+                    fontWeight: sel || tod ? "700" : "500",
+                    fontSize: 14,
+                  }}
+                >
+                  {d}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Footer buttons */}
+      <View className="flex-row mt-3" style={{ gap: 10 }}>
+        <TouchableOpacity
+          onPress={() => {
+            const t = new Date();
+            onChange(t);
+            onClose();
+          }}
+          className="flex-1 bg-gray-100 py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-gray-700 text-center font-semibold">Today</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onClose}
+          className="flex-1 bg-[#024e32] py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-white text-center font-semibold">Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/* =========================================================
+   MONTH + YEAR PICKER  (replaces the two native <Picker> wheels)
+
+   Same reasoning as SimpleCalendar above: a native wheel picker
+   for month/year had a fixed, hard-coded year range (currentYear-5
+   to currentYear+1) and looked/behaved differently across iOS and
+   Android. This is one shared, custom-drawn picker -- a year
+   stepper with no artificial upper/lower bound, plus a 3-column
+   month grid -- identical on both platforms.
+========================================================= */
+
+function MonthYearPicker({
+  month,
+  year,
+  onChange,
+  onClose,
+}: {
+  month: number;
+  year: number;
+  onChange: (month: number, year: number) => void;
+  onClose: () => void;
+}) {
+  const [viewYear, setViewYear] = useState(year);
+
+  useEffect(() => {
+    setViewYear(year);
+  }, [year]);
+
+  const CARD_WIDTH = 320;
+
+  return (
+    <View
+      className="bg-white rounded-2xl shadow-2xl"
+      style={{ width: CARD_WIDTH, padding: 16 }}
+    >
+      {/* Year stepper -- no fixed range, steps forever either way */}
+      <View className="flex-row justify-between items-center mb-4">
+        <TouchableOpacity
+          onPress={() => setViewYear((y) => y - 1)}
+          hitSlop={ICON_HIT_SLOP}
+          className="p-2 rounded-full bg-gray-50"
+          activeOpacity={0.6}
+        >
+          <MaterialIcons name="chevron-left" size={24} color="#024e32" />
+        </TouchableOpacity>
+
+        <Text className="text-gray-800 font-bold text-xl">{viewYear}</Text>
+
+        <TouchableOpacity
+          onPress={() => setViewYear((y) => y + 1)}
+          hitSlop={ICON_HIT_SLOP}
+          className="p-2 rounded-full bg-gray-50"
+          activeOpacity={0.6}
+        >
+          <MaterialIcons name="chevron-right" size={24} color="#024e32" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Month grid */}
+      <View className="flex-row flex-wrap" style={{ marginHorizontal: -4 }}>
+        {MONTH_NAMES.map((m, idx) => {
+          const selected = idx === month && viewYear === year;
+          return (
+            <TouchableOpacity
+              key={m}
+              onPress={() => {
+                onChange(idx, viewYear);
+                onClose();
+              }}
+              activeOpacity={0.7}
+              style={{ width: "33.333%", padding: 4 }}
+            >
+              <View
+                style={{
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  backgroundColor: selected ? "#024e32" : "#f3f4f6",
+                }}
+              >
+                <Text
+                  style={{
+                    color: selected ? "#ffffff" : "#1f2937",
+                    fontWeight: selected ? "700" : "500",
+                    fontSize: 13,
+                  }}
+                >
+                  {m.slice(0, 3)}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View className="flex-row mt-4" style={{ gap: 10 }}>
+        <TouchableOpacity
+          onPress={() => {
+            const t = new Date();
+            onChange(t.getMonth(), t.getFullYear());
+            onClose();
+          }}
+          className="flex-1 bg-gray-100 py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-gray-700 text-center font-semibold">This Month</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onClose}
+          className="flex-1 bg-[#024e32] py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-white text-center font-semibold">Close</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/* =========================================================
    PAYMENT LOG BUILDER
 ========================================================= */
 
@@ -312,12 +616,9 @@ const formatLogDate = (value: any): string => {
   });
 };
 
-// Magnitude only — the caller adds the + / − sign itself.
 const formatMoney = (value: number): string =>
   `₹${Math.abs(value).toLocaleString("en-IN")}`;
 
-// Signed value — use this for TOTALS so a negative total is never
-// printed as if it were positive.
 const formatMoneyValue = (value: number): string => {
   const num = Number(value) || 0;
   return `${num < 0 ? "−" : ""}₹${Math.abs(num).toLocaleString("en-IN")}`;
@@ -418,19 +719,6 @@ interface Target {
 
 /* =========================================================
    EDIT A COLLECTION LOG ENTRY  (IN PLACE)
-
-   The edited entry keeps its OWN date and its own position in the
-   log. Only its amount (and payment type) change. Every entry that
-   came AFTER it is re-based so the running "total after this" line
-   stays continuous, and the row's collectionAmount becomes the
-   final running total.
-
-   Example — log is  +200 (total 200), then +50 (total 250).
-   Admin edits the 200 line down to 100:
-       entry 1 : 0 -> 100   (amount +100, total 100)
-       entry 2 : 100 -> 150 (amount +50 unchanged, total 150)
-       row collectionAmount = 150
-   No new log line is created anywhere in this process.
 ========================================================= */
 
 const recalcEditHistoryForLogEdit = (
@@ -472,7 +760,6 @@ const recalcEditHistoryForLogEdit = (
     );
 
     if (stamp === editedStamp) {
-      // ---- THE EDITED LINE ITSELF: rewritten, never duplicated ----
       if (collectionIdx !== undefined) {
         const oldVal = toNumber(history[collectionIdx].oldValue);
         const newVal = oldVal + newAmount;
@@ -480,8 +767,6 @@ const recalcEditHistoryForLogEdit = (
           ...history[collectionIdx],
           oldValue: oldVal,
           newValue: newVal,
-          // editedAt is deliberately left untouched so the line keeps
-          // its original date and stays where it is in the log.
         };
         carryOldValue = newVal;
       }
@@ -491,9 +776,6 @@ const recalcEditHistoryForLogEdit = (
         collectionIdx !== undefined &&
         newPaymentMethod !== (target.paymentMethod ?? "")
       ) {
-        // Only when the method actually changed. It carries the SAME
-        // timestamp as the edited line, so it is folded into that same
-        // log entry rather than showing up as a new one.
         history.push({
           field: "paymentMethod",
           oldValue: target.paymentMethod ?? "",
@@ -503,7 +785,6 @@ const recalcEditHistoryForLogEdit = (
       }
       pastEditPoint = true;
     } else if (pastEditPoint && collectionIdx !== undefined && carryOldValue !== null) {
-      // ---- LATER LINES: same amounts, re-based running total ----
       const originalOld = toNumber(history[collectionIdx].oldValue);
       const originalNew = toNumber(history[collectionIdx].newValue);
       const amountAdded = originalNew - originalOld;
@@ -525,14 +806,9 @@ export default function AdminTargetsView() {
   const { width, height } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
 
-  // Sized in real pixels instead of a percentage class: on Android a
-  // percentage max-height on a modal card is unreliable and let the
-  // content (and the Save button) run off-screen.
   const modalMaxHeight = Math.round(height * 0.85);
   const modalCardWidth = Math.min(width - 32, 560);
 
-  // Timers used to swap between modals; cleared on unmount so a
-  // pending swap can never fire on a dead screen.
   const swapTimerRef = useRef<any>(null);
   const alertTimerRef = useRef<any>(null);
 
@@ -564,12 +840,14 @@ export default function AdminTargetsView() {
 
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [showFilterPeriodPicker, setShowFilterPeriodPicker] = useState(false);
 
   const [showSetTargetForm, setShowSetTargetForm] = useState(false);
 
   const [setTargetAmount, setSetTargetAmount] = useState("");
   const [setTargetMonth, setSetTargetMonth] = useState<number>(new Date().getMonth());
   const [setTargetYear, setSetTargetYear] = useState<number>(new Date().getFullYear());
+  const [showSetTargetPeriodPicker, setShowSetTargetPeriodPicker] = useState(false);
 
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editPhoneNumber, setEditPhoneNumber] = useState("");
@@ -596,25 +874,10 @@ export default function AdminTargetsView() {
   const [editLogPaymentMethod, setEditLogPaymentMethod] = useState("Cash");
   const [editLogTarget, setEditLogTarget] = useState<Target | null>(null);
 
-  // Saving flag for the log modal only. It used to share the page-wide
-  // `loading` flag, so a background fetch could leave the Save button
-  // permanently disabled — which read as "the button does nothing".
   const [savingLog, setSavingLog] = useState(false);
 
   // Memoized values
-  const months = useMemo(() => [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-  ], []);
-
-  const years = useMemo(() => {
-    const currentYear = new Date().getFullYear();
-    const yearsArray = [];
-    for (let i = currentYear - 5; i <= currentYear + 1; i++) {
-      yearsArray.push(i);
-    }
-    return yearsArray;
-  }, []);
+  const months = useMemo(() => MONTH_NAMES, []);
 
   const paymentMethods = useMemo(() => ["Cash", "UPI", "Cheque", "Online"], []);
 
@@ -682,7 +945,6 @@ export default function AdminTargetsView() {
     );
   }, [employees, employeeSearch]);
 
-  // Live preview of the running total ON the edited line itself.
   const editLogPreviewTotal = useMemo(() => {
     if (!editingPaymentLog) return null;
     const parsed = parseFloat(editLogAmount);
@@ -691,8 +953,6 @@ export default function AdminTargetsView() {
     return base + parsed;
   }, [editingPaymentLog, editLogAmount]);
 
-  // Live preview of the ROW total once every later line has been
-  // re-based on the edited amount. This is what will be saved.
   const editLogFinalTotalPreview = useMemo(() => {
     if (!editingPaymentLog || !editLogTarget) return null;
     const parsed = parseFloat(editLogAmount);
@@ -706,8 +966,6 @@ export default function AdminTargetsView() {
     return collectionAmount;
   }, [editingPaymentLog, editLogTarget, editLogAmount, editLogPaymentMethod]);
 
-  // Collection already recorded on the row being edited, plus a live preview
-  // of what the total becomes once the newly typed amount is added.
   const previousCollectionTotal = Number(selectedTarget?.collectionAmount || 0);
 
   const newCollectionTotalPreview = useMemo(() => {
@@ -718,7 +976,6 @@ export default function AdminTargetsView() {
     return previousCollectionTotal + parsed;
   }, [editCollectionAmount, previousCollectionTotal]);
 
-  // Shows an Alert only after any modal transition has settled.
   const showAlertSafely = (title: string, message?: string) => {
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     alertTimerRef.current = setTimeout(() => {
@@ -941,9 +1198,6 @@ export default function AdminTargetsView() {
      SERVER SYNC HELPERS
   ========================================================= */
 
-  // Plain fetch of this employee's rows — returns the data instead of
-  // pushing it into state, so a save can inspect what the server
-  // actually stored before deciding what to do next.
   const fetchTargetsList = async (): Promise<Target[] | null> => {
     if (!selectedEmployee) return null;
     try {
@@ -958,9 +1212,6 @@ export default function AdminTargetsView() {
     }
   };
 
-  // Pushes fetched rows into state and, when a target id is given,
-  // re-points the open history modal at the newly saved version so the
-  // collection log and the totals show what the backend actually stored.
   const applyServerData = (data: Target[], focusTargetId?: string) => {
     setAllTargets(data);
 
@@ -983,9 +1234,6 @@ export default function AdminTargetsView() {
     if (data) applyServerData(data, focusTargetId);
   };
 
-  // Admin edit of a customer row. The collection field opens EMPTY: whatever
-  // is typed there is a NEW collection added on top of the amount already
-  // recorded, and the backend writes that change into the collection log.
   const handleUpdateDetails = async () => {
     if (!selectedTarget) return;
 
@@ -1019,8 +1267,6 @@ export default function AdminTargetsView() {
         date: editDate,
       });
 
-      // Close the modal FIRST, then alert — an Alert fired while a modal
-      // is still dismissing is swallowed on iOS and locks the screen.
       setModalVisible(false);
       setEditCollectionAmount("");
 
@@ -1041,8 +1287,6 @@ export default function AdminTargetsView() {
   };
 
   const handleDelete = async (id: string) => {
-    // Dismiss the modal before the confirm dialog, otherwise iOS shows
-    // the alert behind the modal and nothing responds.
     setModalVisible(false);
 
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
@@ -1135,7 +1379,11 @@ export default function AdminTargetsView() {
   };
 
   const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   };
 
   // =========================================================
@@ -1157,22 +1405,363 @@ export default function AdminTargetsView() {
     setCustomerTotalCollection(totalCollection);
     setHistoryTarget(target);
 
-    // Make sure no other modal is on screen first.
     setModalVisible(false);
     setEditPaymentLogModal(false);
     if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
     swapTimerRef.current = setTimeout(() => setHistoryModalVisible(true), 0);
 
-    // Pull the latest copy so the log reflects anything saved elsewhere.
     refreshFromServer(target._id);
   };
 
   // =========================================================
+  // PRINT FULL TABLE  (all customer targets currently shown for
+  // the selected employee + month/year, respecting the active
+  // filter/search/sort — same Web/iOS/Android pattern as the
+  // customer-history print below.)
+  // =========================================================
+  const printAllTargets = async () => {
+    if (customerTargets.length === 0) {
+      Alert.alert("Nothing to print", "There are no customer targets for this period.");
+      return;
+    }
+
+    const printedOn = new Date().toLocaleString("en-IN");
+    const periodLabel = `${months[selectedMonth]} ${selectedYear}`;
+    const employeeLabel = selectedEmployee
+      ? `${selectedEmployee.name} (ID: ${selectedEmployee.emp_id})`
+      : "-";
+
+    const rowsHtml = customerTargets
+      .map(
+        (t) => `
+          <tr>
+            <td>${t.customerName || "-"}</td>
+            <td>${t.phoneNumber || "-"}</td>
+            <td>${new Date(t.date).toLocaleDateString()}</td>
+            <td>${getDisplayPaymentMethod(t.paymentMethod)}</td>
+            <td>${t.chitAmount || "-"}</td>
+            <td>${formatMoneyValue(Number(t.collectionAmount || 0))}</td>
+            <td>${t.totalGB ?? "-"}</td>
+            <td class="status-${(t.status || "").toLowerCase()}">${t.status}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const totalCollection = customerTargets.reduce(
+      (sum, t) => sum + Number(t.collectionAmount || 0),
+      0
+    );
+
+    // FIX: "Print Table" only printed the customer table before - the
+    // Salary & Incentive Details card underneath it had no print of its
+    // own anymore. Instead of a second button, this same report now
+    // appends that card (Total Enroll, Total GB, Backup, Salary,
+    // Incentive + a Total Payout box) right after the collection total,
+    // so one tap prints both. It only appears when a monthly target
+    // exists for the selected period, same condition the on-screen card
+    // itself uses.
+    const salaryVal = parseFloat(salaryInput) || 0;
+    const incentiveVal = parseFloat(incentiveInput) || 0;
+    const totalPayout = salaryVal + incentiveVal;
+
+    const salarySectionHtml = monthlyTarget
+      ? `
+        <div class="salary-section">
+          <div class="section-title">💰 Salary &amp; Incentive Details — ${periodLabel}</div>
+          <table class="salary-table">
+            <tbody>
+              <tr><th>Total Enroll</th><td>${totalEnrollInput || "0"}</td></tr>
+              <tr><th>Total GB</th><td>${totalGBInput || "0"}</td></tr>
+              <tr><th>Backup</th><td>${backupInput || "-"}</td></tr>
+              <tr><th>Salary Amount</th><td>${formatMoneyValue(salaryVal)}</td></tr>
+              <tr><th>Incentive</th><td>${formatMoneyValue(incentiveVal)}</td></tr>
+            </tbody>
+          </table>
+          <div class="payout-box">
+            <div class="label">Total Payout (Salary + Incentive)</div>
+            <div class="value">${formatMoneyValue(totalPayout)}</div>
+          </div>
+        </div>
+      `
+      : "";
+
+    const html = `
+      <html>
+      <head>
+        <title>Employee Targets - ${employeeLabel}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; color: #1f2937; }
+          h2 { text-align: center; margin-bottom: 4px; color: #024e32; }
+          .sub { text-align: center; color: #6b7280; font-size: 13px; margin-bottom: 18px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #d1d5db; padding: 7px; text-align: center; }
+          th { background: #024e32; color: white; }
+          tr:nth-child(even) { background: #f8faf9; }
+          .status-approved { color: #16a34a; font-weight: bold; }
+          .status-rejected { color: #dc2626; font-weight: bold; }
+          .status-pending { color: #b45309; font-weight: bold; }
+          .total-box { margin-top: 18px; border: 2px solid #bbf7d0; background: #f0fdf4; border-radius: 12px; padding: 14px; text-align: center; }
+          .total-box .label { font-weight: bold; color: #15803d; font-size: 13px; }
+          .total-box .value { font-size: 26px; font-weight: bold; color: #15803d; margin-top: 4px; }
+          .salary-section { margin-top: 28px; page-break-inside: avoid; }
+          .salary-section .section-title { font-weight: bold; font-size: 14px; margin: 0 0 10px 0; color: #111827; }
+          .salary-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+          .salary-table th, .salary-table td { border: 1px solid #e9d5ff; padding: 9px 12px; text-align: left; font-size: 13px; }
+          .salary-table th { background: #f5f3ff; color: #5b21b6; width: 55%; }
+          .salary-table td { font-weight: bold; color: #1f2937; }
+          .payout-box { border: 2px solid #ddd6fe; background: #f5f3ff; border-radius: 12px; padding: 14px; text-align: center; }
+          .payout-box .label { font-weight: bold; color: #5b21b6; font-size: 13px; }
+          .payout-box .value { font-size: 24px; font-weight: bold; color: #5b21b6; margin-top: 4px; }
+          .footer { margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 12px; text-align: center; color: #6b7280; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <h2>MANIKYA CHITS PVT LTD</h2>
+        <div class="sub">Employee Targets — ${employeeLabel} — ${periodLabel}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Date</th>
+              <th>Payment</th>
+              <th>Chit Amount</th>
+              <th>Collection</th>
+              <th>GB</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="total-box">
+          <div class="label">💰 Total Collection (${customerTargets.length} entries)</div>
+          <div class="value">${formatMoneyValue(totalCollection)}</div>
+        </div>
+
+        ${salarySectionHtml}
+
+        <div class="footer">
+          Printed on ${printedOn} • © ${new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+        </div>
+      </body>
+      </html>
+    `;
+
+    if (Platform.OS === "web") {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        Alert.alert("Error", "Please allow pop-ups to print the report.");
+        return;
+      }
+      printWindow.document.write(
+        html.replace(
+          "</body>",
+          `<script>window.print(); window.onafterprint = () => window.close();</script></body>`
+        )
+      );
+      printWindow.document.close();
+      return;
+    }
+
+    try {
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.log("Failed to print targets table:", error);
+      Alert.alert("Error", "Could not open the print dialog. Please try again.");
+    }
+  };
+
+  // =========================================================
+  // PRINT CUSTOMER HISTORY  (same Web/iOS/Android pattern used
+  // elsewhere in the app: build a clean standalone HTML report,
+  // then either open a print window on web or hand it to
+  // expo-print's native print / "Save as PDF" sheet.)
+  // =========================================================
+  const printCustomerHistory = async () => {
+    if (!historyTarget) {
+      Alert.alert("Error", "No customer selected to print");
+      return;
+    }
+
+    const printedOn = new Date().toLocaleString("en-IN");
+
+    const logRowsHtml =
+      paymentLog.length === 0
+        ? `<div class="empty">No collection entries recorded yet.</div>`
+        : paymentLog
+            .map((entry) => {
+              const amountLine =
+                entry.amount !== null && entry.amount !== 0
+                  ? `
+                    <div class="row">
+                      <span>${entry.amount > 0 ? "Amount added" : "Amount reduced"}</span>
+                      <span class="${entry.amount > 0 ? "pos" : "neg"}">${
+                        entry.amount > 0 ? "+" : "−"
+                      }${formatMoney(entry.amount)}</span>
+                    </div>
+                    <div class="row">
+                      <span>Payment type</span>
+                      <span>${getDisplayPaymentMethod(entry.paymentMethod)}</span>
+                    </div>
+                    ${
+                      entry.newTotal !== null
+                        ? `<div class="row"><span>Total after this</span><span>${formatMoneyValue(entry.newTotal)}</span></div>`
+                        : ""
+                    }
+                  `
+                  : entry.amount === 0
+                    ? `<div class="row"><span>No change in amount</span><span>${
+                        entry.newTotal !== null ? formatMoneyValue(entry.newTotal) : "-"
+                      }</span></div>`
+                    : `<div class="muted">Details updated${
+                        entry.otherFields.length > 0 ? ` — ${entry.otherFields.join(", ")}` : ""
+                      }</div>`;
+
+              return `
+                <div class="log-entry">
+                  <div class="log-date">${formatLogDate(entry.editedAt)}</div>
+                  ${amountLine}
+                  ${
+                    entry.amount !== null && entry.amount !== 0 && entry.otherFields.length > 0
+                      ? `<div class="muted">Also updated: ${entry.otherFields.join(", ")}</div>`
+                      : ""
+                  }
+                </div>
+              `;
+            })
+            .join("");
+
+    const entriesRowsHtml =
+      customerHistoryEntries.length === 0
+        ? `<div class="empty">No other entries.</div>`
+        : customerHistoryEntries
+            .map(
+              (entry) => `
+                <div class="entry-card">
+                  <div class="row">
+                    <span>Date: ${new Date(entry.date).toLocaleDateString()}</span>
+                    <span>GB: ${entry.totalGB}</span>
+                  </div>
+                  <div class="row">
+                    <span>Chit: ${entry.chitAmount}</span>
+                    <span class="bold">${formatMoneyValue(Number(entry.collectionAmount || 0))}</span>
+                  </div>
+                  <div class="row muted-row">
+                    <span>Status: ${entry.status}</span>
+                    <span>Payment: ${getDisplayPaymentMethod(entry.paymentMethod)}</span>
+                  </div>
+                </div>
+              `
+            )
+            .join("");
+
+    const html = `
+      <html>
+      <head>
+        <title>Customer History - ${historyTarget.customerName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+          .header { text-align: center; margin-bottom: 24px; }
+          .header h2 { margin: 0 0 4px 0; color: #024e32; }
+          .header .sub { color: #6b7280; font-size: 13px; }
+          .info-box { border: 1px solid #d1d5db; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 16px; }
+          .info-item { min-width: 160px; }
+          .info-item .label { font-size: 11px; color: #6b7280; text-transform: uppercase; }
+          .info-item .value { font-size: 14px; font-weight: bold; color: #111827; }
+          .section-title { font-weight: bold; font-size: 14px; margin: 18px 0 8px 0; color: #111827; }
+          .section-sub { font-size: 11px; color: #9ca3af; margin-bottom: 10px; }
+          .log-entry { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; page-break-inside: avoid; }
+          .log-date { font-size: 12px; color: #4b5563; font-weight: bold; margin-bottom: 6px; }
+          .row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; }
+          .muted-row { color: #9ca3af; font-size: 11px; }
+          .muted { color: #6b7280; font-size: 12px; }
+          .pos { color: #15803d; font-weight: bold; }
+          .neg { color: #dc2626; font-weight: bold; }
+          .bold { font-weight: bold; color: #1f2937; }
+          .empty { color: #9ca3af; font-size: 12px; padding: 8px 0; }
+          .entry-card { border: 1px solid #dbeafe; background: #eff6ff; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; page-break-inside: avoid; }
+          .total-box { margin-top: 18px; border: 2px solid #bbf7d0; background: #f0fdf4; border-radius: 12px; padding: 16px; text-align: center; }
+          .total-box .label { font-weight: bold; color: #15803d; font-size: 14px; }
+          .total-box .value { font-size: 30px; font-weight: bold; color: #15803d; margin-top: 4px; }
+          .footer { margin-top: 26px; border-top: 1px solid #e5e7eb; padding-top: 12px; text-align: center; color: #6b7280; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>MANIKYA CHITS PVT LTD</h2>
+          <div class="sub">Customer History &amp; Total Collection</div>
+        </div>
+
+        <div class="info-box">
+          <div class="info-item">
+            <div class="label">Customer</div>
+            <div class="value">${historyTarget.customerName}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Phone</div>
+            <div class="value">${historyTarget.phoneNumber}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Chit Amount</div>
+            <div class="value">${historyTarget.chitAmount}</div>
+          </div>
+          <div class="info-item">
+            <div class="label">Total collected on this entry</div>
+            <div class="value">${formatMoneyValue(Number(historyTarget.collectionAmount || 0))}</div>
+          </div>
+        </div>
+
+        <div class="section-title">Collection Log</div>
+        <div class="section-sub">
+          Editing a line changes THAT line only — it keeps its own date and no extra entry is created.
+        </div>
+        ${logRowsHtml}
+
+        <div class="section-title">All Entries for this Customer</div>
+        ${entriesRowsHtml}
+
+        <div class="total-box">
+          <div class="label">💰 Total Collection for this Customer</div>
+          <div class="value">${formatMoneyValue(customerTotalCollection)}</div>
+        </div>
+
+        <div class="footer">
+          Printed on ${printedOn} • © ${new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+        </div>
+      </body>
+      </html>
+    `;
+
+    if (Platform.OS === "web") {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        Alert.alert("Error", "Please allow pop-ups to print the report.");
+        return;
+      }
+      printWindow.document.write(
+        html.replace(
+          "</body>",
+          `<script>window.print(); window.onafterprint = () => window.close();</script></body>`
+        )
+      );
+      printWindow.document.close();
+      return;
+    }
+
+    try {
+      await Print.printAsync({ html });
+    } catch (error) {
+      console.log("Failed to print customer history:", error);
+      Alert.alert("Error", "Could not open the print dialog. Please try again.");
+    }
+  };
+
+  // =========================================================
   // OPEN / SAVE EDIT PAYMENT LOG
-  //
-  // Modal layering: the history modal is dismissed before the log
-  // editor is presented, and re-presented when the editor closes.
-  // Two modals are never on screen at the same time (iOS fix).
   // =========================================================
   const openEditPaymentLog = (entry: PaymentLogEntry, target: Target) => {
     setEditingPaymentLog(entry);
@@ -1197,27 +1786,9 @@ export default function AdminTargetsView() {
     }
   };
 
-  /* ---------------------------------------------------------
-     SAVE — EDIT IN PLACE, NEVER APPEND
-
-     Sending editHistory tells the server "I am rewriting the log":
-     it $sets the array as given and skips its usual auto-append, so
-     the edited line keeps its own date with its new amount, the later
-     lines keep their amounts with re-based totals, and NO extra line
-     is created for the correction.
-
-     (This is one single request. It has to be: the server cannot
-     $set and $push the same path in one update, so it is either a
-     rewrite or an append, never both.)
-
-     The result is read back afterwards. If the log came back longer
-     than what was sent, the server appended anyway — that means it is
-     running the older updateTarget, and the admin is told plainly
-     instead of silently getting a duplicate line.
-  --------------------------------------------------------- */
   const saveEditedPaymentLog = async () => {
     if (!editingPaymentLog || !editLogTarget) return;
-    if (savingLog) return; // guard against a double tap
+    if (savingLog) return;
 
     const newAmount = parseFloat(editLogAmount);
     if (Number.isNaN(newAmount)) {
@@ -1245,7 +1816,6 @@ export default function AdminTargetsView() {
     try {
       setSavingLog(true);
 
-      // Rewrite the log and the recalculated total in one write.
       await putTarget(targetId, {
         editHistory: cleanHistory,
         collectionAmount,
@@ -1253,20 +1823,17 @@ export default function AdminTargetsView() {
         isEdited: true,
       });
 
-      // Optimistic paint so the modal is correct the instant it reopens.
       setAllTargets((prev) =>
         prev.map((t) => (t._id === targetId ? { ...t, ...optimisticTarget } : t))
       );
       setHistoryTarget((prev) => (prev && prev._id === targetId ? optimisticTarget : prev));
 
-      // Close the editor, bring the history modal back.
       closeEditPaymentLog(true);
       setEditingPaymentLog(null);
       setEditLogTarget(null);
       setEditLogAmount("");
       setEditLogPaymentMethod("Cash");
 
-      // Read back and confirm the log really is in place.
       const data = await fetchTargetsList();
 
       if (!data) {
@@ -1306,7 +1873,6 @@ export default function AdminTargetsView() {
     }
   };
 
-  // Opens the edit modal for a row
   const openEditModal = (target: Target) => {
     setSelectedTarget(target);
     setEditCustomerName(target.customerName);
@@ -1315,9 +1881,9 @@ export default function AdminTargetsView() {
     setEditChitAmount(target.chitAmount);
     setEditCollectionAmount("");
     setEditTotalGB(target.totalGB?.toString() || "");
-    setEditDate(new Date(target.date));
+    const parsedDate = new Date(target.date);
+    setEditDate(Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate);
 
-    // Never stack on top of another modal.
     setHistoryModalVisible(false);
     setEditPaymentLogModal(false);
     if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
@@ -1329,13 +1895,22 @@ export default function AdminTargetsView() {
   // =========================================================
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER */}
-      <View className={`bg-[#024e32] absolute top-0 left-0 right-0 z-50 ${
-        isDesktopOrLaptop ? 'px-8 pt-20 pb-8' : 'px-5 pt-16 pb-6'
-      }`}>
+      <View
+        className={`bg-[#024e32] absolute top-0 left-0 right-0 z-50 ${
+          isDesktopOrLaptop ? 'px-8 pt-20 pb-8' : 'px-5 pt-16 pb-6'
+        }`}
+        style={{
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.12,
+          shadowRadius: 6,
+          elevation: 6,
+        }}
+      >
         <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center flex-1">
+          <View className="flex-row items-center flex-1 pr-3">
             <TouchableOpacity
               onPress={() => router.back()}
               className={isDesktopOrLaptop ? 'p-2' : 'mr-3'}
@@ -1348,16 +1923,20 @@ export default function AdminTargetsView() {
                 color="white"
               />
             </TouchableOpacity>
-            <Text className={`text-white font-bold ml-3 ${
-              isDesktopOrLaptop ? 'text-3xl' : 'text-2xl'
-            }`}>
+            <Text
+              className={`text-white font-bold ml-3 flex-shrink ${
+                isDesktopOrLaptop ? 'text-3xl' : 'text-2xl'
+              }`}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               Employee Targets
             </Text>
           </View>
 
           {!loading && selectedEmployee && (
-            <View className="bg-white/20 px-4 py-2 rounded-full">
-              <Text className="text-white font-medium text-sm">
+            <View className="bg-white/20 px-4 py-2 rounded-full flex-shrink-0" style={{ maxWidth: isDesktopOrLaptop ? 220 : 130 }}>
+              <Text className="text-white font-medium text-sm" numberOfLines={1} ellipsizeMode="tail">
                 {selectedEmployee.name}
               </Text>
             </View>
@@ -1447,33 +2026,46 @@ export default function AdminTargetsView() {
                       returnKeyType="done"
                     />
 
-                    <Text className="font-semibold text-gray-800 mb-2">Select Month *</Text>
-                    <View className="bg-white rounded-xl border border-gray-300 overflow-hidden mb-3">
-                      <Picker
-                        selectedValue={setTargetMonth}
-                        onValueChange={(value) => setSetTargetMonth(value)}
-                        style={{ height: Platform.OS === 'ios' ? 180 : 50, width: "100%" }}
-                        itemStyle={{ fontSize: 16, color: 'black', height: 50 }}
-                      >
-                        {months.map((month, index) => (
-                          <Picker.Item key={index} label={month} value={index} />
-                        ))}
-                      </Picker>
-                    </View>
+                    <Text className="font-semibold text-gray-800 mb-2">Target Period *</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowSetTargetPeriodPicker(true)}
+                      className="bg-white border border-gray-300 rounded-xl px-4 py-3.5 mb-4 flex-row justify-between items-center"
+                      activeOpacity={0.7}
+                    >
+                      <View className="flex-row items-center">
+                        <MaterialIcons name="event" size={20} color="#024e32" style={{ marginRight: 10 }} />
+                        <Text className="text-gray-800 text-base">
+                          {months[setTargetMonth]} {setTargetYear}
+                        </Text>
+                      </View>
+                      <MaterialIcons name="arrow-drop-down" size={24} color="#024e32" />
+                    </TouchableOpacity>
 
-                    <Text className="font-semibold text-gray-800 mb-2">Select Year *</Text>
-                    <View className="bg-white rounded-xl border border-gray-300 overflow-hidden mb-4">
-                      <Picker
-                        selectedValue={setTargetYear}
-                        onValueChange={(value) => setSetTargetYear(value)}
-                        style={{ height: Platform.OS === 'ios' ? 180 : 50, width: "100%" }}
-                        itemStyle={{ fontSize: 16, color: 'black', height: 50 }}
+                    <Modal
+                      transparent
+                      animationType="fade"
+                      statusBarTranslucent
+                      visible={showSetTargetPeriodPicker}
+                      onRequestClose={() => setShowSetTargetPeriodPicker(false)}
+                    >
+                      <TouchableOpacity
+                        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }}
+                        activeOpacity={1}
+                        onPress={() => setShowSetTargetPeriodPicker(false)}
                       >
-                        {years.map((year) => (
-                          <Picker.Item key={year} label={year.toString()} value={year} />
-                        ))}
-                      </Picker>
-                    </View>
+                        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                          <MonthYearPicker
+                            month={setTargetMonth}
+                            year={setTargetYear}
+                            onChange={(m, y) => {
+                              setSetTargetMonth(m);
+                              setSetTargetYear(y);
+                            }}
+                            onClose={() => setShowSetTargetPeriodPicker(false)}
+                          />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    </Modal>
 
                     <TouchableOpacity
                       onPress={handleSetTarget}
@@ -1521,37 +2113,45 @@ export default function AdminTargetsView() {
                     <View className="pt-4">
                       <Text className="font-semibold text-gray-800 mb-2 text-base">📅 View Targets for Month & Year</Text>
 
-                      <View className="mb-3">
-                        <Text className="text-gray-600 text-sm mb-1.5">Month</Text>
-                        <View className="bg-white rounded-xl border border-gray-300 overflow-hidden">
-                          <Picker
-                            selectedValue={selectedMonth}
-                            onValueChange={(value) => setSelectedMonth(value)}
-                            style={{ height: Platform.OS === 'ios' ? 160 : 50, width: "100%" }}
-                            itemStyle={{ fontSize: 16, color: 'black', height: 44 }}
-                          >
-                            {months.map((month, index) => (
-                              <Picker.Item key={index} label={month} value={index} />
-                            ))}
-                          </Picker>
+                      <TouchableOpacity
+                        onPress={() => setShowFilterPeriodPicker(true)}
+                        className="bg-white rounded-xl border border-gray-300 px-4 py-4 flex-row justify-between items-center shadow-sm mb-3"
+                        activeOpacity={0.8}
+                      >
+                        <View className="flex-row items-center">
+                          <MaterialIcons name="event" size={22} color="#024e32" style={{ marginRight: 10 }} />
+                          <Text className="text-gray-800 font-semibold text-base">
+                            {months[selectedMonth]} {selectedYear}
+                          </Text>
                         </View>
-                      </View>
+                        <MaterialIcons name="arrow-drop-down" size={28} color="#024e32" />
+                      </TouchableOpacity>
 
-                      <View className="mb-3">
-                        <Text className="text-gray-600 text-sm mb-1.5">Year</Text>
-                        <View className="bg-white rounded-xl border border-gray-300 overflow-hidden">
-                          <Picker
-                            selectedValue={selectedYear}
-                            onValueChange={(value) => setSelectedYear(value)}
-                            style={{ height: Platform.OS === 'ios' ? 160 : 50, width: "100%" }}
-                            itemStyle={{ fontSize: 16, color: 'black', height: 44 }}
-                          >
-                            {years.map((year) => (
-                              <Picker.Item key={year} label={year.toString()} value={year} />
-                            ))}
-                          </Picker>
-                        </View>
-                      </View>
+                      <Modal
+                        transparent
+                        animationType="fade"
+                        statusBarTranslucent
+                        visible={showFilterPeriodPicker}
+                        onRequestClose={() => setShowFilterPeriodPicker(false)}
+                      >
+                        <TouchableOpacity
+                          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }}
+                          activeOpacity={1}
+                          onPress={() => setShowFilterPeriodPicker(false)}
+                        >
+                          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                            <MonthYearPicker
+                              month={selectedMonth}
+                              year={selectedYear}
+                              onChange={(m, y) => {
+                                setSelectedMonth(m);
+                                setSelectedYear(y);
+                              }}
+                              onClose={() => setShowFilterPeriodPicker(false)}
+                            />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      </Modal>
                     </View>
 
                     {/* ===== SEARCH & FILTER ===== */}
@@ -1605,6 +2205,50 @@ export default function AdminTargetsView() {
 
                     {/* ===== TARGETS TABLE ===== */}
                     <View className="pb-3 pt-3">
+                      {/*
+                        Full-table Print button. Spaced/sized the same
+                        deliberate way as the Print button inside the
+                        History modal below (marginLeft, not gap; explicit
+                        flexShrink: 0 + minWidth) so it renders reliably
+                        on every iOS and Android device, not just in a
+                        web preview.
+                      */}
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "flex-end",
+                          marginBottom: 10,
+                        }}
+                      >
+                        <TouchableOpacity
+                          onPress={printAllTargets}
+                          activeOpacity={0.8}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            flexShrink: 0,
+                            minWidth: 90,
+                            justifyContent: "center",
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                            borderRadius: 999,
+                            backgroundColor: "#024e32",
+                          }}
+                        >
+                          <MaterialIcons name="print" size={16} color="white" />
+                          <Text
+                            style={{
+                              color: "white",
+                              fontSize: 13,
+                              fontWeight: "600",
+                              marginLeft: 6,
+                            }}
+                          >
+                            Print Table
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
                       {customerTargets.length === 0 ? (
                         <View className="bg-gray-50 rounded-2xl p-8 items-center">
                           <MaterialIcons name="track-changes" size={50} color="#d1d5db" />
@@ -1677,11 +2321,6 @@ export default function AdminTargetsView() {
                                 <TableHeaderCell label="Actions" width={COLS.actions} />
                               </View>
 
-                              {/* Rows are plain Views now. They used to be a
-                                  TouchableOpacity wrapping the Edit/History
-                                  icon buttons — on Android that nesting fired
-                                  BOTH handlers from one tap and stacked two
-                                  modals, which froze the screen. */}
                               {customerTargets.map((target, i) => (
                                 <View
                                   key={target._id || i}
@@ -2015,6 +2654,10 @@ export default function AdminTargetsView() {
                 {selectedTarget && (
                   <>
                     <Text className="font-semibold text-gray-800 mb-1.5">Date *</Text>
+
+                    {/* Custom calendar button — replaces the native
+                        DateTimePicker, which was broken on iOS. Works
+                        identically on Android. */}
                     <TouchableOpacity
                       onPress={() => setShowDatePicker(true)}
                       className="bg-white border border-gray-300 rounded-xl px-4 py-3.5 mb-3 flex-row justify-between items-center"
@@ -2024,32 +2667,32 @@ export default function AdminTargetsView() {
                       <MaterialIcons name="calendar-today" size={24} color="#024e32" />
                     </TouchableOpacity>
 
-                    {showDatePicker && (
-                      <View className="mb-3">
-                        <DateTimePicker
-                          value={editDate}
-                          mode="date"
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={(event, selectedDate) => {
-                            // Android closes itself; iOS keeps the spinner up
-                            // until "Done" so the wheel is actually usable.
-                            if (Platform.OS === 'android') setShowDatePicker(false);
-                            if (event?.type === 'dismissed') return;
-                            if (selectedDate) setEditDate(selectedDate);
-                          }}
-                          style={{ width: "100%" }}
-                        />
-                        {Platform.OS === 'ios' && (
-                          <TouchableOpacity
-                            onPress={() => setShowDatePicker(false)}
-                            className="bg-[#024e32] py-2.5 rounded-xl mt-1"
-                            activeOpacity={0.8}
-                          >
-                            <Text className="text-white text-center font-semibold">Done</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
+                    <Modal
+                      transparent
+                      animationType="fade"
+                      statusBarTranslucent
+                      visible={showDatePicker}
+                      onRequestClose={() => setShowDatePicker(false)}
+                    >
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          backgroundColor: "rgba(0,0,0,0.5)",
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                        activeOpacity={1}
+                        onPress={() => setShowDatePicker(false)}
+                      >
+                        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                          <SimpleCalendar
+                            value={editDate}
+                            onChange={(d) => setEditDate(d)}
+                            onClose={() => setShowDatePicker(false)}
+                          />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    </Modal>
 
                     <Text className="font-semibold text-gray-800 mb-1.5">Customer Name *</Text>
                     <TextInput
@@ -2203,13 +2846,47 @@ export default function AdminTargetsView() {
               <Text className="text-white text-xl font-bold" numberOfLines={1} style={{ flex: 1 }}>
                 📜 History &amp; Total Collection
               </Text>
-              <TouchableOpacity
-                onPress={() => setHistoryModalVisible(false)}
-                className="w-10 h-10 rounded-full bg-white/20 items-center justify-center"
-                hitSlop={ICON_HIT_SLOP}
-              >
-                <MaterialIcons name="close" size={24} color="white" />
-              </TouchableOpacity>
+
+              {/*
+                Print + Close actions.
+                FIX (learned from a prior mobile layout bug elsewhere in
+                this app): spacing these with RN flexbox `gap` on native
+                (Android/iOS) is not reliable across all Expo/RN versions
+                and can render with no effective spacing there, pushing a
+                button out of the visible header. marginLeft is used
+                instead so it renders identically on web, Android and iOS,
+                and flexShrink: 0 / minWidth keep the Print button from
+                ever being squeezed to nothing.
+              */}
+              <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 0 }}>
+                <TouchableOpacity
+                  onPress={printCustomerHistory}
+                  activeOpacity={0.8}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    flexShrink: 0,
+                    minWidth: 64,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    backgroundColor: "rgba(255,255,255,0.18)",
+                  }}
+                >
+                  <MaterialIcons name="print" size={16} color="white" />
+                  <Text style={{ color: "white", fontSize: 12, fontWeight: "600", marginLeft: 4 }}>
+                    Print
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setHistoryModalVisible(false)}
+                  className="w-10 h-10 rounded-full bg-white/20 items-center justify-center"
+                  style={{ marginLeft: 8 }}
+                  hitSlop={ICON_HIT_SLOP}
+                >
+                  <MaterialIcons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView
               className="p-5"
@@ -2245,8 +2922,6 @@ export default function AdminTargetsView() {
                             </Text>
                           </View>
 
-                          {/* EDIT BUTTON — rewrites this same line in place.
-                              Only shown where there is an amount to correct. */}
                           {entry.amount !== null && (
                             <TouchableOpacity
                               onPress={() => {
@@ -2335,7 +3010,6 @@ export default function AdminTargetsView() {
                     </View>
                   )}
 
-                  {/* Row total — always the authoritative saved figure */}
                   <View className="mt-2 p-3 bg-blue-50 rounded-xl border border-blue-100">
                     <View className="flex-row justify-between items-center">
                       <Text className="text-blue-900 font-semibold text-sm">
@@ -2393,9 +3067,7 @@ export default function AdminTargetsView() {
         </View>
       </Modal>
 
-      {/* ===== EDIT PAYMENT LOG MODAL =====
-          Presented only after the history modal has fully dismissed.
-          Saving rewrites THIS log line — it never adds another one. */}
+      {/* ===== EDIT PAYMENT LOG MODAL ===== */}
       <Modal
         {...NATIVE_MODAL_PROPS}
         animationType="slide"

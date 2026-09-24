@@ -173,7 +173,7 @@ export default function MembersView() {
 
   if (loading) {
     return (
-      <SafeAreaView className="flex-1 bg-[#f9fafb]">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
         <StatusBar
           barStyle="light-content"
           backgroundColor="#024e32"
@@ -237,7 +237,7 @@ export default function MembersView() {
   ========================================================= */
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f9fafb]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       <StatusBar
         barStyle="light-content"
         backgroundColor="#024e32"

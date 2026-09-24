@@ -183,7 +183,7 @@ export default function WorkSheetHistory() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       {/* HEADER - SAME STANDARD EMPLOYEE HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">

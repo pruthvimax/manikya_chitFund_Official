@@ -1,12 +1,7 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-} from "react-native";
-import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useState } from "react";
+import { Text, TextInput, TouchableOpacity, View } from "react-native";
 import BACKEND_URL from "../../config.js";
 
 export default function EmployeesAdd() {
@@ -69,12 +64,9 @@ export default function EmployeesAdd() {
 
   return (
     <View className="flex-1 bg-white">
-
       {/* HEADER */}
       <View className="flex-row items-center bg-[#024e32] px-5 pt-12 pb-4">
-        <TouchableOpacity 
-          onPress={() => router.push("/admin/employeesView")} 
-        >
+        <TouchableOpacity onPress={() => router.push("/admin/employeesView")}>
           <MaterialIcons name="arrow-back" size={26} color="white" />
         </TouchableOpacity>
         <Text className="text-white text-xl font-semibold ml-4">
@@ -84,7 +76,6 @@ export default function EmployeesAdd() {
 
       {/* FORM */}
       <View className="px-6 pt-8">
-
         <TextInput
           placeholder="Employee ID"
           value={emp_id}

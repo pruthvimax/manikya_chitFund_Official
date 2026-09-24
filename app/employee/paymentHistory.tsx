@@ -787,7 +787,7 @@ export default function PaymentHistory() {
 
     return (
 
-      <SafeAreaView className="flex-1 bg-gray-50">
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
         {/* FIXED HEADER */}
 
@@ -2060,7 +2060,7 @@ function Wrapper({
 
   return (
 
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       {/* =================================================
           FIXED HEADER

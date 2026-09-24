@@ -30,7 +30,7 @@ export default function AdminProfile() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#f7f9f8]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
 
       <StatusBar
         barStyle="light-content"
