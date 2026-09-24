@@ -96,7 +96,7 @@ const enrollmentSchema = new mongoose.Schema({
   },
   paymentType: {
     type: String,
-    enum: ["Cash", "Cheque", "NEFT", "Online Banking", "Netbanking"],
+    enum: ["Cash", "AC", "NEFT", "Online Banking", "Netbanking"],
     required: true,
   },
   
