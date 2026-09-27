@@ -85,7 +85,6 @@ const instalmentInfoFor = (group, fallbackAmount) => {
     }
   });
 
-  /* Nothing started yet */
   if (!currentPlan && plans.length > 0) {
     currentPlan = plans.reduce((a, b) =>
       Number(a.monthIndex) <= Number(b.monthIndex) ? a : b
@@ -97,25 +96,6 @@ const instalmentInfoFor = (group, fallbackAmount) => {
   );
 
   const dividend = Number(currentPlan?.dividend || 0);
-
-  /*
-   * ============================================================
-   * NEW SUBSCRIBER JOINING PAYMENT
-   *
-   * If Month 3 is running:
-   *
-   * Month 1 -> full instalment
-   * Month 2 -> full instalment
-   * Month 3 -> current payable amount
-   *
-   * Example:
-   * Month 1 = ₹10,000
-   * Month 2 = ₹10,000
-   * Month 3 = ₹8,000 after dividend
-   *
-   * Joining amount = ₹28,000
-   * ============================================================
-   */
 
   let previousInstalmentsAmount = 0;
 
@@ -131,10 +111,20 @@ const instalmentInfoFor = (group, fallbackAmount) => {
     });
   }
 
-  /*
-   * Current month's actual payable amount.
-   * Same calculation already used by the existing vacancy system.
-   */
+  /* NEW: sum every month's actual admin-entered dividend, from
+     month 1 through the current running month, instead of
+     assuming the current month's dividend repeats every month. */
+  let totalDividendSoFar = 0;
+
+  if (plans.length > 0) {
+    plans.forEach((p) => {
+      const monthIndex = Number(p?.monthIndex || 0);
+      if (monthIndex > 0 && monthIndex <= current) {
+        totalDividendSoFar += Number(p?.dividend || 0);
+      }
+    });
+  }
+
   const currentPayableAmount = Math.max(
     installmentAmount - dividend,
     0
@@ -148,19 +138,16 @@ const instalmentInfoFor = (group, fallbackAmount) => {
     totalInstalments: total,
 
     dividend,
+    totalDividendSoFar, // NEW
 
-    /* Existing current-month amount */
     payNowAmount: currentPayableAmount,
 
     baseInstalmentAmount: installmentAmount,
 
-    /* NEW */
     previousInstalmentsAmount,
 
-    /* NEW */
     currentPayableAmount,
 
-    /* NEW */
     joiningPayNowAmount,
   };
 };
@@ -203,6 +190,7 @@ const buildVacancyView = (vacancy, chit, group) => {
 currentInstalment: instalment.currentInstalment,
 totalInstalments: instalment.totalInstalments,
 dividend: instalment.dividend,
+totalDividendSoFar: instalment.totalDividendSoFar, 
 payNowAmount: instalment.payNowAmount,
 baseInstalmentAmount: instalment.baseInstalmentAmount,
 

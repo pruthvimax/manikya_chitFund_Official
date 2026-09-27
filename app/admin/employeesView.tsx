@@ -422,7 +422,7 @@ export default function EmployeesView() {
 
                     {/* Employee ID */}
 
-                    {employee.emp_id && (
+                    {!!employee.emp_id && (
                       <View className="flex-row items-center mt-1">
 
                         <MaterialIcons
@@ -441,7 +441,7 @@ export default function EmployeesView() {
 
                     {/* Phone */}
 
-                    {employee.phone && (
+                    {!!employee.phone && (
                       <View className="flex-row items-center mt-1">
 
                         <MaterialIcons
@@ -459,7 +459,7 @@ export default function EmployeesView() {
 
                     {/* Email */}
 
-                    {employee.email && (
+                    {!!employee.email && (
                       <View className="flex-row items-center mt-1">
 
                         <MaterialIcons
@@ -496,7 +496,7 @@ export default function EmployeesView() {
 
                 {/* Address */}
 
-                {employee.address && (
+                {!!employee.address && (
                   <View className="flex-row items-center mt-2 pt-2 border-t border-gray-100">
 
                     <MaterialIcons

@@ -1,4 +1,5 @@
 import express from "express";
+import { checkVacancyAccess } from "../controllers/employeeController.js";
 
 import {
   // ADMIN - VACANCIES
@@ -47,6 +48,7 @@ router.get("/my-requests/:userid", getMyVacancyRequests);
 ========================================================= */
 
 router.get("/open", getOpenVacancies);
+router.get("/employee-open", checkVacancyAccess, getOpenVacancies);
 
 /* =========================================================
    ADMIN: VACANCIES

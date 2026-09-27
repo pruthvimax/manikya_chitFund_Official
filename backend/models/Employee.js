@@ -13,6 +13,10 @@ const employeeSchema = new mongoose.Schema({
   type: Boolean,
   default: true,
 },
+  canViewVacancy: {
+    type: Boolean,
+    default: false,
+  },
   createdAt: { type: Date, default: Date.now },
 });
 

@@ -1358,7 +1358,7 @@ const handleSelectGroup = (group: any) => {
                   }`}>
                     Group {item.groupId}
                   </Text>
-                  {item.groupName && (
+                  {!!item.groupName && (
                     <Text className="text-gray-500 text-sm">
                       {item.groupName}
                     </Text>
@@ -1724,7 +1724,7 @@ const handleSelectGroup = (group: any) => {
                   </View>
                   <MaterialIcons name="arrow-drop-down" size={24} color="#6b7280" />
                 </TouchableOpacity>
-                {groupId && (
+                {!!groupId && (
                   <TouchableOpacity
                     onPress={() => {
                       setGroupId("");
@@ -2014,7 +2014,7 @@ const handleSelectGroup = (group: any) => {
                       </View>
 
                       {/* WINNER DETAILS */}
-                      {item.winnerName && (
+                      {!!item.winnerName && (
                         <View className="mt-2 bg-amber-50 rounded-xl p-3 border border-amber-200">
                           <View className="flex-row items-center mb-1">
                             <MaterialIcons name="emoji-events" size={16} color="#d97706" />
@@ -2029,7 +2029,7 @@ const handleSelectGroup = (group: any) => {
                             </Text>
                           </View>
 
-                          {item.winnerGroupId && (
+                          {!!item.winnerGroupId && (
                             <View className="flex-row mt-0.5">
                               <Text className="text-gray-600 text-xs flex-1">
                                 <Text className="font-medium">Group Member ID:</Text> {item.winnerGroupId}
@@ -2069,7 +2069,7 @@ const handleSelectGroup = (group: any) => {
 
 
 {/* DELETE WINNER BUTTON */}
-{item.winnerName && (
+{!!item.winnerName && (
   <TouchableOpacity
     onPress={() => handleDeleteWinner(item)}
     className="mt-2 py-1.5 rounded-lg border border-red-200 bg-red-50 flex-row items-center justify-center"

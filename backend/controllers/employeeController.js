@@ -85,6 +85,9 @@ export const updateEmployee = async (req, res) => {
     employee.featureAccess =
   req.body.featureAccess ?? employee.featureAccess;
 
+      employee.canViewVacancy =
+  req.body.canViewVacancy ?? employee.canViewVacancy;
+
     // ✅ HANDLE PASSWORD CORRECTLY
     if (req.body.password && req.body.password.trim() !== "") {
       const salt = await bcrypt.genSalt(10);
@@ -145,6 +148,7 @@ export const loginEmployee = async (req, res) => {
         name: employee.name,
         phone: employee.phone,
         status: employee.status,
+        canViewVacancy: employee.canViewVacancy,
       },
     });
   } catch (err) {
@@ -242,10 +246,37 @@ export const checkEmployeeStatus = async (req, res) => {
 res.json({
   status: employee.status,
   featureAccess: employee.featureAccess,
+  canViewVacancy: employee.canViewVacancy,
 });
 
   } catch (err) {
     res.status(500).json({ message: "Server Error" });
+  }
+};
+
+export const checkVacancyAccess = async (req, res, next) => {
+  try {
+    const emp_id = req.query.emp_id;
+
+    if (!emp_id) {
+      return res.status(400).json({ message: "emp_id is required" });
+    }
+
+    const employee = await Employee.findOne({ emp_id });
+
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    if (!employee.canViewVacancy) {
+      return res
+        .status(403)
+        .json({ message: "Vacancy access is disabled for this employee" });
+    }
+
+    next();
+  } catch (err) {
+    res.status(500).json({ message: "Failed to verify vacancy access" });
   }
 };
 

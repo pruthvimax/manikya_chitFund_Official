@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
+
 import {
   Animated,
   BackHandler,
@@ -39,6 +40,8 @@ export default function LoginScreen() {
 
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
+
+  
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -140,6 +143,16 @@ export default function LoginScreen() {
       throw err;
     }
   };
+
+    useEffect(() => {
+    const checkSession = async () => {
+      const stored = await AsyncStorage.getItem("loggedUser");
+      if (stored) {
+        router.replace("/menu");
+      }
+    };
+    checkSession();
+  }, []);
 
   /* ================= BACK BUTTON LOCK ================= */
   useEffect(() => {

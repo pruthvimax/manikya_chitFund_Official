@@ -329,7 +329,7 @@ export default function AdminWorkSheetsView() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                {(startDate || endDate) && (
+                {!!(startDate || endDate) && (
                   <TouchableOpacity
                     onPress={() => {
                       setStartDate("");
@@ -504,7 +504,7 @@ export default function AdminWorkSheetsView() {
                     <Text className="text-gray-800">Total Photos: {selectedWorkSheet.gpsPhotosCount}</Text>
                   </View>
 
-                  {selectedWorkSheet.notes && (
+                  {!!selectedWorkSheet.notes && (
                     <View className="mb-6 p-3 bg-gray-50 rounded-xl">
                       <Text className="text-gray-600 text-sm mb-2 font-semibold">📝 Notes</Text>
                       <Text className="text-gray-600">{selectedWorkSheet.notes}</Text>

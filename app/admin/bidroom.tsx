@@ -860,7 +860,8 @@ export default function AdminBidRoom() {
       />
     )}
   </TouchableOpacity>
-</View>                </TouchableOpacity>
+</View>                
+</TouchableOpacity>
               );
             })
           )}

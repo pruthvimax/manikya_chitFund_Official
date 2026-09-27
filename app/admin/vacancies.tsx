@@ -4,7 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -433,6 +435,11 @@ export default function AdminVacancies() {
         </View>
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingTop: 110, paddingBottom: 20 }}
@@ -445,6 +452,7 @@ export default function AdminVacancies() {
           />
         }
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {loading ? (
           <View className="py-20 items-center">
@@ -945,6 +953,7 @@ export default function AdminVacancies() {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ================= CONFIRM PUBLISH MODAL ================= */}
       <Modal visible={confirmVisible} transparent animationType="fade">
@@ -1001,7 +1010,20 @@ export default function AdminVacancies() {
 
       {/* ================= EDIT MODAL ================= */}
       <Modal visible={!!editTarget} transparent animationType="fade">
-        <View className="flex-1 bg-black/50 justify-center items-center px-4">
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+        <ScrollView
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: "center",
+            alignItems: "center",
+            paddingHorizontal: 16,
+          }}
+          keyboardShouldPersistTaps="handled"
+        >
           <View className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
             <Text className="text-xl font-bold text-gray-800 mb-1">
               Edit Vacancy
@@ -1103,7 +1125,8 @@ export default function AdminVacancies() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ================= DELETE MODAL ================= */}

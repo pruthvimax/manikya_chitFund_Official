@@ -282,6 +282,7 @@ export default function EmployeeDetail() {
     address: "",
     status: "active",
     featureAccess: true,
+    canViewVacancy: false,
   });
 
   const [originalEmp, setOriginalEmp] = useState(emp);
@@ -371,6 +372,7 @@ export default function EmployeeDetail() {
         address: emp.address,
         status: emp.status,
         featureAccess: emp.featureAccess,
+        canViewVacancy: emp.canViewVacancy,
       };
 
       if (password && password.trim() !== "") {
@@ -769,6 +771,50 @@ export default function EmployeeDetail() {
                   <Text className="text-white text-center font-bold text-base">
                     {emp.featureAccess ? "DISABLE FEATURES" : "ENABLE FEATURES"}
                   </Text>
+                                {/* Vacancy Access - NEW, independent of Feature Control */}
+              <View className="mb-6">
+                <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">
+                  Vacancy Access
+                </Text>
+                <TouchableOpacity
+                  onPress={() =>
+                    setEmp({ ...emp, canViewVacancy: !emp.canViewVacancy })
+                  }
+                  className={`p-4 rounded-2xl flex-row items-center justify-between border ${
+                    emp.canViewVacancy
+                      ? "bg-green-50 border-green-200"
+                      : "bg-gray-100 border-gray-200"
+                  }`}
+                >
+                  <View className="flex-row items-center">
+                    <MaterialIcons
+                      name={emp.canViewVacancy ? "check-circle" : "cancel"}
+                      size={22}
+                      color={emp.canViewVacancy ? "#16a34a" : "#6b7280"}
+                    />
+                    <Text
+                      className={`ml-2 text-base font-semibold ${
+                        emp.canViewVacancy ? "text-green-700" : "text-gray-600"
+                      }`}
+                    >
+                      {emp.canViewVacancy ? "ON" : "OFF"}
+                    </Text>
+                  </View>
+                  <View
+                    className={`px-3 py-1 rounded-full ${
+                      emp.canViewVacancy ? "bg-green-200" : "bg-gray-200"
+                    }`}
+                  >
+                    <Text
+                      className={`text-xs font-semibold ${
+                        emp.canViewVacancy ? "text-green-800" : "text-gray-700"
+                      }`}
+                    >
+                      Tap to change
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
                 </TouchableOpacity>
               </View>
 

@@ -1,4 +1,7 @@
 import mongoose from "mongoose";
+import dns from "dns"
+
+dns.setServers(["8.8.8.8", "8.8.4.4"])
 
 const getMongoUri = () => {
   return process.env.MONGO_URI || process.env.MONGODB_URI || process.env.LOCAL_MONGO_URI || "mongodb://127.0.0.1:27017/manikya";

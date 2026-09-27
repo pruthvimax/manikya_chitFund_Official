@@ -559,7 +559,8 @@ const leavePage = () => {
 
   /* ================= UI ================= */
   return (
-<SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>      {/* HEADER */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      {/* HEADER */}
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">
           <TouchableOpacity
@@ -586,7 +587,7 @@ const leavePage = () => {
 
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 110, paddingBottom: 20 }}
+        contentContainerStyle={{ paddingTop: 140, paddingBottom: 20 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

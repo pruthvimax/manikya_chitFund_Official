@@ -241,6 +241,7 @@ export default function EmployeeDashboard() {
     /* ===== DASHBOARD SUMMARY STATES ===== */
     const [refreshing, setRefreshing] = useState(false);
     const [featureAccess, setFeatureAccess] = useState(true);
+    const [canViewVacancy, setCanViewVacancy] = useState(false);
     const [loadingAccess, setLoadingAccess] = useState(true);
     const [employeeName, setEmployeeName] = useState("Employee");
 
@@ -278,6 +279,12 @@ export default function EmployeeDashboard() {
                     : true
             );
 
+            setCanViewVacancy(
+                statusData.canViewVacancy !== undefined
+                    ? statusData.canViewVacancy
+                    : false
+            );
+
         } catch (err) {
             console.log("Refresh error:", err);
             Alert.alert("Refresh Failed", "Unable to refresh data. Please try again.");
@@ -309,6 +316,9 @@ export default function EmployeeDashboard() {
 
                 setFeatureAccess(
                     data.featureAccess !== undefined ? data.featureAccess : true
+                );
+                setCanViewVacancy(
+                    data.canViewVacancy !== undefined ? data.canViewVacancy : false
                 );
                 setLoadingAccess(false);
             } catch (err) {
@@ -502,6 +512,19 @@ export default function EmployeeDashboard() {
                         loadingAccess={loadingAccess}
                         showModal={showAccessDeniedModal}
                     />
+
+                    {/* NEW - independent of featureAccess. Hidden entirely
+                        (not greyed out) when Admin has Vacancy Access OFF. */}
+                    {canViewVacancy && (
+                        <MenuCard
+                            title="Vacancy"
+                            icon="event-seat"
+                            route="/employee/vacancy"
+                            featureAccess={featureAccess}
+                            loadingAccess={loadingAccess}
+                            showModal={showAccessDeniedModal}
+                        />
+                    )}
                 </View>
 
                 {/* FOOTER */}

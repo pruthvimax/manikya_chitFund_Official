@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState, useRef, useEffect } from "react";
 import {
   Alert,
+  Platform,
   SafeAreaView,
   ScrollView,
   Text,
@@ -202,6 +203,34 @@ export default function AdminEnrollmentsView() {
   };
 
   const handleDelete = async (id: string) => {
+    const performDelete = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/enrollment/${id}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) throw new Error("Delete failed");
+
+        Alert.alert("Success", "Enrollment deleted");
+        fetchEnrollments();
+        setModalVisible(false);
+      } catch (error) {
+        Alert.alert("Error", "Failed to delete");
+      }
+    };
+
+    /* React Native's Alert.alert with multiple buttons (Cancel/Delete)
+       does not reliably fire the pressed button's onPress on web —
+       laptop/desktop never gets a working confirm dialog there, even
+       though it works fine on iOS/Android. window.confirm is used on
+       web only; mobile keeps the exact same native Alert as before. */
+    if (Platform.OS === "web") {
+      if (window.confirm("Are you sure you want to delete this enrollment?")) {
+        await performDelete();
+      }
+      return;
+    }
+
     Alert.alert(
       "Delete Enrollment",
       "Are you sure you want to delete this enrollment?",
@@ -210,21 +239,7 @@ export default function AdminEnrollmentsView() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: async () => {
-            try {
-              const response = await fetch(`${BACKEND_URL}/enrollment/${id}`, {
-                method: "DELETE",
-              });
-
-              if (!response.ok) throw new Error("Delete failed");
-
-              Alert.alert("Success", "Enrollment deleted");
-              fetchEnrollments();
-              setModalVisible(false);
-            } catch (error) {
-              Alert.alert("Error", "Failed to delete");
-            }
-          },
+          onPress: performDelete,
         },
       ]
     );
@@ -261,7 +276,13 @@ export default function AdminEnrollmentsView() {
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center flex-1">
             <TouchableOpacity 
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/admin");
+                }
+              }}
               className={isDesktopOrLaptop ? 'p-2' : 'mr-3'}
               activeOpacity={0.7}
             >
@@ -350,7 +371,7 @@ export default function AdminEnrollmentsView() {
                     </Text>
                   </TouchableOpacity>
                 </View>
-                {(startDate || endDate) && (
+                {Boolean(startDate || endDate) && (
                   <TouchableOpacity
                     onPress={() => {
                       setStartDate("");
