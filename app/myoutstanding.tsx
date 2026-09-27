@@ -2016,7 +2016,7 @@ export default function MyOutstanding() {
                 </Text>
 
                 <Text className="text-gray-500 text-xs mt-1">
-                  My Outstanding
+                  My Live Payments - Outstanding Payments
                 </Text>
 
                 <Text className="text-gray-400 text-xs mt-1">

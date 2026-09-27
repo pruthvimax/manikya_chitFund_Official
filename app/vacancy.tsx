@@ -381,6 +381,7 @@ export default function MemberVacancy() {
 
   const [confirmTarget, setConfirmTarget] = useState<any>(null);
   const [subscribing, setSubscribing] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const [banner, setBanner] = useState("");
   const [bannerType, setBannerType] = useState<"success" | "error">("success");
@@ -415,9 +416,12 @@ export default function MemberVacancy() {
         "lastSeenVacancyAt",
         new Date().toISOString()
       );
+
+      return list;
     } catch (err) {
       console.log("Load vacancies error:", err);
       setError("Could not connect to server");
+      return null;
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -473,6 +477,22 @@ export default function MemberVacancy() {
     Promise.all([loadVacancies(userid), loadNotifications()]);
   };
 
+  /* Refreshes this one vacancy's numbers from the server the moment
+     "Subscribe" is tapped, so the confirmation modal can never show a
+     stale dividend/instalment/pay-now figure. Opens instantly with
+     whatever we already have, then swaps in the fresh record. */
+  const handleSubscribeTap = async (v: any) => {
+    setConfirmTarget(v);
+    setConfirmLoading(true);
+    try {
+      const fresh = await loadVacancies(userid);
+      const updated = fresh?.find((x: any) => x._id === v._id);
+      if (updated) setConfirmTarget(updated);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
   /* ================= SUBSCRIBE ================= */
   const submitSubscribe = async () => {
     if (!confirmTarget || !userid) return;
@@ -516,8 +536,13 @@ export default function MemberVacancy() {
   };
 
   /* Total the member pays on joining */
+  /* Full amount payable now — dividend is NOT subtracted here. The
+     dividend is cash the admin returns separately after joining, not
+     a discount on the joining payment. */
   const payNow =
-    confirmTarget?.joiningPayNowAmount ?? confirmTarget?.payNowAmount;
+    Number(
+      confirmTarget?.joiningPayNowAmount ?? confirmTarget?.payNowAmount ?? 0
+    ) + Number(confirmTarget?.dividend || 0);
 
   /* ================= UI ================= */
   return (
@@ -623,7 +648,7 @@ export default function MemberVacancy() {
                   key={v._id}
                   vacancy={v}
                   activeNotification={findActiveNotification(v, notifications)}
-                  onSubscribe={() => setConfirmTarget(v)}
+                  onSubscribe={() => handleSubscribeTap(v)}
                 />
               ))}
             </>
@@ -725,9 +750,39 @@ export default function MemberVacancy() {
                   />
                   <DetailRow
                     label="Current instalment"
-                    value={formatAmount(confirmTarget?.currentPayableAmount)}
+                    value={formatAmount(
+                      Number(confirmTarget?.currentPayableAmount || 0) +
+                        Number(confirmTarget?.dividend || 0)
+                    )}
                   />
                 </View>
+
+              {Number(confirmTarget?.totalDividendSoFar || 0) > 0 && (
+                  <View className="flex-row bg-green-50 border border-green-200 rounded-2xl p-3 mt-3">
+                   {/* <MaterialIcons
+                      name="currency-rupee"
+                      size={16}
+                      color="#15803d"
+                    /> */}
+                    <Text className="flex-1 ml-2 text-green-800 text-[11px] leading-4">
+                     {/* A dividend of{" "}
+                       {formatAmount(confirmTarget?.totalDividendSoFar)}  will be
+                      given back to you in cash by the admin after you join 
+                      it is not deducted from the amount below. */}
+                      The admin will pay you a cash dividend after you join; this is not
+                      deducted from the amount below.
+                    </Text>
+                  </View>
+                )}
+
+               {/* {confirmLoading && (
+                  <View className="flex-row items-center justify-center mt-2">
+                    <ActivityIndicator size="small" color="#e8501f" />
+                    <Text className="text-gray-400 text-[10px] ml-2">
+                      Checking latest amount...
+                    </Text>
+                  </View>
+                )} */}
 
                 {/* PAYABLE HIGHLIGHT */}
                 <View className="flex-row items-center justify-between bg-[#fff1eb] border border-[#f6c5b0] rounded-2xl px-4 py-3.5 mt-3">
@@ -827,10 +882,12 @@ function VacancyCard({
 
   const progress = total > 0 ? Math.min(current / total, 1) : 0;
 
-  // Full running-instalment total (no dividend subtracted) and the
-  // full accumulated dividend for the elapsed instalments — shown
-  // independently, not netted against each other.
-  const totalPaidSoFar = current * Number(vacancy.subscriptionAmount || 0);
+  // Full amount payable now — dividend is NOT subtracted. The dividend
+  // is cash the admin returns separately after joining, shown alongside
+  // as its own figure, never netted against what's paid now.
+  const totalPaidSoFar =
+    Number(vacancy.joiningPayNowAmount ?? vacancy.payNowAmount ?? 0) +
+    Number(vacancy.dividend || 0);
   const totalDividendSoFar = Number(vacancy.totalDividendSoFar || 0);
 
   /* Ribbon is derived from the REAL fill rate, not hard-coded */
