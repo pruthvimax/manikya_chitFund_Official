@@ -19,7 +19,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import BACKEND_URL from "../../config.js";
+
+/* Reads the real app version straight from app.json (expo.version),
+   so this never needs a manual edit again when you bump the version. */
+const APP_VERSION = Constants.expoConfig?.version || "1.0.0";
 
 /* ================= SKELETON ================= */
 
@@ -247,9 +252,106 @@ function Footer() {
         Employee records are updated in real time
       </Text>
       <Text className="text-gray-400 text-xs mt-1">
-        © {new Date().getFullYear()} · v1.0.0
+        © {new Date().getFullYear()} · v{APP_VERSION}
       </Text>
     </View>
+  );
+}
+
+/* ================= CONTROLS (toggle switch + row) ================= */
+
+function ToggleSwitch({
+  value,
+  onToggle,
+  activeColor = "#024e32",
+}: {
+  value: boolean;
+  onToggle: () => void;
+  activeColor?: string;
+}) {
+  const translateX = useRef(new Animated.Value(value ? 20 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(translateX, {
+      toValue: value ? 20 : 0,
+      useNativeDriver: true,
+      friction: 7,
+      tension: 70,
+    }).start();
+  }, [value, translateX]);
+
+  return (
+    <TouchableOpacity onPress={onToggle} activeOpacity={0.85} hitSlop={8}>
+      <View
+        style={{
+          width: 50,
+          height: 30,
+          borderRadius: 15,
+          padding: 3,
+          backgroundColor: value ? activeColor : "#d1d5db",
+        }}
+      >
+        <Animated.View
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 12,
+            backgroundColor: "white",
+            transform: [{ translateX }],
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 2,
+            shadowOffset: { width: 0, height: 1 },
+            elevation: 2,
+          }}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function ControlRow({
+  icon,
+  iconColor,
+  iconBg,
+  title,
+  subtitle,
+  value,
+  onToggle,
+  activeColor,
+  showDivider = true,
+}: {
+  icon: any;
+  iconColor: string;
+  iconBg: string;
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onToggle: () => void;
+  activeColor?: string;
+  showDivider?: boolean;
+}) {
+  return (
+    <>
+      <View className="flex-row items-center justify-between py-4">
+        <View className="flex-row items-center flex-1 pr-3">
+          <View
+            className="w-11 h-11 rounded-full items-center justify-center"
+            style={{ backgroundColor: iconBg }}
+          >
+            <MaterialIcons name={icon} size={22} color={iconColor} />
+          </View>
+          <View className="ml-3 flex-1">
+            <Text className="text-gray-900 font-semibold text-[15px]">
+              {title}
+            </Text>
+            <Text className="text-gray-500 text-xs mt-0.5">{subtitle}</Text>
+          </View>
+        </View>
+        <ToggleSwitch value={value} onToggle={onToggle} activeColor={activeColor} />
+      </View>
+      {showDivider && <View className="h-px bg-gray-100" />}
+    </>
   );
 }
 
@@ -707,115 +809,69 @@ export default function EmployeeDetail() {
                 </View>
               )}
 
-              {/* Account Status - always tappable */}
+              {/* Employee Controls - Account Status, Feature Control and
+                  Vacancy Access consolidated into one card of switch rows,
+                  same three toggles as before, just far less repetitive. */}
               <View className="mb-6">
                 <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">
-                  Account Status
+                  Employee Controls
                 </Text>
-                <TouchableOpacity
-                  onPress={() =>
-                    setEmp({
-                      ...emp,
-                      status: emp.status === "active" ? "inactive" : "active",
-                    })
-                  }
-                  className={`p-4 rounded-2xl flex-row items-center justify-between border ${
-                    emp.status === "active"
-                      ? "bg-green-50 border-green-200"
-                      : "bg-red-50 border-red-200"
-                  }`}
-                >
-                  <View className="flex-row items-center">
-                    <MaterialIcons
-                      name={emp.status === "active" ? "check-circle" : "cancel"}
-                      size={24}
-                      color={emp.status === "active" ? "#16a34a" : "#dc2626"}
-                    />
-                    <Text
-                      className={`ml-2 text-base font-semibold ${
-                        emp.status === "active" ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {(emp.status || "").toUpperCase()}
-                    </Text>
-                  </View>
-                  <View
-                    className={`px-3 py-1 rounded-full ${
-                      emp.status === "active" ? "bg-green-200" : "bg-red-200"
-                    }`}
-                  >
-                    <Text
-                      className={`text-xs font-semibold ${
-                        emp.status === "active" ? "text-green-800" : "text-red-800"
-                      }`}
-                    >
-                      Tap to change
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
+                <View className="bg-gray-50 rounded-2xl px-4 border border-gray-100">
+                  <ControlRow
+                    icon={emp.status === "active" ? "check-circle" : "cancel"}
+                    iconColor={emp.status === "active" ? "#16a34a" : "#dc2626"}
+                    iconBg={emp.status === "active" ? "#dcfce7" : "#fee2e2"}
+                    title="Account Status"
+                    subtitle={
+                      emp.status === "active"
+                        ? "Active — can sign in"
+                        : "Inactive — sign-in blocked"
+                    }
+                    value={emp.status === "active"}
+                    onToggle={() =>
+                      setEmp({
+                        ...emp,
+                        status: emp.status === "active" ? "inactive" : "active",
+                      })
+                    }
+                    activeColor="#16a34a"
+                  />
 
-              {/* Feature Control - always tappable */}
-              <View className="mb-6">
-                <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">
-                  Feature Control
-                </Text>
-                <TouchableOpacity
-                  onPress={() =>
-                    setEmp({ ...emp, featureAccess: !emp.featureAccess })
-                  }
-                  className={`p-4 rounded-2xl ${
-                    emp.featureAccess ? "bg-green-600" : "bg-red-600"
-                  }`}
-                >
-                  <Text className="text-white text-center font-bold text-base">
-                    {emp.featureAccess ? "DISABLE FEATURES" : "ENABLE FEATURES"}
-                  </Text>
-                                {/* Vacancy Access - NEW, independent of Feature Control */}
-              <View className="mb-6">
-                <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">
-                  Vacancy Access
-                </Text>
-                <TouchableOpacity
-                  onPress={() =>
-                    setEmp({ ...emp, canViewVacancy: !emp.canViewVacancy })
-                  }
-                  className={`p-4 rounded-2xl flex-row items-center justify-between border ${
-                    emp.canViewVacancy
-                      ? "bg-green-50 border-green-200"
-                      : "bg-gray-100 border-gray-200"
-                  }`}
-                >
-                  <View className="flex-row items-center">
-                    <MaterialIcons
-                      name={emp.canViewVacancy ? "check-circle" : "cancel"}
-                      size={22}
-                      color={emp.canViewVacancy ? "#16a34a" : "#6b7280"}
-                    />
-                    <Text
-                      className={`ml-2 text-base font-semibold ${
-                        emp.canViewVacancy ? "text-green-700" : "text-gray-600"
-                      }`}
-                    >
-                      {emp.canViewVacancy ? "ON" : "OFF"}
-                    </Text>
-                  </View>
-                  <View
-                    className={`px-3 py-1 rounded-full ${
-                      emp.canViewVacancy ? "bg-green-200" : "bg-gray-200"
-                    }`}
-                  >
-                    <Text
-                      className={`text-xs font-semibold ${
-                        emp.canViewVacancy ? "text-green-800" : "text-gray-700"
-                      }`}
-                    >
-                      Tap to change
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-                </TouchableOpacity>
+                  <ControlRow
+                    icon={emp.featureAccess ? "star" : "star-outline"}
+                    iconColor={emp.featureAccess ? "#16a34a" : "#6b7280"}
+                    iconBg={emp.featureAccess ? "#dcfce7" : "#f3f4f6"}
+                    title="Feature Control"
+                    subtitle={
+                      emp.featureAccess
+                        ? "Enabled — full app features"
+                        : "Disabled — features restricted"
+                    }
+                    value={emp.featureAccess}
+                    onToggle={() =>
+                      setEmp({ ...emp, featureAccess: !emp.featureAccess })
+                    }
+                    activeColor="#16a34a"
+                  />
+
+                  <ControlRow
+                    icon={emp.canViewVacancy ? "event-seat" : "event-busy"}
+                    iconColor={emp.canViewVacancy ? "#16a34a" : "#6b7280"}
+                    iconBg={emp.canViewVacancy ? "#dcfce7" : "#f3f4f6"}
+                    title="Vacancy Access"
+                    subtitle={
+                      emp.canViewVacancy
+                        ? "On — can view open vacancies"
+                        : "Off — vacancy page hidden"
+                    }
+                    value={emp.canViewVacancy}
+                    onToggle={() =>
+                      setEmp({ ...emp, canViewVacancy: !emp.canViewVacancy })
+                    }
+                    activeColor="#16a34a"
+                    showDivider={false}
+                  />
+                </View>
               </View>
 
               {/* Action Buttons */}
