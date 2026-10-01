@@ -1,6 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +10,9 @@ import {
   Modal,
   FlatList,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import ViewShot from "react-native-view-shot";
@@ -38,19 +39,36 @@ let currentPrintMethod = 'none';
    so a member who never touched a penalty, or didn't pay any
    installment today, doesn't get a receipt padded out with
    "₹ 0" lines on any device, Android or iOS.
+
+   NOTE: the receipt now only prints Member ID, Month,
+   Installment, Dividend, Paid Today, Total Installment Paid,
+   Pending Installment, Total Due, and who collected it (name +
+   phone) — Group ID, Due Date and the whole Penalty section were
+   removed from all three renderers below, per request. Penalty
+   collection itself is unaffected; it just no longer appears on
+   the printed receipt. hasPenaltyActivity is kept here (unused
+   by the renderers now) only in case something else reads
+   getReceiptFlags later.
 ========================================================= */
 const getReceiptFlags = (receipt: any) => ({
   hasDividend: Number(receipt?.dividendAmount) > 0,
   hasTodayInstallment: Number(receipt?.todayInstallmentPaid) > 0,
+  // hasPenaltyActivity controls whether the whole Penalty section
+  // (divider + Pending Penalty) shows at all -- true whenever there's
+  // any penalty history or pending amount, even if nothing was paid
+  // TODAY. hasTodayPenalty is separate: it only controls the
+  // "Paid Today (Penalty)" row, so that row never shows "₹ 0" on a
+  // day nothing was actually paid toward penalty.
   hasPenaltyActivity:
     Number(receipt?.todayPenaltyPaid) > 0 ||
     Number(receipt?.totalPenaltyPaid) > 0 ||
     Number(receipt?.pendingPenalty) > 0,
+  hasTodayPenalty: Number(receipt?.todayPenaltyPaid) > 0,
+  hasPendingInstallment: Number(receipt?.pendingInstallment) > 0,
 });
 
 const generateReceiptHTML = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
-    getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
   return `
     <!DOCTYPE html>
@@ -82,7 +100,7 @@ const generateReceiptHTML = (receipt: any) => {
         body {
           font-family: 'Courier New', monospace;
           font-size: 12px;
-          padding: 20px 0;
+          padding: 10px 0;
         }
         .receipt {
           width: 58mm;
@@ -94,26 +112,26 @@ const generateReceiptHTML = (receipt: any) => {
         .highlight { font-weight: bold; color: #000; }
         .divider {
           border-top: 1px dashed #000;
-          margin: 8px 0;
-          padding-top: 8px;
+          margin: 4px 0;
+          padding-top: 4px;
         }
         .header {
           font-size: 14px;
           font-weight: bold;
-          margin-bottom: 5px;
+          margin-bottom: 2px;
         }
         .row {
           display: flex;
           justify-content: space-between;
-          margin: 2px 0;
+          margin: 1px 0;
         }
         .total {
           font-size: 14px;
           font-weight: bold;
-          margin-top: 10px;
+          margin-top: 6px;
         }
         .footer {
-          margin-top: 15px;
+          margin-top: 8px;
           font-size: 10px;
           text-align: center;
           color: #666;
@@ -121,13 +139,21 @@ const generateReceiptHTML = (receipt: any) => {
         .date-time {
           font-weight: bold;
           text-align: center;
-          margin-bottom: 10px;
+          margin-bottom: 6px;
+        }
+        .address {
+          font-size: 7px;
+          text-align: center;
+          color: #444;
+          margin-top: 1px;
+          line-height: 1.3;
         }
       </style>
     </head>
     <body>
     <div class="receipt">
-      <div class="center header">MANIKYA CHITS</div>
+      <div class="center header">MANIKYA CHITS PVT LTD</div>
+      <div class="address">#102 Shri Siddivinayaka Complex, In Front of Government Hospital, JC Road, Sagara, Shivamogga, Karnataka - 577401</div>
       <div class="center">Payment Receipt</div>
 
       <div class="date-time">
@@ -136,10 +162,6 @@ const generateReceiptHTML = (receipt: any) => {
 
       <div class="divider"></div>
 
-      <div class="row">
-        <span>Group ID:</span>
-        <span>${receipt.groupId || 'N/A'}</span>
-      </div>
       <div class="row">
         <span>Member ID:</span>
         <span>${receipt.groupMemberId || 'N/A'}</span>
@@ -170,26 +192,22 @@ const generateReceiptHTML = (receipt: any) => {
         <span>₹ ${receipt.todayInstallmentPaid}</span>
       </div>
       ` : ''}
-      <div class="row">
-        <span>Total Inst Paid:</span>
-        <span>₹ ${receipt.totalInstallmentPaid || 0}</span>
-      </div>
+      ${hasPendingInstallment ? `
       <div class="row highlight">
         <span>Pending Installment:</span>
         <span>₹ ${receipt.pendingInstallment || 0}</span>
       </div>
+      ` : ''}
 
       ${hasPenaltyActivity ? `
       <div class="divider"></div>
 
+      ${hasTodayPenalty ? `
       <div class="row">
         <span>Paid Today (Penalty):</span>
         <span>₹ ${receipt.todayPenaltyPaid || 0}</span>
       </div>
-      <div class="row">
-        <span>Total Penalty Paid:</span>
-        <span>₹ ${receipt.totalPenaltyPaid || 0}</span>
-      </div>
+      ` : ''}
       <div class="row highlight">
         <span>Pending Penalty:</span>
         <span>₹ ${receipt.pendingPenalty || 0}</span>
@@ -206,8 +224,12 @@ const generateReceiptHTML = (receipt: any) => {
       <div class="divider"></div>
 
       <div class="row">
-        <span>Due Date:</span>
-        <span>${receipt.dueDate || 'Not set'}</span>
+        <span>Collected By:</span>
+        <span>${receipt.collectedBy || '-'}</span>
+      </div>
+      <div class="row">
+        <span>Employee Phone:</span>
+        <span>${receipt.employeePhone || '-'}</span>
       </div>
 
       <div class="divider"></div>
@@ -218,7 +240,6 @@ const generateReceiptHTML = (receipt: any) => {
       <div class="footer">
         <div>Computer generated receipt</div>
         <div>No signature required</div>
-        <div>Printed on: ${new Date().toLocaleString()}</div>
       </div>
     </div>
     </body>
@@ -227,18 +248,17 @@ const generateReceiptHTML = (receipt: any) => {
 };
 
 const formatReceiptText = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
-    getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
   return `
 ================================
-        MANIKYA CHITS
+     MANIKYA CHITS PVT LTD
+ JC Road, Sagara, Shivamogga-577401
      Payment Receipt
 ================================
 Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
 ================================
 
-Group ID:      ${receipt.groupId || 'N/A'}
 Member ID:     ${receipt.groupMemberId || 'N/A'}
 Month:         M${receipt.monthIndex || 'N/A'}
 
@@ -246,23 +266,15 @@ Month:         M${receipt.monthIndex || 'N/A'}
 Installment:   ₹ ${receipt.installmentAmount || '0'}
 ${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
---------------------------------
-PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}
-${hasPenaltyActivity ? `--------------------------------
-Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}
-Total Penalty: ₹ ${receipt.totalPenaltyPaid || '0'}
---------------------------------
-PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
+${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}\n` : ''}PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
 ` : ''}================================
 TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
 ================================
-Due Date:      ${receipt.dueDate || 'Not set'}
+Collected By:  ${receipt.collectedBy || '-'}
+Emp Phone:     ${receipt.employeePhone || '-'}
 
       Thank you 🙏
-
---------------------------------
-${new Date().toLocaleString()}
 ================================
 `;
 };
@@ -303,18 +315,17 @@ const printViaBluetooth = async (receipt: any, device: any) => {
   try {
     console.log('🖨️ Trying Bluetooth Print...');
 
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
-      getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
     const receiptText = `
 ================================
-        MANIKYA CHITS
+     MANIKYA CHITS PVT LTD
+ JC Road, Sagara, Shivamogga-577401
      Payment Receipt
 ================================
 Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
 ================================
 
-Group ID:      ${receipt.groupId || 'N/A'}
 Member ID:     ${receipt.groupMemberId || 'N/A'}
 Month:         M${receipt.monthIndex || 'N/A'}
 
@@ -322,23 +333,15 @@ Month:         M${receipt.monthIndex || 'N/A'}
 Installment:   ₹ ${receipt.installmentAmount || '0'}
 ${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}Total Paid:    ₹ ${receipt.totalInstallmentPaid || '0'}
---------------------------------
-PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}
-${hasPenaltyActivity ? `--------------------------------
-Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}
-Total Penalty: ₹ ${receipt.totalPenaltyPaid || '0'}
---------------------------------
-PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
+${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}\n` : ''}PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
 ` : ''}================================
 TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
 ================================
-Due Date:      ${receipt.dueDate || 'Not set'}
+Collected By:  ${receipt.collectedBy || '-'}
+Emp Phone:     ${receipt.employeePhone || '-'}
 
       Thank you 🙏
-
---------------------------------
-${new Date().toLocaleString()}
 ================================
 
 
@@ -440,6 +443,31 @@ const smartPrint = async (receipt: any, viewShotRef: any, bluetoothDevice: any =
 export default function ReceiptScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+
+  // FIX (header): this screen used to wrap everything in react-native's
+  // own <SafeAreaView>, which already adds the correct top inset by
+  // itself on iOS -- plus a fixed paddingTop: 50 on the header on top
+  // of that, double-padding the header on notched iPhones. On Android,
+  // core SafeAreaView does nothing at all, so the header relied only on
+  // that fixed 50px, which doesn't match the real status bar height on
+  // every device. Using useSafeAreaInsets() + a plain View (same
+  // pattern already used on the other admin/employee screens) gives one
+  // correct top padding on both platforms instead.
+  const insets = useSafeAreaInsets();
+  const headerPaddingTop = Platform.OS === "ios" ? insets.top + 12 : 48;
+
+  // FIX (back button): same "GO_BACK action not handled" crash fixed
+  // elsewhere in the app -- a bare router.back() throws when this
+  // screen has no navigation history behind it (opened via a refresh
+  // or a direct link). Falls back to the employee home instead.
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/employee");
+    }
+  };
+
   const receiptRef = useRef<ViewShot>(null);
   const [devices, setDevices] = useState<any[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<any>(null);
@@ -662,8 +690,7 @@ export default function ReceiptScreen() {
 
   /* ================= RENDER RECEIPT CONTENT ================= */
   const renderReceiptContent = () => {
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity } =
-      getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
     return (
     <ViewShot
@@ -675,7 +702,10 @@ export default function ReceiptScreen() {
       }}
     >
       <View style={styles.paper}>
-        <Text style={styles.title}>MANIKYA CHIT</Text>
+        <Text style={styles.title}>MANIKYA CHITS PVT LTD</Text>
+        <Text style={styles.address}>
+          #102 Shri Siddivinayaka Complex, In Front of Government Hospital, JC Road, Sagara, Shivamogga, Karnataka - 577401
+        </Text>
         <Text style={styles.center}>Payment Receipt</Text>
 
         {/* DATE & TIME IN FIRST ROW */}
@@ -688,7 +718,6 @@ export default function ReceiptScreen() {
 
         <Divider />
 
-        <Row label="Group ID" value={receipt.groupId} />
         <Row label="Member ID" value={receipt.groupMemberId} />
         <Row label="Month" value={`M${receipt.monthIndex}`} />
 
@@ -714,17 +743,14 @@ export default function ReceiptScreen() {
             value={`₹ ${receipt.todayInstallmentPaid}`}
           />
         )}
-        <Row
-          label="Total Installment Paid"
-          value={`₹ ${receipt.totalInstallmentPaid}`}
-        />
-
         {/* PENDING INSTALLMENT - BOLD */}
-        <Row
-          label="Pending Installment"
-          value={`₹ ${receipt.pendingInstallment || 0}`}
-          bold
-        />
+        {hasPendingInstallment && (
+          <Row
+            label="Pending Installment"
+            value={`₹ ${receipt.pendingInstallment || 0}`}
+            bold
+          />
+        )}
 
         {/* PENALTY SECTION -- skipped entirely when this month never
             had any penalty involved, so a clean-paying member's
@@ -733,14 +759,12 @@ export default function ReceiptScreen() {
           <>
             <Divider />
 
-            <Row
-              label="Paid Today (Penalty)"
-              value={`₹ ${receipt.todayPenaltyPaid || 0}`}
-            />
-            <Row
-              label="Total Penalty Paid"
-              value={`₹ ${receipt.totalPenaltyPaid || 0}`}
-            />
+            {hasTodayPenalty && (
+              <Row
+                label="Paid Today (Penalty)"
+                value={`₹ ${receipt.todayPenaltyPaid || 0}`}
+              />
+            )}
 
             {/* PENDING PENALTY - BOLD */}
             <Row
@@ -762,7 +786,8 @@ export default function ReceiptScreen() {
 
         <Divider />
 
-        <Row label="Due Date" value={receipt.dueDate || "Not set"} />
+        <Row label="Collected By" value={receipt.collectedBy || "-"} />
+        <Row label="Employee Phone" value={receipt.employeePhone || "-"} />
 
         <Divider />
 
@@ -784,26 +809,28 @@ export default function ReceiptScreen() {
 
   if (!receipt) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: headerPaddingTop }]}>
+        <StatusBar barStyle="light-content" backgroundColor="#024e32" />
         <Text style={{ textAlign: "center", marginTop: 40, fontSize: 16 }}>
           Receipt data not found
         </Text>
         <TouchableOpacity
           style={[styles.actionButton, styles.backButtonFull, { marginTop: 20, marginHorizontal: 20 }]}
-          onPress={() => router.back()}
+          onPress={goBack}
         >
           <MaterialIcons name="arrow-back" size={20} color="white" />
           <Text style={styles.actionButtonText}>GO BACK</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </View>
     );
   }
 
   /* ================= UI ================= */
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+    <View style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#024e32" />
+      <View style={[styles.header, { paddingTop: headerPaddingTop }]}>
+        <TouchableOpacity onPress={goBack} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={26} color="white" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Payment Receipt</Text>
@@ -857,7 +884,7 @@ export default function ReceiptScreen() {
         {/* BACK BUTTON */}
         <TouchableOpacity
           style={[styles.actionButton, styles.backButtonFull]}
-          onPress={() => router.back()}
+          onPress={goBack}
         >
           <MaterialIcons name="arrow-back" size={20} color="white" />
           <Text style={styles.actionButtonText}>BACK TO HOME</Text>
@@ -967,7 +994,7 @@ export default function ReceiptScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -991,7 +1018,6 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: "#024e32",
     paddingHorizontal: 20,
-    paddingTop: 50,
     paddingBottom: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -1014,8 +1040,16 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "bold",
     fontSize: 18,
-    marginBottom: 8,
+    marginBottom: 2,
     color: "#024e32"
+  },
+  address: {
+    textAlign: "center",
+    fontSize: 8,
+    color: "#666",
+    marginBottom: 4,
+    lineHeight: 11,
+    paddingHorizontal: 14,
   },
   center: {
     textAlign: "center",

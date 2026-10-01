@@ -2,13 +2,12 @@
   "expo": {
     "name": "Manikya Chits",
     "slug": "manikya-chits",
-    "version": "1.1.9",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/maxxxxx.png",
     "scheme": "manikya-chits",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true,
       "deploymentTarget": "16.4",
@@ -19,22 +18,18 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "versionCode": 11,
       "package": "com.manikya.chitfund",
-
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/maxxxxx.png",
         "backgroundColor": "#ffffff"
       },
-
       "permissions": [
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -42,16 +37,13 @@
         "android.permission.READ_MEDIA_VIDEO"
       ]
     },
-
     "web": {
       "favicon": "./assets/images/maxxxxx.png"
     },
-
     "plugins": [
       "expo-router",
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-
       [
         "expo-build-properties",
         {
@@ -71,11 +63,9 @@
           }
         }
       ],
-
       "expo-video",
       "expo-font",
       "react-native-ble-plx",
-
       [
         "expo-splash-screen",
         {
@@ -84,9 +74,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
-
     "extra": {
       "router": {},
       "eas": {

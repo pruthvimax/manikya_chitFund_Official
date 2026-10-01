@@ -513,6 +513,15 @@ export default function EmployeeDashboard() {
                         showModal={showAccessDeniedModal}
                     />
 
+                    <MenuCard
+                        title="Daily Leads"
+                        icon="whatshot"
+                        route="/employee/dailyDatabase"
+                        featureAccess={featureAccess}
+                        loadingAccess={loadingAccess}
+                        showModal={showAccessDeniedModal}
+                    />
+
                     {/* NEW - independent of featureAccess. Hidden entirely
                         (not greyed out) when Admin has Vacancy Access OFF. */}
                     {canViewVacancy && (

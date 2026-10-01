@@ -691,6 +691,8 @@ export default function CollectPayment() {
               employeeInfo.emp_id,
             employeeName:
               employeeInfo.name,
+            employeePhone:
+              employeeInfo.phone,
           }),
         }
       );
@@ -836,6 +838,24 @@ export default function CollectPayment() {
      PRINT FUNCTION
   ===================================================== */
 
+  const isSamePaymentDay = (
+    paidAt: any
+  ) => {
+    if (!paidAt) return false;
+    const paymentDate = new Date(
+      paidAt
+    );
+    const today = new Date();
+    return (
+      paymentDate.getFullYear() ===
+        today.getFullYear() &&
+      paymentDate.getMonth() ===
+        today.getMonth() &&
+      paymentDate.getDate() ===
+        today.getDate()
+    );
+  };
+
   const handlePrintReceipt = (
     monthIndex: number
   ) => {
@@ -878,13 +898,22 @@ export default function CollectPayment() {
         0
       );
 
-    const todayInstallmentPaid =
+    const lastInstallmentPayment =
       installmentPayments.length >
       0
         ? installmentPayments[
             installmentPayments.length -
               1
-          ].amount || 0
+          ]
+        : null;
+
+    const todayInstallmentPaid =
+      lastInstallmentPayment &&
+      isSamePaymentDay(
+        lastInstallmentPayment.paidAt
+      )
+        ? lastInstallmentPayment.amount ||
+          0
         : 0;
 
     const effectivePaid =
@@ -912,13 +941,22 @@ export default function CollectPayment() {
         0
       );
 
-    const todayPenaltyPaid =
+    const lastPenaltyPayment =
       penaltyPayments.length >
       0
         ? penaltyPayments[
             penaltyPayments.length -
               1
-          ].amount || 0
+          ]
+        : null;
+
+    const todayPenaltyPaid =
+      lastPenaltyPayment &&
+      isSamePaymentDay(
+        lastPenaltyPayment.paidAt
+      )
+        ? lastPenaltyPayment.amount ||
+          0
         : 0;
 
     const penaltyByMonth =
@@ -1029,6 +1067,10 @@ export default function CollectPayment() {
       collectedBy:
         lastPayment?.employeeName ||
         lastPayment?.collectedBy ||
+        "-",
+
+      employeePhone:
+        lastPayment?.employeePhone ||
         "-",
 
       paymentMode:
