@@ -23,6 +23,11 @@ const paymentSchema = new mongoose.Schema({
     default: "",
   },
 
+  employeePhone: {
+    type: String,
+    default: "",
+  },
+
   paymentMode: {
     type: String,
     enum: ["Cash", "UPI", "Cheque", "AC"],

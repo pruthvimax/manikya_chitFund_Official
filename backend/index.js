@@ -25,6 +25,8 @@ import targetRoutes from "./routes/targetRoutes.js";
 import workSheetRoutes from "./routes/workSheetRoutes.js";
 import bidRoutes from "./routes/bidRoutes.js";
 import vacancyRoutes from "./routes/vacancyRoutes.js";
+import dailyDatabaseRoutes from "./routes/dailyDatabaseRoutes.js";
+
 
 const app = express();
 
@@ -81,6 +83,7 @@ app.use("/api/enrollment", enrollmentRoutes);
 app.use("/api/target", targetRoutes);
 app.use("/api/bids", bidRoutes);
 app.use("/api/vacancy", vacancyRoutes);
+app.use("/api/daily-database", dailyDatabaseRoutes);
 
 // ----------------- TEST ROUTE -----------------
 
