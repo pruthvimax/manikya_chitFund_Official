@@ -1,5 +1,6 @@
 import Group from "../models/Group.js";
 import Member from "../models/Member.js";
+import Employee from "../models/Employee.js";
 
 /* ================= COPY PLAN TO MEMBER COLLECTIONS ================= */
 export const syncCollectionPlanToMembers = async (
@@ -90,14 +91,55 @@ export const getGroupMembers = async (req, res) => {
     map[m.userid] = { name: m.username, phone: m.phone };
   });
 
+  // ✅ BACKFILL: old payments made before employeePhone was tracked
+  // only have employeeId stored, not the phone itself. Collect those
+  // ids and look up each employee's CURRENT phone, so old receipts
+  // can show a phone too, not just brand-new payments going forward.
+  const missingEmployeeIds = new Set();
+  group.members.forEach((m) => {
+    (m.collections || []).forEach((c) => {
+      (c.payments || []).forEach((p) => {
+        if (!p.employeePhone && p.employeeId) {
+          missingEmployeeIds.add(p.employeeId);
+        }
+      });
+    });
+  });
+
+  let employeePhoneMap = {};
+  if (missingEmployeeIds.size > 0) {
+    const employees = await Employee.find(
+      { emp_id: { $in: [...missingEmployeeIds] } },
+      { emp_id: 1, phone: 1 }
+    );
+    employees.forEach((e) => {
+      employeePhoneMap[e.emp_id] = e.phone;
+    });
+  }
+
+  const groupMembers = group.members.map((m) => {
+    const mObj = m.toObject();
+
+    mObj.collections = (mObj.collections || []).map((c) => ({
+      ...c,
+      payments: (c.payments || []).map((p) =>
+        !p.employeePhone && p.employeeId && employeePhoneMap[p.employeeId]
+          ? { ...p, employeePhone: employeePhoneMap[p.employeeId] }
+          : p
+      ),
+    }));
+
+    return {
+      ...mObj,
+      memberName: map[m.memberId]?.name || "Unknown",
+      phone: map[m.memberId]?.phone || "-",
+    };
+  });
+
   res.json({
     totalCollections: group.totalCollections,
     collectionPlans: group.collectionPlans,
-    groupMembers: group.members.map((m) => ({
-      ...m.toObject(),
-      memberName: map[m.memberId]?.name || "Unknown",
-      phone: map[m.memberId]?.phone || "-",
-    })),
+    groupMembers,
   });
 };
 
@@ -212,6 +254,7 @@ export const addPaymentToMember = async (req, res) => {
   paymentMode,
   employeeId,
   employeeName,
+  employeePhone,
 } = req.body;
 
   const group = await Group.findOne({ groupId });
@@ -238,6 +281,8 @@ export const addPaymentToMember = async (req, res) => {
     employeeId: employeeId || "",
 
     employeeName: employeeName || "",
+
+    employeePhone: employeePhone || "",
 
     paidAt: new Date(),
 
