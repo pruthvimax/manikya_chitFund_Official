@@ -506,6 +506,263 @@ function MonthYearPicker({
 }
 
 /* =========================================================
+   LOG ENTRY DATE PICKER  (Year -> Month -> Day, in that order)
+
+   Used only inside the "Edit Payment Log" modal so the admin can
+   correct the date of one collection-log line. Three explicit
+   steps instead of one calendar grid, per request: pick the year
+   first, then the month, then the day. Built from the same pure
+   RN primitives as SimpleCalendar / MonthYearPicker above, so it
+   behaves identically on web, iOS and Android -- no native picker
+   involved.
+========================================================= */
+
+function LogDatePicker({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: Date;
+  onChange: (d: Date) => void;
+  onClose: () => void;
+}) {
+  const safeValue =
+    value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+
+  const [step, setStep] = useState<"year" | "month" | "day">("year");
+  const [pickYear, setPickYear] = useState(safeValue.getFullYear());
+  const [pickMonth, setPickMonth] = useState(safeValue.getMonth());
+
+  const CARD_WIDTH = 320;
+  const CELL = 40;
+
+  const today = new Date();
+  const daysInMonth = new Date(pickYear, pickMonth + 1, 0).getDate();
+  const firstWeekday = new Date(pickYear, pickMonth, 1).getDay();
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const handlePickDay = (d: number) => {
+    onChange(new Date(pickYear, pickMonth, d));
+    onClose();
+  };
+
+  return (
+    <View
+      className="bg-white rounded-2xl shadow-2xl"
+      style={{ width: step === "day" ? CELL * 7 + 24 : CARD_WIDTH, padding: 16 }}
+    >
+      {/* Step dots */}
+      <View className="flex-row items-center justify-center mb-4" style={{ gap: 6 }}>
+        {(["year", "month", "day"] as const).map((s) => (
+          <View
+            key={s}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: step === s ? "#024e32" : "#e5e7eb",
+            }}
+          />
+        ))}
+      </View>
+
+      {step === "year" && (
+        <>
+          <Text className="text-gray-800 font-bold text-base text-center mb-4">
+            Select Year
+          </Text>
+          <View className="flex-row justify-between items-center">
+            <TouchableOpacity
+              onPress={() => setPickYear((y) => y - 1)}
+              hitSlop={ICON_HIT_SLOP}
+              className="p-2 rounded-full bg-gray-50"
+              activeOpacity={0.6}
+            >
+              <MaterialIcons name="chevron-left" size={24} color="#024e32" />
+            </TouchableOpacity>
+
+            <Text className="text-gray-800 font-bold text-2xl">{pickYear}</Text>
+
+            <TouchableOpacity
+              onPress={() => setPickYear((y) => y + 1)}
+              hitSlop={ICON_HIT_SLOP}
+              className="p-2 rounded-full bg-gray-50"
+              activeOpacity={0.6}
+            >
+              <MaterialIcons name="chevron-right" size={24} color="#024e32" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => setStep("month")}
+            className="bg-[#024e32] py-3 rounded-xl mt-5"
+            activeOpacity={0.8}
+          >
+            <Text className="text-white text-center font-bold">Next: Pick Month</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={onClose} className="py-3 mt-1" activeOpacity={0.7}>
+            <Text className="text-gray-500 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
+      {step === "month" && (
+        <>
+          <View className="flex-row items-center justify-between mb-4">
+            <TouchableOpacity
+              onPress={() => setStep("year")}
+              hitSlop={ICON_HIT_SLOP}
+              className="p-1"
+              activeOpacity={0.6}
+            >
+              <MaterialIcons name="chevron-left" size={24} color="#024e32" />
+            </TouchableOpacity>
+            <Text className="text-gray-800 font-bold text-base">
+              {pickYear} — Select Month
+            </Text>
+            <View style={{ width: 26 }} />
+          </View>
+
+          <View className="flex-row flex-wrap" style={{ marginHorizontal: -4 }}>
+            {MONTH_NAMES.map((m, idx) => {
+              const selected = idx === pickMonth;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => {
+                    setPickMonth(idx);
+                    setStep("day");
+                  }}
+                  activeOpacity={0.7}
+                  style={{ width: "33.333%", padding: 4 }}
+                >
+                  <View
+                    style={{
+                      paddingVertical: 12,
+                      borderRadius: 12,
+                      alignItems: "center",
+                      backgroundColor: selected ? "#024e32" : "#f3f4f6",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? "#ffffff" : "#1f2937",
+                        fontWeight: selected ? "700" : "500",
+                        fontSize: 13,
+                      }}
+                    >
+                      {m.slice(0, 3)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
+
+      {step === "day" && (
+        <>
+          <View className="flex-row items-center justify-between mb-2">
+            <TouchableOpacity
+              onPress={() => setStep("month")}
+              hitSlop={ICON_HIT_SLOP}
+              className="p-1"
+              activeOpacity={0.6}
+            >
+              <MaterialIcons name="chevron-left" size={24} color="#024e32" />
+            </TouchableOpacity>
+            <Text className="text-gray-800 font-bold text-base">
+              {MONTH_NAMES[pickMonth]} {pickYear}
+            </Text>
+            <View style={{ width: 26 }} />
+          </View>
+
+          <View className="flex-row mb-1">
+            {DAY_NAMES.map((d) => (
+              <View key={d} style={{ width: CELL, alignItems: "center" }}>
+                <Text className="text-gray-500 text-xs font-semibold">{d}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View className="flex-row flex-wrap">
+            {cells.map((d, i) => {
+              if (d === null) {
+                return <View key={`e-${i}`} style={{ width: CELL, height: CELL }} />;
+              }
+              const sel =
+                safeValue.getFullYear() === pickYear &&
+                safeValue.getMonth() === pickMonth &&
+                safeValue.getDate() === d;
+              const tod =
+                today.getFullYear() === pickYear &&
+                today.getMonth() === pickMonth &&
+                today.getDate() === d;
+              return (
+                <TouchableOpacity
+                  key={d}
+                  onPress={() => handlePickDay(d)}
+                  activeOpacity={0.7}
+                  style={{
+                    width: CELL,
+                    height: CELL,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <View
+                    style={{
+                      width: CELL - 6,
+                      height: CELL - 6,
+                      borderRadius: (CELL - 6) / 2,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: sel ? "#024e32" : "transparent",
+                      borderWidth: tod && !sel ? 1.5 : 0,
+                      borderColor: "#024e32",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: sel ? "#ffffff" : "#1f2937",
+                        fontWeight: sel || tod ? "700" : "500",
+                        fontSize: 14,
+                      }}
+                    >
+                      {d}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            onPress={() => {
+              const t = new Date();
+              setPickYear(t.getFullYear());
+              setPickMonth(t.getMonth());
+              onChange(t);
+              onClose();
+            }}
+            className="bg-gray-100 py-2.5 rounded-xl mt-3"
+            activeOpacity={0.7}
+          >
+            <Text className="text-gray-700 text-center font-semibold">Today</Text>
+          </TouchableOpacity>
+        </>
+      )}
+    </View>
+  );
+}
+
+/* =========================================================
    PAYMENT LOG BUILDER
 ========================================================= */
 
@@ -725,7 +982,8 @@ const recalcEditHistoryForLogEdit = (
   target: Target,
   editedStamp: string,
   newAmount: number,
-  newPaymentMethod: string
+  newPaymentMethod: string,
+  newDate: Date
 ): { editHistory: any[]; collectionAmount: number } => {
   const history = Array.isArray(target.editHistory)
     ? target.editHistory.map((item) => ({ ...item }))
@@ -746,6 +1004,11 @@ const recalcEditHistoryForLogEdit = (
     const tb = groupMap.get(b)!.editedAt ? new Date(groupMap.get(b)!.editedAt as string).getTime() : 0;
     return ta - tb;
   });
+
+  const newDateIso =
+    newDate instanceof Date && !Number.isNaN(newDate.getTime())
+      ? newDate.toISOString()
+      : new Date().toISOString();
 
   let carryOldValue: number | null = null;
   let pastEditPoint = false;
@@ -780,9 +1043,18 @@ const recalcEditHistoryForLogEdit = (
           field: "paymentMethod",
           oldValue: target.paymentMethod ?? "",
           newValue: newPaymentMethod,
-          editedAt: group.editedAt,
+          editedAt: newDateIso,
         });
       }
+
+      // Move every line that belongs to this edited log entry (the
+      // collection change, the payment-method change, and anything
+      // else that was logged in the same save) onto the new date, so
+      // they stay grouped together as one entry under the new stamp.
+      group.indices.forEach((idx) => {
+        history[idx] = { ...history[idx], editedAt: newDateIso };
+      });
+
       pastEditPoint = true;
     } else if (pastEditPoint && collectionIdx !== undefined && carryOldValue !== null) {
       const originalOld = toNumber(history[collectionIdx].oldValue);
@@ -873,6 +1145,8 @@ export default function AdminTargetsView() {
   const [editLogAmount, setEditLogAmount] = useState("");
   const [editLogPaymentMethod, setEditLogPaymentMethod] = useState("Cash");
   const [editLogTarget, setEditLogTarget] = useState<Target | null>(null);
+  const [editLogDate, setEditLogDate] = useState(new Date());
+  const [showEditLogDatePicker, setShowEditLogDatePicker] = useState(false);
 
   const [savingLog, setSavingLog] = useState(false);
 
@@ -961,10 +1235,11 @@ export default function AdminTargetsView() {
       editLogTarget,
       editingPaymentLog.stamp,
       parsed,
-      editLogPaymentMethod
+      editLogPaymentMethod,
+      editLogDate
     );
     return collectionAmount;
-  }, [editingPaymentLog, editLogTarget, editLogAmount, editLogPaymentMethod]);
+  }, [editingPaymentLog, editLogTarget, editLogAmount, editLogPaymentMethod, editLogDate]);
 
   const previousCollectionTotal = Number(selectedTarget?.collectionAmount || 0);
 
@@ -1289,6 +1564,33 @@ export default function AdminTargetsView() {
   const handleDelete = async (id: string) => {
     setModalVisible(false);
 
+    const doDelete = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/target/${id}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) throw new Error("Delete failed");
+
+        showAlertSafely("Success", "Target deleted");
+        fetchTargetsForEmployee(selectedEmployee!.emp_id);
+      } catch (error) {
+        showAlertSafely("Error", "Failed to delete");
+      }
+    };
+
+    // FIX: Alert.alert's Cancel/Delete button pair doesn't render as a
+    // real clickable dialog on web (desktop/laptop) -- only native
+    // iOS/Android show it properly. On web this now uses a plain
+    // window.confirm() instead, same reasoning as the Platform.OS ===
+    // "web" branches already used for printing elsewhere in this file.
+    if (Platform.OS === "web") {
+      if (window.confirm("Are you sure you want to delete this target?")) {
+        doDelete();
+      }
+      return;
+    }
+
     if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
     alertTimerRef.current = setTimeout(() => {
       Alert.alert(
@@ -1299,20 +1601,7 @@ export default function AdminTargetsView() {
           {
             text: "Delete",
             style: "destructive",
-            onPress: async () => {
-              try {
-                const response = await fetch(`${BACKEND_URL}/target/${id}`, {
-                  method: "DELETE",
-                });
-
-                if (!response.ok) throw new Error("Delete failed");
-
-                showAlertSafely("Success", "Target deleted");
-                fetchTargetsForEmployee(selectedEmployee!.emp_id);
-              } catch (error) {
-                showAlertSafely("Error", "Failed to delete");
-              }
-            },
+            onPress: doDelete,
           },
         ]
       );
@@ -1769,6 +2058,9 @@ export default function AdminTargetsView() {
     setEditLogAmount(entry.amount !== null ? String(entry.amount) : "");
     setEditLogPaymentMethod(entry.paymentMethod || "Cash");
 
+    const parsedLogDate = entry.editedAt ? new Date(entry.editedAt) : new Date();
+    setEditLogDate(Number.isNaN(parsedLogDate.getTime()) ? new Date() : parsedLogDate);
+
     setHistoryModalVisible(false);
     if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
     swapTimerRef.current = setTimeout(() => {
@@ -1800,7 +2092,8 @@ export default function AdminTargetsView() {
       editLogTarget,
       editingPaymentLog.stamp,
       newAmount,
-      editLogPaymentMethod
+      editLogPaymentMethod,
+      editLogDate
     );
 
     const cleanHistory = sanitizeEditHistory(editHistory);
@@ -1833,6 +2126,7 @@ export default function AdminTargetsView() {
       setEditLogTarget(null);
       setEditLogAmount("");
       setEditLogPaymentMethod("Cash");
+      setEditLogDate(new Date());
 
       const data = await fetchTargetsList();
 
@@ -1912,7 +2206,13 @@ export default function AdminTargetsView() {
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center flex-1 pr-3">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/admin");
+                }
+              }}
               className={isDesktopOrLaptop ? 'p-2' : 'mr-3'}
               activeOpacity={0.7}
               hitSlop={ICON_HIT_SLOP}
@@ -3107,9 +3407,52 @@ export default function AdminTargetsView() {
                       Editing the entry from {formatLogDate(editingPaymentLog.editedAt)}
                     </Text>
                     <Text className="text-gray-400 text-xs mb-3">
-                      This entry is rewritten in place — its date stays the same and
-                      no new entry is added to the log.
+                      This entry is rewritten in place — change the date below if it's
+                      wrong; no new entry is added to the log.
                     </Text>
+
+                    <Text className="font-semibold text-gray-800 mb-1.5">Date *</Text>
+
+                    {/* Same pure-RN picker pattern as the Date field in
+                        Edit Customer Details above, but stepped
+                        Year -> Month -> Day so it's quick to jump to an
+                        old entry's date -- identical behavior on web,
+                        iOS and Android. */}
+                    <TouchableOpacity
+                      onPress={() => setShowEditLogDatePicker(true)}
+                      className="bg-white border border-gray-300 rounded-xl px-4 py-3.5 mb-4 flex-row justify-between items-center"
+                      activeOpacity={0.7}
+                    >
+                      <Text className="text-gray-800 text-base">{formatDate(editLogDate)}</Text>
+                      <MaterialIcons name="calendar-today" size={22} color="#024e32" />
+                    </TouchableOpacity>
+
+                    <Modal
+                      transparent
+                      animationType="fade"
+                      statusBarTranslucent
+                      visible={showEditLogDatePicker}
+                      onRequestClose={() => setShowEditLogDatePicker(false)}
+                    >
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          backgroundColor: "rgba(0,0,0,0.5)",
+                          justifyContent: "center",
+                          alignItems: "center",
+                        }}
+                        activeOpacity={1}
+                        onPress={() => setShowEditLogDatePicker(false)}
+                      >
+                        <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                          <LogDatePicker
+                            value={editLogDate}
+                            onChange={(d) => setEditLogDate(d)}
+                            onClose={() => setShowEditLogDatePicker(false)}
+                          />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    </Modal>
 
                     <Text className="font-semibold text-gray-800 mb-1.5">Amount *</Text>
                     <TextInput
