@@ -476,6 +476,13 @@ export default function AdminIndex() {
           />
 
           <MenuCard
+            title="Daily Leads"
+            subtitle="Employee field-visit leads"
+            icon="whatshot"
+            route="/admin/dailyDatabaseEmployees"
+          />
+
+          <MenuCard
             title="Notifications"
             icon="notifications"
             route="/admin/notifications"
