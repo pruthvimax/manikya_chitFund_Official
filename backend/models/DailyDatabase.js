@@ -21,6 +21,14 @@ const dailyDatabaseSchema = new mongoose.Schema(
 
     name: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true },
+    // FIXED: this field didn't exist on the schema at all -- even
+    // though the frontend sends `telephone`, and the controller now
+    // passes it through, Mongoose silently drops any field that isn't
+    // declared here. This is the piece that actually makes it save.
+    // Optional (no `required`), since it's the landline/telephone
+    // number employees fill in only when they have one -- not every
+    // lead will have one, unlike the mandatory Phone Number above.
+    telephone: { type: String, trim: true, default: "" },
     occupation: { type: String, trim: true, default: "" },
     workAddress: { type: String, trim: true, default: "" },
     permanentAddress: { type: String, trim: true, default: "" },

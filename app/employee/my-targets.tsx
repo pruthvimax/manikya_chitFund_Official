@@ -153,7 +153,6 @@ const prettyFieldName = (field: any): string => {
 
 const buildPaymentLog = (target: any): PaymentLogEntry[] => {
   const history = Array.isArray(target?.editHistory) ? target.editHistory : [];
-  if (history.length === 0) return [];
 
   const groups = new Map<
     string,
@@ -209,6 +208,70 @@ const buildPaymentLog = (target: any): PaymentLogEntry[] => {
       editedBy: group.editedBy,
     });
   });
+
+  // FIXED: the Collection Amount typed on the very first "Add Target" form
+  // (handleSubmit, below) never showed up in this log, because
+  // editHistory only starts recording once something is EDITED
+  // afterwards -- a brand new target has no edit yet at the moment it's
+  // created. That's exactly what was reported: the first collection
+  // amount only appeared in History after the employee opened the
+  // pencil "Edit" modal once and added something on top of it.
+  // This adds ONE more entry here for that original amount, dated at
+  // creation time, so it always shows -- without touching how a target
+  // is created, edited, saved, or how collection amounts are added
+  // anywhere else on this page.
+  if (target) {
+    const collectionEdits = history
+      .filter((i: any) =>
+        String(i?.field ?? "").toLowerCase().includes("collection")
+      )
+      .sort(
+        (a: any, b: any) =>
+          new Date(a?.editedAt ?? 0).getTime() -
+          new Date(b?.editedAt ?? 0).getTime()
+      );
+
+    // Right before the EARLIEST collection edit, the total was whatever
+    // it became at creation -- so that earliest edit's oldValue IS the
+    // original amount typed on the Add Target form. If this target has
+    // never been edited at all yet, the current collectionAmount itself
+    // is still exactly that original amount.
+    const originalCollectionAmount =
+      collectionEdits.length > 0
+        ? toNumber(collectionEdits[0].oldValue)
+        : toNumber(target.collectionAmount);
+
+    // Same idea for payment method -- target.paymentMethod is the
+    // CURRENT/live value, which changes whenever ANY later entry's
+    // payment method is edited. Using it directly here made this
+    // creation row's payment method appear to change along with it,
+    // even though this entry itself was never touched. The earliest
+    // payment-method edit's oldValue is what it actually was at
+    // creation; if it was never edited, the current value still is it.
+    const paymentEdits = history
+      .filter((i: any) => String(i?.field ?? "").toLowerCase().includes("payment"))
+      .sort(
+        (a: any, b: any) =>
+          new Date(a?.editedAt ?? 0).getTime() -
+          new Date(b?.editedAt ?? 0).getTime()
+      );
+    const originalPaymentMethod =
+      paymentEdits.length > 0
+        ? String(paymentEdits[0].oldValue ?? target.paymentMethod ?? "")
+        : String(target.paymentMethod ?? "");
+
+    if (originalCollectionAmount > 0) {
+      log.push({
+        stamp: `created-${target._id || target.createdAt || "0"}`,
+        editedAt: target.createdAt || null,
+        amount: originalCollectionAmount,
+        newTotal: originalCollectionAmount,
+        paymentMethod: originalPaymentMethod,
+        otherFields: [],
+        oldAmount: 0,
+      });
+    }
+  }
 
   return log.sort(
     (a, b) =>
@@ -790,11 +853,30 @@ export default function MyTargets() {
   };
 
   // ============ EDIT TARGET DETAILS ============
-  // Employees can open this for ANY row - Pending, Approved or Rejected.
-  // The collection field always opens EMPTY: whatever is typed there is a
-  // NEW collection added on top of the amount already recorded, and the
-  // backend writes that change into the collection log.
+  // Only a Pending row can be edited here. The backend itself rejects
+  // any employee edit once admin has Approved or Rejected an entry
+  // (only an admin can touch it after that) -- this just stops the
+  // employee from opening the form and hitting that error at Save; it
+  // tells them up front instead.
   const openEditTargetModal = (target: Target) => {
+    if (target.status === "Approved" || target.status === "Rejected") {
+      const lockedMessage = `This entry is already ${target.status.toLowerCase()}. Only an admin can edit it now.`;
+
+      // Alert.alert alone does not reliably show on web (laptop/desktop
+      // browser) in this Expo setup -- same reason addPayment above uses
+      // window.confirm() there. Use the browser's own alert() on web and
+      // keep the native Alert on iOS/Android so this message is always
+      // seen, on every platform.
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(lockedMessage);
+        }
+      } else {
+        Alert.alert("Locked", lockedMessage);
+      }
+      return;
+    }
+
     setEditTargetData(target);
     setEditTargetCustomerName(target.customerName);
     setEditTargetPhoneNumber(target.phoneNumber);
@@ -926,7 +1008,18 @@ export default function MyTargets() {
         <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
           <View className="flex-row items-center">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => {
+                // FIXED: same "GO_BACK action not handled" crash fixed
+                // elsewhere in the app -- a bare router.back() throws
+                // when this screen has no navigation history behind it
+                // (opened fresh, via a refresh, or a direct link).
+                // Falls back to the employee home instead.
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/employee");
+                }
+              }}
               className="mt-1"
               activeOpacity={0.7}
             >
@@ -961,7 +1054,21 @@ export default function MyTargets() {
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <TouchableOpacity onPress={() => router.back()} className="mr-3">
+            <TouchableOpacity
+              onPress={() => {
+                // FIXED: same "GO_BACK action not handled" crash --
+                // this is the header shown on both the Add Target form
+                // and the History table view, so it crashed in History
+                // too whenever there was no screen behind it to go back
+                // to. Falls back to the employee home instead.
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/employee");
+                }
+              }}
+              className="mr-3"
+            >
               <MaterialIcons name="arrow-back" size={28} color="white" />
             </TouchableOpacity>
             <Text className="text-white text-2xl font-bold">My Targets</Text>
@@ -1241,7 +1348,11 @@ export default function MyTargets() {
                                     amount is entered and other details are fixed.
                                     It never rewrites an existing log line. */}
                                 <TouchableOpacity onPress={() => openEditTargetModal(target)}>
-                                  <MaterialIcons name="edit" size={20} color="#024e32" />
+                                  <MaterialIcons
+                                    name={target.status === "Pending" ? "edit" : "lock-outline"}
+                                    size={20}
+                                    color={target.status === "Pending" ? "#024e32" : "#9ca3af"}
+                                  />
                                 </TouchableOpacity>
 
                                 {/* History Button — VIEW ONLY */}

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -200,6 +201,28 @@ function formatAddedOn(value?: string) {
   return `${datePart} · ${timePart}`;
 }
 
+/* FIXED: tap-to-call for the phone number shown on each lead's card.
+   Always asks for confirmation BEFORE opening the dialer -- never
+   dials straight away. Lives at module scope (like EntryCard below
+   it) since it doesn't need anything from the component instance. */
+function handleCallPress(phone: string) {
+  if (!phone) return;
+
+  if (Platform.OS === "web") {
+    // @ts-ignore - window only exists on web
+    const confirmed = window.confirm(`Call ${phone}?`);
+    if (confirmed) {
+      Linking.openURL(`tel:${phone}`);
+    }
+    return;
+  }
+
+  Alert.alert("Call this number?", phone, [
+    { text: "Cancel", style: "cancel" },
+    { text: "Call", onPress: () => Linking.openURL(`tel:${phone}`) },
+  ]);
+}
+
 /* ================= FOOTER ================= */
 function Footer() {
   return (
@@ -227,6 +250,7 @@ function FormField({
   placeholder,
   keyboardType,
   multiline,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -234,6 +258,7 @@ function FormField({
   placeholder: string;
   keyboardType?: "default" | "phone-pad";
   multiline?: boolean;
+  maxLength?: number;
 }) {
   return (
     <View className="mb-4">
@@ -249,6 +274,7 @@ function FormField({
         multiline={multiline}
         numberOfLines={multiline ? 2 : 1}
         textAlignVertical={multiline ? "top" : "center"}
+        maxLength={maxLength}
         className="border border-gray-300 bg-white rounded-xl px-3 py-3 text-base"
         style={multiline ? { minHeight: 56 } : undefined}
       />
@@ -275,8 +301,20 @@ function EntryCard({
       </View>
 
       <View className="flex-row items-center mt-2">
-        <MaterialIcons name="call" size={14} color="#6b7280" />
-        <Text className="text-gray-500 text-xs ml-1">{entry.phone}</Text>
+        {/* FIXED: phone number is now tappable -- asks for confirmation
+            first, then opens the native dialer only if confirmed. */}
+        <TouchableOpacity
+          onPress={() => handleCallPress(entry.phone)}
+          disabled={!entry.phone}
+          activeOpacity={0.6}
+          hitSlop={8}
+          className="flex-row items-center bg-green-50 px-2 py-1 rounded-lg"
+        >
+          <MaterialIcons name="call" size={14} color="#024e32" />
+          <Text className="text-[#024e32] text-xs ml-1 font-semibold">
+            {entry.phone}
+          </Text>
+        </TouchableOpacity>
         {!!entry.occupation && (
           <>
             <Text className="text-gray-300 mx-2">•</Text>
@@ -287,6 +325,25 @@ function EntryCard({
           </>
         )}
       </View>
+
+      {/* Telephone Number -- the new optional landline field the
+          employee can fill in on their entry form. Same tap-to-call
+          confirm-first behavior as the Phone Number above. */}
+      {!!entry.telephone && (
+        <View className="flex-row items-center mt-1.5">
+          <TouchableOpacity
+            onPress={() => handleCallPress(entry.telephone)}
+            activeOpacity={0.6}
+            hitSlop={8}
+            className="flex-row items-center bg-blue-50 px-2 py-1 rounded-lg"
+          >
+            <MaterialIcons name="dialpad" size={14} color="#1d4ed8" />
+            <Text className="text-blue-700 text-xs ml-1 font-semibold">
+              {entry.telephone}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {!!entry.workAddress && (
         <View className="flex-row items-start mt-1.5">
@@ -359,6 +416,7 @@ export default function DailyDatabaseDetail() {
   const [editTarget, setEditTarget] = useState<any>(null);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editTelephone, setEditTelephone] = useState("");
   const [editOccupation, setEditOccupation] = useState("");
   const [editWorkAddress, setEditWorkAddress] = useState("");
   const [editPermanentAddress, setEditPermanentAddress] = useState("");
@@ -424,10 +482,29 @@ export default function DailyDatabaseDetail() {
     setEditTarget(entry);
     setEditName(entry.name || "");
     setEditPhone(entry.phone || "");
+    setEditTelephone(entry.telephone || "");
     setEditOccupation(entry.occupation || "");
     setEditWorkAddress(entry.workAddress || "");
     setEditPermanentAddress(entry.permanentAddress || "");
     setEditAction((entry.action as ActionType) || "Warm");
+  };
+
+  // FIXED: Phone Number field on this edit modal used to accept plain
+  // free text (letters, any length). This strips anything that isn't
+  // a digit on every keystroke and hard-caps it at 10 characters,
+  // matching the same restriction on the employee's own entry form
+  // (app/employee/dailyDatabase.tsx).
+  const handleEditPhoneChange = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9]/g, "").slice(0, 10);
+    setEditPhone(digitsOnly);
+  };
+
+  // Telephone Number -- same digits-only rule as Phone Number, but not
+  // capped at 10 since landline numbers (with STD codes) can run
+  // longer. Matches the employee-side entry form's own rule.
+  const handleEditTelephoneChange = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9]/g, "").slice(0, 15);
+    setEditTelephone(digitsOnly);
   };
 
   const saveEdit = async () => {
@@ -442,6 +519,7 @@ export default function DailyDatabaseDetail() {
         body: JSON.stringify({
           name: editName.trim(),
           phone: editPhone.trim(),
+          telephone: editTelephone.trim(),
           occupation: editOccupation.trim(),
           workAddress: editWorkAddress.trim(),
           permanentAddress: editPermanentAddress.trim(),
@@ -856,9 +934,18 @@ export default function DailyDatabaseDetail() {
               <FormField
                 label="Phone Number *"
                 value={editPhone}
-                onChangeText={setEditPhone}
+                onChangeText={handleEditPhoneChange}
                 placeholder="Enter phone number"
                 keyboardType="phone-pad"
+                maxLength={10}
+              />
+              <FormField
+                label="Telephone Number (optional)"
+                value={editTelephone}
+                onChangeText={handleEditTelephoneChange}
+                placeholder="Enter landline / telephone number"
+                keyboardType="phone-pad"
+                maxLength={15}
               />
               <FormField
                 label="Occupation"

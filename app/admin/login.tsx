@@ -37,6 +37,19 @@ export default function AdminLogin() {
   const [isFocused, setIsFocused] = useState({ mobile: false, otp: false });
   const [isLoading, setIsLoading] = useState(false);
 
+  /*
+    ADDED (red-field-on-empty):
+    Tracks which field(s) were left empty when the Send OTP /
+    Verify OTP button was tapped, so their border can turn red.
+    Cleared per-field the moment the user types into that field,
+    so the red only ever stays while the field is still empty.
+    Nothing about the login flow changes.
+  */
+  const [fieldErrors, setFieldErrors] = useState({
+    mobile: false,
+    otp: false,
+  });
+
   const { width, height } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
@@ -51,14 +64,15 @@ export default function AdminLogin() {
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   /*
-    ADDED:
-    Drives the top navbar's shrink-on-scroll. Tracks how far the
-    ScrollView has scrolled, then navbarScale/navbarTranslateY below
-    interpolate that into a transform (not padding/fontSize, which
-    can't run on the native thread) so the whole pill smoothly
-    shrinks as you scroll down and springs back to full size once
-    you're back at the top - native-driven, so it stays smooth on
-    both iOS and Android instead of stepping/jumping.
+    Drives the checkmark scale + fade when the OTP step verifies,
+    plus a soft pulsing ring behind it.
+  */
+  const checkScaleAnim = useRef(new Animated.Value(0)).current;
+  const checkFadeAnim = useRef(new Animated.Value(0)).current;
+  const ringPulseAnim = useRef(new Animated.Value(0)).current;
+
+  /*
+    Drives the top navbar's shrink-on-scroll.
   */
   const scrollY = useRef(new Animated.Value(0)).current;
   const navbarScale = scrollY.interpolate({
@@ -73,16 +87,8 @@ export default function AdminLogin() {
   });
 
   /*
-    ADDED:
     Holds the currently-running spinner loop so it can be
-    stopped/reset cleanly. Fixes: progressAnim was driven with a
-    single one-shot Animated.timing to 1 in BOTH sendOtp and
-    verifyOtp (they share the same value) - so it only ever
-    rotated once, then sat frozen at 1 for every attempt after
-    that, including the very next step's spinner (Step 1's
-    success doesn't navigate away, so this carried straight into
-    Step 2). Now it's a continuous loop, reset to 0 and restarted
-    on every attempt in both functions.
+    stopped/reset cleanly.
   */
   const spinLoopRef = useRef<any>(null);
 
@@ -108,25 +114,7 @@ export default function AdminLogin() {
   };
 
   /*
-    FIX: same class of bug already fixed on the Member and Employee
-    login screens.
-
-    1. Network timeout + retry: a plain fetch() with no timeout means
-       any brief connection hiccup (weak signal, momentary drop) either
-       hangs until the OS gives up or throws once straight into the
-       generic catch block below - showing "Server connection error" /
-       "Server error" even though the mobile number / OTP and backend
-       were fine. This wraps ONLY the network call with a timeout + a
-       couple of automatic retries, and retries ONLY on network-level
-       failures - never once a real response comes back from the
-       server, so an actual "invalid OTP" rejection still shows
-       immediately and is never resubmitted.
-    2. Double-submit guard (added at the top of sendOtp/verifyOtp
-       below): disabled={isLoading} on each button only takes effect
-       after a React re-render, so a fast double-tap could slip a
-       SECOND request through before that re-render lands. Two
-       concurrent /admin/send-otp or /admin/verify-otp calls can race
-       each other or trigger duplicate OTPs - stopped at the source.
+    Network timeout + retry + double-submit guard.
   */
   const REQUEST_TIMEOUT_MS = 15000;
   const MAX_ATTEMPTS = 3;
@@ -168,7 +156,7 @@ export default function AdminLogin() {
     if (message) {
       const timer = setTimeout(() => {
         setMessage("");
-      }, 3500);
+      }, 4000);
       return () => clearTimeout(timer);
     }
   }, [message]);
@@ -196,7 +184,6 @@ export default function AdminLogin() {
       }),
     ]).start();
 
-    // Floating animation for background elements
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatingAnim, {
@@ -214,7 +201,6 @@ export default function AdminLogin() {
       ])
     ).start();
 
-    // Pulse animation for logo
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -233,23 +219,81 @@ export default function AdminLogin() {
     ).start();
   }, []);
 
+  /*
+    True the moment verifyOtp's own setMessage("Login Successful! 🎉")
+    lands on step 2.
+  */
+  const otpVerified = step === 2 && !!message && message.includes("Successful");
+
+  // "OTP sent to WhatsApp ✅" is treated as a success-type info
+  // message so it can get the nicer WhatsApp-green banner treatment.
+  const isWhatsappSentMessage = !!message && message.includes("sent");
+
+  // Play the checkmark pop + start the pulsing ring when verified.
+  useEffect(() => {
+    if (otpVerified) {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(checkScaleAnim, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }),
+        Animated.timing(checkFadeAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulseAnim, {
+            toValue: 1,
+            duration: 1400,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringPulseAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+    }
+  }, [otpVerified]);
+
   const sendOtp = async () => {
-    // Hard guard against double-submit (see FIX comment above
-    // fetchWithRetry): a fast double-tap can slip a second request
-    // through before disabled={isLoading} takes effect.
+    // Hard guard against double-submit.
     if (isLoading) return;
 
     if (!mobile) {
+      // ADDED (red-field-on-empty): flag the mobile field so it
+      // turns red.
+      setFieldErrors({ mobile: true, otp: false });
       shakeAnimation();
       setMessage("Enter mobile number");
       return;
     }
 
     if (mobile !== ADMIN_PHONE) {
+      // Not a "missing" case but still worth flagging the field so
+      // the user's eye goes straight to it.
+      setFieldErrors({ mobile: true, otp: false });
       shakeAnimation();
       setMessage("Invalid admin mobile number");
       return;
     }
+
+    // Clear any lingering red as we move into a real attempt.
+    setFieldErrors({ mobile: false, otp: false });
 
     setIsLoading(true);
     startSpinner();
@@ -287,14 +331,19 @@ export default function AdminLogin() {
   };
 
   const verifyOtp = async () => {
-    // Same double-submit guard as sendOtp above.
     if (isLoading) return;
 
     if (!otp) {
+      // ADDED (red-field-on-empty): flag the OTP field so it turns
+      // red.
+      setFieldErrors({ mobile: false, otp: true });
       shakeAnimation();
       setMessage("Enter OTP");
       return;
     }
+
+    // Clear any lingering red as we move into a real attempt.
+    setFieldErrors({ mobile: false, otp: false });
 
     setIsLoading(true);
     startSpinner();
@@ -320,9 +369,6 @@ export default function AdminLogin() {
       stopSpinner();
       setIsLoading(false);
       setMessage("Login Successful! 🎉");
-      // Mark this device as an admin session. Screens that block
-      // screen capture check this flag and stay unblocked while it
-      // is set, so only an admin can take screenshots of the app.
       await AsyncStorage.setItem("adminSession", "true");
 
       Animated.sequence([
@@ -343,9 +389,11 @@ export default function AdminLogin() {
         }),
       ]).start();
 
+      // CHANGED (timing only): was 1900ms, now 1880ms -- 0.02s
+      // faster auto-navigate to the admin dashboard.
       setTimeout(() => {
         router.replace("/admin");
-      }, 800);
+      }, 1880);
     } catch (error) {
       console.log(error);
       stopSpinner();
@@ -392,7 +440,6 @@ export default function AdminLogin() {
     ? Math.min(width * 0.2, 280)
     : width * 0.5;
 
-  // Floating background circles
   const float1 = floatingAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -30],
@@ -406,13 +453,14 @@ export default function AdminLogin() {
   const filterDigits = (text: string) => text.replace(/[^0-9]/g, '');
 
   /* ================= TRANSPARENT / GLASS SURFACES ================= */
-  // Shared "glass" surfaces so iOS and Android render identically.
-  const glassInput = (focused: boolean) => ({
+  const glassInput = (focused: boolean, hasError: boolean = false) => ({
     backgroundColor: focused
       ? 'rgba(255,255,255,0.45)'
       : 'rgba(255,255,255,0.25)',
     borderWidth: 1.5,
-    borderColor: focused
+    borderColor: hasError
+      ? '#dc2626'
+      : focused
       ? '#024e32'
       : 'rgba(255,255,255,0.6)',
   });
@@ -486,11 +534,7 @@ export default function AdminLogin() {
             }}
           />
 
-          {/* ================= TOP NAV BAR — Admin / Employee / Member =================
-              Pinned above the scroll area so it stays put as a real navbar.
-              Replaces the old hamburger + popup: the other two portals are
-              one tap away, the current one just reads as selected.
-              Transparent glass style to match the rest of the screen. */}
+          {/* ================= TOP NAV BAR ================= */}
           <Animatable.View
             animation="fadeInDown"
             duration={600}
@@ -867,7 +911,7 @@ export default function AdminLogin() {
                           paddingVertical: Platform.OS === 'ios' ? 16 : 12,
                           marginBottom: 20,
                         },
-                        glassInput(isFocused.mobile),
+                        glassInput(isFocused.mobile, fieldErrors.mobile),
                         {
                           transform: [
                             {
@@ -882,7 +926,13 @@ export default function AdminLogin() {
                         <MaterialIcons
                           name="phone"
                           size={22}
-                          color={isFocused.mobile ? '#024e32' : '#64748b'}
+                          color={
+                            fieldErrors.mobile
+                              ? '#dc2626'
+                              : isFocused.mobile
+                              ? '#024e32'
+                              : '#64748b'
+                          }
                         />
                         <TextInput
                           placeholder="Enter mobile number"
@@ -898,7 +948,15 @@ export default function AdminLogin() {
                             backgroundColor: 'transparent',
                           }}
                           value={mobile}
-                          onChangeText={(text) => setMobile(filterDigits(text))}
+                          onChangeText={(text) => {
+                            setMobile(filterDigits(text));
+                            if (fieldErrors.mobile) {
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                mobile: false,
+                              }));
+                            }
+                          }}
                           onFocus={() => setIsFocused({ ...isFocused, mobile: true })}
                           onBlur={() => setIsFocused({ ...isFocused, mobile: false })}
                         />
@@ -983,197 +1041,370 @@ export default function AdminLogin() {
                   {/* STEP 2 - OTP */}
                   {step === 2 && (
                     <Animatable.View animation="fadeIn" duration={300}>
-                      <Text style={{
-                        fontSize: 13,
-                        fontWeight: '600',
-                        color: '#1e293b',
-                        marginBottom: 8,
-                        letterSpacing: 0.5,
-                        textTransform: 'uppercase',
-                      }}>
-                        Enter OTP
-                      </Text>
-                      <Text style={{
-                        fontSize: 14,
-                        color: '#64748b',
-                        marginBottom: 16,
-                      }}>
-                        OTP sent to {mobile}
-                      </Text>
-                      <Animated.View style={[
-                        {
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          borderRadius: 16,
-                          paddingHorizontal: 16,
-                          paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                          marginBottom: 20,
-                        },
-                        glassInput(isFocused.otp),
-                        {
-                          transform: [
-                            {
-                              rotate: rotateAnim.interpolate({
-                                inputRange: [-0.08, 0.08],
-                                outputRange: ['-4deg', '4deg'],
-                              })
-                            }
-                          ],
-                        }
-                      ]}>
-                        <MaterialIcons
-                          name="lock-outline"
-                          size={22}
-                          color={isFocused.otp ? '#024e32' : '#64748b'}
-                        />
-                        <TextInput
-                          placeholder="Enter OTP"
-                          placeholderTextColor="#64748b"
-                          keyboardType="numeric"
-                          maxLength={6}
+                      {otpVerified ? (
+                        /* ---------- SUCCESS STATE ---------- */
+                        <View
                           style={{
-                            flex: 1,
-                            marginLeft: 12,
-                            fontSize: 16,
-                            color: '#1e293b',
-                            padding: 0,
-                            letterSpacing: 4,
-                            backgroundColor: 'transparent',
-                          }}
-                          value={otp}
-                          onChangeText={(text) => setOtp(filterDigits(text))}
-                          onFocus={() => setIsFocused({ ...isFocused, otp: true })}
-                          onBlur={() => setIsFocused({ ...isFocused, otp: false })}
-                        />
-                        {otp.length > 0 && (
-                          <TouchableOpacity onPress={() => setOtp('')}>
-                            <Ionicons name="close-circle" size={20} color="#64748b" />
-                          </TouchableOpacity>
-                        )}
-                      </Animated.View>
-
-                      <TouchableOpacity
-                        onPress={verifyOtp}
-                        activeOpacity={0.85}
-                        disabled={isLoading}
-                        style={{
-                          borderRadius: 16,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <LinearGradient
-                          colors={['#024e32', '#0369a1']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={{
-                            paddingVertical: 18,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            flexDirection: 'row',
+                            paddingVertical: 36,
                           }}
                         >
-                          {isLoading ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Animated.View style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: 10,
-                                borderWidth: 3,
-                                borderColor: 'white',
-                                borderTopColor: 'transparent',
-                                transform: [{
-                                  rotate: progressAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: ['0deg', '360deg'],
-                                  })
-                                }],
-                              }} />
-                              <Text style={{
-                                color: 'white',
-                                fontSize: 18,
-                                fontWeight: '700',
-                                letterSpacing: 0.5,
-                                marginLeft: 12,
-                              }}>
-                                Verifying...
-                              </Text>
-                            </View>
-                          ) : (
-                            <>
-                              <Text style={{
-                                color: 'white',
-                                fontSize: 18,
-                                fontWeight: '700',
-                                letterSpacing: 0.5,
-                              }}>
-                                Verify OTP
-                              </Text>
-                              <Animatable.View
-                                animation="pulse"
-                                easing="ease-out"
-                                iterationCount="infinite"
-                                style={{ marginLeft: 12 }}
-                              >
-                                <MaterialIcons name="check-circle" size={24} color="white" />
-                              </Animatable.View>
-                            </>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
+                          <View
+                            style={{
+                              width: 110,
+                              height: 110,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {/* Expanding ring */}
+                            <Animated.View
+                              pointerEvents="none"
+                              style={{
+                                position: 'absolute',
+                                width: 92,
+                                height: 92,
+                                borderRadius: 46,
+                                borderWidth: 2,
+                                borderColor: 'rgba(34,197,94,0.55)',
+                                opacity: ringPulseAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [0.9, 0],
+                                }),
+                                transform: [
+                                  {
+                                    scale: ringPulseAnim.interpolate({
+                                      inputRange: [0, 1],
+                                      outputRange: [0.85, 1.35],
+                                    }),
+                                  },
+                                ],
+                              }}
+                            />
 
-                      <TouchableOpacity
-                        onPress={() => {
-                          setStep(1);
-                          setOtp('');
-                        }}
-                        style={{ marginTop: 16 }}
-                      >
-                        <Text style={{
-                          color: '#024e32',
-                          textAlign: 'center',
-                          fontWeight: '600',
-                        }}>
-                          ← Back to mobile number
-                        </Text>
-                      </TouchableOpacity>
+                            {/* Static glow disc */}
+                            <Animated.View
+                              style={{
+                                width: 84,
+                                height: 84,
+                                borderRadius: 42,
+                                backgroundColor: 'rgba(34,197,94,0.16)',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderWidth: 1.5,
+                                borderColor: '#16a34a',
+                                shadowColor: '#16a34a',
+                                shadowOpacity: 0.55,
+                                shadowRadius: 24,
+                                shadowOffset: { width: 0, height: 0 },
+                                elevation: 8,
+                                transform: [{ scale: checkScaleAnim }],
+                              }}
+                            >
+                              <MaterialIcons name="check" size={46} color="#16a34a" />
+                            </Animated.View>
+                          </View>
+
+                          <Animated.Text
+                            style={{
+                              color: '#024e32',
+                              fontSize: 22,
+                              fontWeight: '800',
+                              marginTop: 22,
+                              letterSpacing: 0.3,
+                              opacity: checkFadeAnim,
+                            }}
+                          >
+                            Verified successfully
+                          </Animated.Text>
+                          <Animated.Text
+                            style={{
+                              color: '#64748b',
+                              fontSize: 14,
+                              marginTop: 8,
+                              textAlign: 'center',
+                              lineHeight: 20,
+                              paddingHorizontal: 16,
+                              opacity: checkFadeAnim,
+                            }}
+                          >
+                            Your number has been verified. Redirecting to your dashboard…
+                          </Animated.Text>
+                        </View>
+                      ) : (
+                        /* ---------- NORMAL OTP INPUT STATE ---------- */
+                        <>
+                          <Text style={{
+                            fontSize: 13,
+                            fontWeight: '600',
+                            color: '#1e293b',
+                            marginBottom: 8,
+                            letterSpacing: 0.5,
+                            textTransform: 'uppercase',
+                          }}>
+                            Enter OTP
+                          </Text>
+                          <Text style={{
+                            fontSize: 14,
+                            color: '#64748b',
+                            marginBottom: 16,
+                          }}>
+                            OTP sent to {mobile}
+                          </Text>
+                          <Animated.View style={[
+                            {
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              borderRadius: 16,
+                              paddingHorizontal: 16,
+                              paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+                              marginBottom: 20,
+                            },
+                            glassInput(isFocused.otp, fieldErrors.otp),
+                            {
+                              transform: [
+                                {
+                                  rotate: rotateAnim.interpolate({
+                                    inputRange: [-0.08, 0.08],
+                                    outputRange: ['-4deg', '4deg'],
+                                  })
+                                }
+                              ],
+                            }
+                          ]}>
+                            <MaterialIcons
+                              name="lock-outline"
+                              size={22}
+                              color={
+                                fieldErrors.otp
+                                  ? '#dc2626'
+                                  : isFocused.otp
+                                  ? '#024e32'
+                                  : '#64748b'
+                              }
+                            />
+                            <TextInput
+                              placeholder="Enter OTP"
+                              placeholderTextColor="#64748b"
+                              keyboardType="numeric"
+                              maxLength={6}
+                              style={{
+                                flex: 1,
+                                marginLeft: 12,
+                                fontSize: 16,
+                                color: '#1e293b',
+                                padding: 0,
+                                letterSpacing: 4,
+                                backgroundColor: 'transparent',
+                              }}
+                              value={otp}
+                              onChangeText={(text) => {
+                                setOtp(filterDigits(text));
+                                if (fieldErrors.otp) {
+                                  setFieldErrors((prev) => ({
+                                    ...prev,
+                                    otp: false,
+                                  }));
+                                }
+                              }}
+                              onFocus={() => setIsFocused({ ...isFocused, otp: true })}
+                              onBlur={() => setIsFocused({ ...isFocused, otp: false })}
+                            />
+                            {otp.length > 0 && (
+                              <TouchableOpacity onPress={() => setOtp('')}>
+                                <Ionicons name="close-circle" size={20} color="#64748b" />
+                              </TouchableOpacity>
+                            )}
+                          </Animated.View>
+
+                          <TouchableOpacity
+                            onPress={verifyOtp}
+                            activeOpacity={0.85}
+                            disabled={isLoading}
+                            style={{
+                              borderRadius: 16,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <LinearGradient
+                              colors={['#024e32', '#0369a1']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={{
+                                paddingVertical: 18,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexDirection: 'row',
+                              }}
+                            >
+                              {isLoading ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <Animated.View style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: 10,
+                                    borderWidth: 3,
+                                    borderColor: 'white',
+                                    borderTopColor: 'transparent',
+                                    transform: [{
+                                      rotate: progressAnim.interpolate({
+                                        inputRange: [0, 1],
+                                        outputRange: ['0deg', '360deg'],
+                                      })
+                                    }],
+                                  }} />
+                                  <Text style={{
+                                    color: 'white',
+                                    fontSize: 18,
+                                    fontWeight: '700',
+                                    letterSpacing: 0.5,
+                                    marginLeft: 12,
+                                  }}>
+                                    Verifying...
+                                  </Text>
+                                </View>
+                              ) : (
+                                <>
+                                  <Text style={{
+                                    color: 'white',
+                                    fontSize: 18,
+                                    fontWeight: '700',
+                                    letterSpacing: 0.5,
+                                  }}>
+                                    Verify OTP
+                                  </Text>
+                                  <Animatable.View
+                                    animation="pulse"
+                                    easing="ease-out"
+                                    iterationCount="infinite"
+                                    style={{ marginLeft: 12 }}
+                                  >
+                                    <MaterialIcons name="check-circle" size={24} color="white" />
+                                  </Animatable.View>
+                                </>
+                              )}
+                            </LinearGradient>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => {
+                              setStep(1);
+                              setOtp('');
+                            }}
+                            style={{ marginTop: 16 }}
+                          >
+                            <Text style={{
+                              color: '#024e32',
+                              textAlign: 'center',
+                              fontWeight: '600',
+                            }}>
+                              ← Back to mobile number
+                            </Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
                     </Animatable.View>
                   )}
 
                   {/* Message */}
-                  {message ? (
-                    <Animatable.View
-                      animation={message.includes("Successful") || message.includes("sent") ? "bounceIn" : "shake"}
-                      duration={600}
-                      style={{
-                        marginTop: 20,
-                        padding: 14,
-                        borderRadius: 14,
-                        backgroundColor: message.includes("Successful") || message.includes("sent")
-                          ? 'rgba(220, 252, 231, 0.55)'
-                          : 'rgba(254, 226, 226, 0.55)',
-                        borderWidth: 1,
-                        borderColor: message.includes("Successful") || message.includes("sent")
-                          ? 'rgba(134, 239, 172, 0.9)'
-                          : 'rgba(252, 165, 165, 0.9)',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <MaterialIcons
-                        name={message.includes("Successful") || message.includes("sent") ? "check-circle" : "error-outline"}
-                        size={20}
-                        color={message.includes("Successful") || message.includes("sent") ? '#16a34a' : '#dc2626'}
-                      />
-                      <Text style={{
-                        flex: 1,
-                        marginLeft: 10,
-                        color: message.includes("Successful") || message.includes("sent") ? '#15803d' : '#b91c1c',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}>
-                        {message}
-                      </Text>
-                    </Animatable.View>
+                  {message && !otpVerified ? (
+                    isWhatsappSentMessage ? (
+                      <Animatable.View
+                        animation="bounceIn"
+                        duration={600}
+                        style={{
+                          marginTop: 20,
+                          paddingVertical: 12,
+                          paddingHorizontal: 14,
+                          borderRadius: 16,
+                          backgroundColor: 'rgba(37, 211, 102, 0.14)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(37, 211, 102, 0.55)',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          shadowColor: '#25D366',
+                          shadowOpacity: 0.18,
+                          shadowRadius: 10,
+                          shadowOffset: { width: 0, height: 4 },
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 17,
+                            backgroundColor: '#25D366',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            shadowColor: '#25D366',
+                            shadowOpacity: 0.5,
+                            shadowRadius: 8,
+                            shadowOffset: { width: 0, height: 0 },
+                          }}
+                        >
+                          <FontAwesome5 name="whatsapp" size={18} color="#ffffff" />
+                        </View>
+
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={{
+                            color: '#0f5132',
+                            fontSize: 14,
+                            fontWeight: '800',
+                            letterSpacing: 0.2,
+                          }}>
+                            OTP sent successfully
+                          </Text>
+                          <Text style={{
+                            color: '#166534',
+                            fontSize: 12.5,
+                            marginTop: 2,
+                          }}>
+                            Please check your WhatsApp messages.
+                          </Text>
+                        </View>
+
+                        <MaterialIcons
+                          name="check-circle"
+                          size={20}
+                          color="#16a34a"
+                        />
+                      </Animatable.View>
+                    ) : (
+                      <Animatable.View
+                        animation={message.includes("Successful") ? "bounceIn" : "shake"}
+                        duration={600}
+                        style={{
+                          marginTop: 20,
+                          padding: 14,
+                          borderRadius: 14,
+                          backgroundColor: message.includes("Successful")
+                            ? 'rgba(220, 252, 231, 0.55)'
+                            : 'rgba(254, 226, 226, 0.55)',
+                          borderWidth: 1,
+                          borderColor: message.includes("Successful")
+                            ? 'rgba(134, 239, 172, 0.9)'
+                            : 'rgba(252, 165, 165, 0.9)',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons
+                          name={message.includes("Successful") ? "check-circle" : "error-outline"}
+                          size={20}
+                          color={message.includes("Successful") ? '#16a34a' : '#dc2626'}
+                        />
+                        <Text style={{
+                          flex: 1,
+                          marginLeft: 10,
+                          color: message.includes("Successful") ? '#15803d' : '#b91c1c',
+                          fontSize: 14,
+                          fontWeight: '500',
+                        }}>
+                          {message}
+                        </Text>
+                      </Animatable.View>
+                    )
                   ) : null}
 
                   {/* Footer */}

@@ -694,6 +694,18 @@ export default function PaymentHistory() {
               payment.date
           );
 
+        /* FIXED: this receiptData object never included paymentMode /
+           collectedBy / employeePhone at all -- so the printed receipt
+           always showed "-" for Payment Mode and Collected By, even
+           though the exact same payment record already shows the
+           right name right above the Print Receipt button on this
+           page's own card ("Harish (22)", "Max (7899)", etc). Pulling
+           collectedBy the SAME way the card does (payment.collectedBy,
+           falling back to "System" -- never "-") means the receipt can
+           never show less than what's already on screen. paymentMode
+           isn't shown anywhere on this page, so there's nothing to
+           match it to -- it just prints whatever is actually stored on
+           that specific payment, "-" if that one genuinely has none. */
         const receiptData = {
 
           groupId,
@@ -752,6 +764,15 @@ export default function PaymentHistory() {
               "en-IN"
             ),
 
+          paymentMode:
+            payment.paymentMode || "-",
+
+          collectedBy:
+            payment.collectedBy || "System",
+
+          employeePhone:
+            payment.employeePhone || "-",
+
         };
 
         router.push({
@@ -796,9 +817,22 @@ export default function PaymentHistory() {
           <View className="flex-row items-center">
 
             <TouchableOpacity
-              onPress={() =>
-                router.back()
-              }
+              onPress={() => {
+                /* FIXED: same "GO_BACK action not handled" crash fixed
+                   on every other screen in the app -- a bare
+                   router.back() throws when this screen has no
+                   navigation history behind it (opened fresh, or via a
+                   refresh). Falls back to the employee home instead. */
+                try {
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace("/employee");
+                  }
+                } catch (e) {
+                  router.replace("/employee");
+                }
+              }}
               className="mt-1"
               activeOpacity={0.7}
             >
@@ -814,7 +848,7 @@ export default function PaymentHistory() {
             <View className="flex-1 ml-4">
 
               <Text className="text-white text-2xl font-bold mt-1">
-                Payment History
+                Payment Historys
               </Text>
 
               <Text className="text-green-100 text-sm mt-1">
@@ -2071,9 +2105,22 @@ function Wrapper({
         <View className="flex-row items-center">
 
           <TouchableOpacity
-            onPress={() =>
-              router.back()
-            }
+            onPress={() => {
+              /* FIXED: same "GO_BACK action not handled" crash fixed
+                 on every other screen in the app -- a bare
+                 router.back() throws when this screen has no
+                 navigation history behind it (opened fresh, or via a
+                 refresh). Falls back to the employee home instead. */
+              try {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace("/employee");
+                }
+              } catch (e) {
+                router.replace("/employee");
+              }
+            }}
             className="mt-1"
             activeOpacity={0.7}
           >

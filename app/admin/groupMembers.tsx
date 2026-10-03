@@ -1500,7 +1500,7 @@ export default function GroupMembers() {
                   ₹{collectionAmount}
                 </Text>
               </View>
-              {dividend && (
+              {!!dividend && (
                 <View className="flex-row justify-between items-center py-2 border-t border-gray-100">
                   <Text className="text-gray-600 font-medium">Dividend</Text>
                   <Text className="text-blue-600 font-bold">₹{dividend}</Text>
@@ -1543,7 +1543,20 @@ export default function GroupMembers() {
       <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <TouchableOpacity onPress={() => router.back()} className="mt-1">
+            <TouchableOpacity
+  onPress={() => {
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/admin");
+      }
+    } catch (e) {
+      router.replace("/admin");
+    }
+  }}
+  className="mt-1"
+>
               <MaterialIcons name="arrow-back" size={26} color="white" />
             </TouchableOpacity>
             <Text className="text-white text-2xl font-bold ml-4 mt-1">
@@ -2797,14 +2810,21 @@ export default function GroupMembers() {
                 <Text className="text-gray-700 font-medium mb-2">
                   Payment Date
                 </Text>
-                {Platform.OS === "web" ? (
-                  <input
-                    type="date"
-                    value={editPaymentDate.toISOString().split("T")[0]}
-                    onChange={(e) => {
-                      const selected = new Date(e.target.value);
-                      setEditPaymentDate(selected);
-                    }}
+{Platform.OS === "web" ? (
+  <input
+    type="date"
+    value={
+      !isNaN(editPaymentDate?.getTime?.())
+        ? editPaymentDate.toISOString().split("T")[0]
+        : ""
+    }
+    onChange={(e) => {
+      const value = e.target.value;
+      if (!value) return;
+      const selected = new Date(value);
+      if (isNaN(selected.getTime())) return;
+      setEditPaymentDate(selected);
+    }}
                     style={{
                       width: "100%",
                       padding: 12,
@@ -2903,12 +2923,12 @@ export default function GroupMembers() {
                       </Text>
                     </View>
                     <Text className="text-gray-700">{update.details}</Text>
-                    {update.amount && (
+                    {!!update.amount && (
                       <Text className="text-gray-600 mt-1">
                         Amount: ₹{update.amount}
                       </Text>
                     )}
-                    {update.percentage && (
+                    {!!update.percentage && (
                       <Text className="text-red-600 mt-1">
                         Penalty: {update.percentage}%
                       </Text>

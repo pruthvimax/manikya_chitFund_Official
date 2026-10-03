@@ -11,6 +11,7 @@ export const createEntry = async (req, res) => {
       employeeName,
       name,
       phone,
+      telephone,
       occupation,
       workAddress,
       permanentAddress,
@@ -28,6 +29,7 @@ export const createEntry = async (req, res) => {
       employeeName,
       name,
       phone,
+      telephone,
       occupation,
       workAddress,
       permanentAddress,
@@ -107,6 +109,7 @@ export const updateEntry = async (req, res) => {
     const {
       name,
       phone,
+      telephone,
       occupation,
       workAddress,
       permanentAddress,
@@ -116,6 +119,10 @@ export const updateEntry = async (req, res) => {
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (phone !== undefined) updates.phone = phone;
+    // FIXED: telephone was missing entirely from the update payload --
+    // the admin's edit modal now sends it, but it was never read here,
+    // so it could never actually be saved.
+    if (telephone !== undefined) updates.telephone = telephone;
     if (occupation !== undefined) updates.occupation = occupation;
     if (workAddress !== undefined) updates.workAddress = workAddress;
     if (permanentAddress !== undefined)

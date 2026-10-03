@@ -658,10 +658,19 @@ export default function CollectPayment() {
     key: string
   ) => {
     try {
+      // FIXED: this was reading the AsyncStorage key "employeeInfo",
+      // which nothing in this app ever writes to -- every other
+      // screen (my-targets.tsx, paymentHistory.tsx, dailyDatabase.tsx)
+      // stores and reads the logged-in employee under the key
+      // "employee". So this always parsed to {}, and every payment
+      // collected through this screen was silently saved to the
+      // backend with employeeId/employeeName/employeePhone all blank
+      // -- which is the real reason "Collected By" and "Payment Mode"
+      // showed "-" on printed receipts, not just a display bug.
       const employeeInfo =
         JSON.parse(
           (await AsyncStorage.getItem(
-            "employeeInfo"
+            "employee"
           )) || "{}"
         );
 
@@ -856,7 +865,7 @@ export default function CollectPayment() {
     );
   };
 
-  const handlePrintReceipt = (
+  const handlePrintReceipt = async (
     monthIndex: number
   ) => {
     const c =
@@ -873,6 +882,36 @@ export default function CollectPayment() {
 
       return;
     }
+
+    // FIXED: moved up so it's ready before "Paid Today" is worked
+    // out below -- read once per print instead of twice. Same
+    // AsyncStorage key fix as addPayment() above: "employee", not
+    // "employeeInfo" -- nothing ever wrote to "employeeInfo", so this
+    // was always {}.
+    const employeeInfo =
+      JSON.parse(
+        (await AsyncStorage.getItem(
+          "employee"
+        )) || "{}"
+      );
+
+    // FIXED: "Paid Today" used to show whenever the LAST payment on
+    // this row happened to be made today, no matter who made it. So
+    // if Employee A collected it this morning and Employee B opens
+    // this same screen later today just to print, Employee B's
+    // receipt said "Paid Today ₹X" under Employee B's own name --
+    // money Employee B never actually collected. Now it only counts
+    // as "today" when the payment that happened today was ALSO made
+    // by the employee currently logged in and printing; otherwise it
+    // shows ₹0, same as if nothing had been paid today from this
+    // employee's side.
+    const isCurrentEmployeePayment = (
+      payment: any
+    ) =>
+      !!payment &&
+      !!employeeInfo?.emp_id &&
+      String(payment.employeeId) ===
+        String(employeeInfo.emp_id);
 
     const installment =
       installmentMap[
@@ -911,6 +950,9 @@ export default function CollectPayment() {
       lastInstallmentPayment &&
       isSamePaymentDay(
         lastInstallmentPayment.paidAt
+      ) &&
+      isCurrentEmployeePayment(
+        lastInstallmentPayment
       )
         ? lastInstallmentPayment.amount ||
           0
@@ -954,6 +996,9 @@ export default function CollectPayment() {
       lastPenaltyPayment &&
       isSamePaymentDay(
         lastPenaltyPayment.paidAt
+      ) &&
+      isCurrentEmployeePayment(
+        lastPenaltyPayment
       )
         ? lastPenaltyPayment.amount ||
           0
@@ -1022,6 +1067,28 @@ export default function CollectPayment() {
         0
       );
 
+    // FIXED: "Collected By" used to be read off lastPayment -- the
+    // last payment EVER recorded on this month's row. That's whoever
+    // collected that one transaction, which can be a different
+    // employee from a different day, not necessarily whoever is
+    // standing here pressing "Print" right now. Reading the
+    // currently logged-in employee (same "employeeInfo" AsyncStorage
+    // key addPayment() above already uses, fetched once at the top
+    // of this function) is the only source that's always correct for
+    // "who is printing this receipt right now", and it's formatted
+    // as "name (employeeId)" to match what the backend itself
+    // already stores on every payment (groupController.js builds
+    // collectedBy the same way). Falls back to the old lastPayment
+    // fields only if employeeInfo isn't available for some reason,
+    // so this never regresses to blank.
+    const collectedBy =
+      employeeInfo?.name && employeeInfo?.emp_id
+        ? `${employeeInfo.name} (${employeeInfo.emp_id})`
+        : employeeInfo?.name ||
+          lastPayment?.employeeName ||
+          lastPayment?.collectedBy ||
+          "-";
+
     const receiptData = {
       groupId,
       groupMemberId,
@@ -1064,12 +1131,10 @@ export default function CollectPayment() {
         ]?.display ||
         "Not set",
 
-      collectedBy:
-        lastPayment?.employeeName ||
-        lastPayment?.collectedBy ||
-        "-",
+      collectedBy,
 
       employeePhone:
+        employeeInfo?.phone ||
         lastPayment?.employeePhone ||
         "-",
 
@@ -1161,9 +1226,27 @@ export default function CollectPayment() {
           <View className="flex-row items-center">
 
             <TouchableOpacity
-              onPress={() =>
-                router.back()
-              }
+              onPress={() => {
+                // FIXED: this was a bare router.back() -- throws the
+                // "GO_BACK action not handled" error whenever this
+                // screen has no navigation history behind it, which
+                // is exactly what happens on a page refresh (refresh
+                // wipes the in-app history but the page is still
+                // showing). canGoBack() usually catches that, and
+                // the try/catch is a second safety net for the cases
+                // where canGoBack() itself gets it wrong -- either
+                // way this always lands on the employee home instead
+                // of showing an error.
+                try {
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace("/employee");
+                  }
+                } catch (e) {
+                  router.replace("/employee");
+                }
+              }}
               className="mt-1"
               activeOpacity={0.7}
             >

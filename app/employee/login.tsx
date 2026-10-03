@@ -36,6 +36,18 @@ export default function EmployeeLogin() {
   const [isFocused, setIsFocused] = useState({ empId: false, password: false });
   const [isLoading, setIsLoading] = useState(false);
 
+  /*
+    ADDED (red-field-on-empty):
+    Tracks which field(s) were left empty when Sign In was tapped, so
+    their border can turn red. Cleared per-field the moment the user
+    types into that field, so the red only ever stays while the field
+    is still empty. Nothing about the login flow changes.
+  */
+  const [fieldErrors, setFieldErrors] = useState({
+    empId: false,
+    password: false,
+  });
+
   const { width, height } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
@@ -50,14 +62,21 @@ export default function EmployeeLogin() {
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   /*
-    ADDED:
-    Drives the top navbar's shrink-on-scroll. Tracks how far the
-    ScrollView has scrolled, then navbarScale/navbarTranslateY below
-    interpolate that into a transform (not padding/fontSize, which
-    can't run on the native thread) so the whole pill smoothly
-    shrinks as you scroll down and springs back to full size once
-    you're back at the top - native-driven, so it stays smooth on
-    both iOS and Android instead of stepping/jumping.
+    ADDED (success panel): drives the checkmark scale + fade when the
+    login succeeds, plus a soft pulsing ring behind it.
+  */
+  const checkScaleAnim = useRef(new Animated.Value(0)).current;
+  const checkFadeAnim = useRef(new Animated.Value(0)).current;
+  const ringPulseAnim = useRef(new Animated.Value(0)).current;
+
+  /*
+    Holds the currently-running auto-navigate timer so it can be
+    cleared cleanly if the component unmounts mid-success.
+  */
+  const navigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+    Drives the top navbar's shrink-on-scroll.
   */
   const scrollY = useRef(new Animated.Value(0)).current;
   const navbarScale = scrollY.interpolate({
@@ -72,32 +91,13 @@ export default function EmployeeLogin() {
   });
 
   /*
-    ADDED:
     Dedicated fade value for the error/success message banner only.
-
-    BUG THIS FIXES:
-    The message-timeout effect below used to animate `fadeAnim` to 0
-    after 4 seconds - but `fadeAnim` is the SAME value bound to the
-    opacity of the entire page (branding + login card). So any
-    message (wrong password, "Server unreachable", even a successful
-    login's "Welcome back!") would, 4 seconds later, fade the WHOLE
-    form to invisible - which is exactly the "form and fields go
-    blank" bug. Giving the message its own Animated.Value means
-    clearing it can no longer affect the rest of the page.
   */
   const messageFadeAnim = useRef(new Animated.Value(1)).current;
 
   /*
-    ADDED:
     Holds the currently-running spinner loop so it can be
-    stopped/reset cleanly. Fixes: previously progressAnim was
-    driven with a single one-shot Animated.timing to 1, which
-    (a) only ever rotated once per app session - a second login
-    attempt started from progressAnim already at 1, so nothing
-    visibly moved - and (b) stopped rotating after its fixed
-    2000ms even if the request was still loading. This makes the
-    spinner loop continuously for as long as isLoading is true,
-    every attempt.
+    stopped/reset cleanly.
   */
   const spinLoopRef = useRef<any>(null);
 
@@ -109,29 +109,6 @@ export default function EmployeeLogin() {
     progressAnim.setValue(0);
   };
 
-  /*
-    FIX: intermittent "wrong Employee ID/password" or "Server
-    unreachable" on genuinely correct credentials, plus no
-    protection against a fast double-tap.
-
-    1. Double-submit guard: `disabled={isLoading}` on the button only
-       takes effect after a React re-render, so a fast double-tap (or
-       the touch system firing onPress twice) could slip a SECOND
-       request through before the first re-render landed. Two
-       concurrent /employee/login calls for the same account can race
-       each other on the backend or trip anti-bruteforce/lockout logic
-       there - stopped here at the source, same guard already used on
-       the Member login screen.
-    2. Network timeout + retry: a plain fetch() with no timeout means
-       any brief connection hiccup (weak signal, momentary drop) either
-       hangs until the OS gives up or throws once straight into the
-       generic catch block below, showing "Server unreachable" even
-       though the credentials and backend were fine. This wraps ONLY
-       the network call with a timeout + a couple of automatic
-       retries, and retries ONLY on network-level failures - never
-       once a real response comes back from the server, so an actual
-       wrong-password rejection still shows immediately.
-  */
   const REQUEST_TIMEOUT_MS = 15000;
   const MAX_ATTEMPTS = 3;
 
@@ -184,6 +161,13 @@ export default function EmployeeLogin() {
     }
   }, [message]);
 
+  // Clean up any pending auto-navigate timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (navigateTimeoutRef.current) clearTimeout(navigateTimeoutRef.current);
+    };
+  }, []);
+
   // Entrance animations
   useEffect(() => {
     Animated.parallel([
@@ -207,7 +191,6 @@ export default function EmployeeLogin() {
       }),
     ]).start();
 
-    // Floating animation for background elements
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatingAnim, {
@@ -225,7 +208,6 @@ export default function EmployeeLogin() {
       ])
     ).start();
 
-    // Pulse animation for logo
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -244,13 +226,66 @@ export default function EmployeeLogin() {
     ).start();
   }, []);
 
+  /*
+    ADDED (success panel): true the moment handleLogin's own
+    setMessage("Welcome back! 🎉") lands.
+  */
+  const loginSuccess = !!message && message.includes("Welcome");
+
+  // Play the checkmark pop + start the pulsing ring when login succeeds.
+  useEffect(() => {
+    if (loginSuccess) {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(checkScaleAnim, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }),
+        Animated.timing(checkFadeAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulseAnim, {
+            toValue: 1,
+            duration: 1400,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringPulseAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+    }
+  }, [loginSuccess]);
+
   const handleLogin = async () => {
-    // See the FIX comment above fetchWithRetry: hard guard against a
-    // fast double-tap slipping a second request through before the
-    // disabled={isLoading} re-render lands.
+    // Hard guard against a fast double-tap slipping a second request
+    // through before the disabled={isLoading} re-render lands.
     if (isLoading) return;
 
     if (!empId || !password) {
+      // ADDED (red-field-on-empty): flag whichever field(s) are
+      // missing so their border turns red.
+      setFieldErrors({
+        empId: !empId,
+        password: !password,
+      });
+
       Animated.sequence([
         Animated.timing(rotateAnim, {
           toValue: 0.08,
@@ -282,6 +317,9 @@ export default function EmployeeLogin() {
       setMessage("Please enter Employee ID and password");
       return;
     }
+
+    // Clear any lingering red as we move into a real attempt.
+    setFieldErrors({ empId: false, password: false });
 
     setIsLoading(true);
 
@@ -325,6 +363,10 @@ export default function EmployeeLogin() {
       await AsyncStorage.setItem("employee", JSON.stringify(employeeData));
       await AsyncStorage.setItem("employeeInfo", JSON.stringify(employeeData));
 
+      stopSpinner();
+      setIsLoading(false);
+
+      // Triggers the new success panel (see loginSuccess below).
       setMessage("Welcome back! 🎉");
 
       Animated.sequence([
@@ -345,17 +387,11 @@ export default function EmployeeLogin() {
         }),
       ]).start();
 
-      setTimeout(() => {
-        // FIX: every failure path below stops the spinner and clears
-        // isLoading, but the success path previously didn't - it just
-        // navigated away while isLoading stayed true and the rotation
-        // loop kept running. If navigation is ever slow/interrupted,
-        // the button was left stuck disabled and spinning with no way
-        // to recover. Stopping it here matches every other path.
-        stopSpinner();
-        setIsLoading(false);
+      // FAST AUTO-LOGIN: 1 second after the checkmark appears, land
+      // on the dashboard. No Continue button, no manual tap needed.
+      navigateTimeoutRef.current = setTimeout(() => {
         router.replace("/employee");
-      }, 800);
+      }, 1000);
     } catch (err) {
       console.log("Employee login error:", err);
       stopSpinner();
@@ -372,7 +408,6 @@ export default function EmployeeLogin() {
     ? Math.min(width * 0.2, 280)
     : width * 0.5;
 
-  // Floating background circles
   const float1 = floatingAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -30],
@@ -383,13 +418,20 @@ export default function EmployeeLogin() {
   });
 
   /* ================= TRANSPARENT / GLASS SURFACES ================= */
-  // Shared "glass" surfaces so iOS and Android render identically.
-  const glassInput = (focused: boolean) => ({
+  /*
+    CHANGED (red-field-on-empty): glassInput now also takes an
+    `hasError` flag. When true, the border is red regardless of
+    focus, so an empty field that was submitted reads as an error.
+    Priority: error > focused > idle.
+  */
+  const glassInput = (focused: boolean, hasError: boolean = false) => ({
     backgroundColor: focused
       ? 'rgba(255,255,255,0.45)'
       : 'rgba(255,255,255,0.25)',
     borderWidth: 1.5,
-    borderColor: focused
+    borderColor: hasError
+      ? '#dc2626'
+      : focused
       ? '#024e32'
       : 'rgba(255,255,255,0.6)',
   });
@@ -463,11 +505,7 @@ export default function EmployeeLogin() {
             }}
           />
 
-          {/* ================= TOP NAV BAR — Admin / Employee / Member =================
-              Pinned above the scroll area so it stays put as a real navbar.
-              Replaces the old hamburger + popup: the other two portals are
-              one tap away, the current one just reads as selected.
-              Transparent glass style to match the rest of the screen. */}
+          {/* ================= TOP NAV BAR ================= */}
           <Animatable.View
             animation="fadeInDown"
             duration={600}
@@ -787,241 +825,369 @@ export default function EmployeeLogin() {
 
                 {/* Form */}
                 <View>
-                  {/* Employee ID */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 800 : 600}
-                    style={{ marginBottom: 20 }}
-                  >
-                    <Text style={{
-                      fontSize: 13,
-                      fontWeight: '600',
-                      color: '#1e293b',
-                      marginBottom: 8,
-                      letterSpacing: 0.5,
-                      textTransform: 'uppercase',
-                    }}>
-                      Employee ID
-                    </Text>
-                    <Animated.View style={[
-                      {
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderRadius: 16,
-                        paddingHorizontal: 16,
-                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                      },
-                      glassInput(isFocused.empId),
-                      {
-                        transform: [
-                          {
-                            rotate: rotateAnim.interpolate({
-                              inputRange: [-0.08, 0.08],
-                              outputRange: ['-4deg', '4deg'],
-                            })
-                          }
-                        ],
-                      }
-                    ]}>
-                      <MaterialIcons
-                        name="badge"
-                        size={22}
-                        color={isFocused.empId ? '#024e32' : '#64748b'}
-                      />
-                      <TextInput
-                        placeholder="Enter Employee ID"
-                        placeholderTextColor="#64748b"
-                        style={{
-                          flex: 1,
-                          marginLeft: 12,
-                          fontSize: 16,
-                          color: '#1e293b',
-                          padding: 0,
-                          backgroundColor: 'transparent',
-                        }}
-                        value={empId}
-                        onChangeText={setEmpId}
-                        onFocus={() => setIsFocused({ ...isFocused, empId: true })}
-                        onBlur={() => setIsFocused({ ...isFocused, empId: false })}
-                        autoCapitalize="none"
-                      />
-                      {empId.length > 0 && (
-                        <TouchableOpacity onPress={() => setEmpId('')}>
-                          <Ionicons name="close-circle" size={20} color="#64748b" />
-                        </TouchableOpacity>
-                      )}
-                    </Animated.View>
-                  </Animatable.View>
-
-                  {/* Password */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 900 : 700}
-                    style={{ marginBottom: 28 }}
-                  >
-                    <Text style={{
-                      fontSize: 13,
-                      fontWeight: '600',
-                      color: '#1e293b',
-                      marginBottom: 8,
-                      letterSpacing: 0.5,
-                      textTransform: 'uppercase',
-                    }}>
-                      Password
-                    </Text>
-                    <View style={[
-                      {
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        borderRadius: 16,
-                        paddingHorizontal: 16,
-                        paddingVertical: Platform.OS === 'ios' ? 16 : 12,
-                      },
-                      glassInput(isFocused.password),
-                    ]}>
-                      <MaterialIcons
-                        name="lock-outline"
-                        size={22}
-                        color={isFocused.password ? '#024e32' : '#64748b'}
-                      />
-                      <TextInput
-                        placeholder="Enter Password"
-                        placeholderTextColor="#64748b"
-                        secureTextEntry={!showPassword}
-                        style={{
-                          flex: 1,
-                          marginLeft: 12,
-                          fontSize: 16,
-                          color: '#1e293b',
-                          padding: 0,
-                          backgroundColor: 'transparent',
-                        }}
-                        value={password}
-                        onChangeText={setPassword}
-                        onFocus={() => setIsFocused({ ...isFocused, password: true })}
-                        onBlur={() => setIsFocused({ ...isFocused, password: false })}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                        style={{ padding: 4 }}
-                      >
-                        <MaterialIcons
-                          name={showPassword ? "visibility" : "visibility-off"}
-                          size={24}
-                          color="#64748b"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </Animatable.View>
-
-                  {/* Login Button */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 1000 : 800}
-                  >
-                    <TouchableOpacity
-                      onPress={handleLogin}
-                      activeOpacity={0.85}
-                      disabled={isLoading}
+                  {loginSuccess ? (
+                    /* ---------- SUCCESS STATE ---------- */
+                    <View
                       style={{
-                        borderRadius: 16,
-                        overflow: 'hidden',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        paddingVertical: 28,
                       }}
                     >
-                      <LinearGradient
-                        colors={['#024e32', '#0369a1']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
+                      <View
                         style={{
-                          paddingVertical: 18,
+                          width: 110,
+                          height: 110,
                           alignItems: 'center',
                           justifyContent: 'center',
-                          flexDirection: 'row',
                         }}
                       >
-                        {isLoading ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Animated.View style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 10,
-                              borderWidth: 3,
-                              borderColor: 'white',
-                              borderTopColor: 'transparent',
-                              transform: [{
-                                rotate: progressAnim.interpolate({
+                        {/* Expanding ring */}
+                        <Animated.View
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute',
+                            width: 92,
+                            height: 92,
+                            borderRadius: 46,
+                            borderWidth: 2,
+                            borderColor: 'rgba(34,197,94,0.55)',
+                            opacity: ringPulseAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.9, 0],
+                            }),
+                            transform: [
+                              {
+                                scale: ringPulseAnim.interpolate({
                                   inputRange: [0, 1],
-                                  outputRange: ['0deg', '360deg'],
+                                  outputRange: [0.85, 1.35],
+                                }),
+                              },
+                            ],
+                          }}
+                        />
+
+                        {/* Static glow disc */}
+                        <Animated.View
+                          style={{
+                            width: 84,
+                            height: 84,
+                            borderRadius: 42,
+                            backgroundColor: 'rgba(34,197,94,0.16)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1.5,
+                            borderColor: '#16a34a',
+                            shadowColor: '#16a34a',
+                            shadowOpacity: 0.55,
+                            shadowRadius: 24,
+                            shadowOffset: { width: 0, height: 0 },
+                            elevation: 8,
+                            transform: [{ scale: checkScaleAnim }],
+                          }}
+                        >
+                          <MaterialIcons name="check" size={46} color="#16a34a" />
+                        </Animated.View>
+                      </View>
+
+                      <Animated.Text
+                        style={{
+                          color: '#024e32',
+                          fontSize: 22,
+                          fontWeight: '800',
+                          marginTop: 22,
+                          letterSpacing: 0.3,
+                          opacity: checkFadeAnim,
+                        }}
+                      >
+                        Verified successfully
+                      </Animated.Text>
+                      <Animated.Text
+                        style={{
+                          color: '#64748b',
+                          fontSize: 14,
+                          marginTop: 8,
+                          textAlign: 'center',
+                          lineHeight: 20,
+                          paddingHorizontal: 16,
+                          opacity: checkFadeAnim,
+                        }}
+                      >
+                        Welcome back! Logging you in…
+                      </Animated.Text>
+                    </View>
+                  ) : (
+                    /* ---------- NORMAL LOGIN FORM ---------- */
+                    <>
+                      {/* Employee ID */}
+                      <Animatable.View
+                        animation="fadeInUp"
+                        duration={600}
+                        delay={isDesktopOrLaptop ? 800 : 600}
+                        style={{ marginBottom: 20 }}
+                      >
+                        <Text style={{
+                          fontSize: 13,
+                          fontWeight: '600',
+                          color: '#1e293b',
+                          marginBottom: 8,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                        }}>
+                          Employee ID
+                        </Text>
+                        <Animated.View style={[
+                          {
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            borderRadius: 16,
+                            paddingHorizontal: 16,
+                            paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+                          },
+                          // CHANGED: pass fieldErrors.empId so this
+                          // box goes red when submitted empty.
+                          glassInput(isFocused.empId, fieldErrors.empId),
+                          {
+                            transform: [
+                              {
+                                rotate: rotateAnim.interpolate({
+                                  inputRange: [-0.08, 0.08],
+                                  outputRange: ['-4deg', '4deg'],
                                 })
-                              }],
-                            }} />
-                            <Text style={{
-                              color: 'white',
-                              fontSize: 18,
-                              fontWeight: '700',
-                              letterSpacing: 0.5,
+                              }
+                            ],
+                          }
+                        ]}>
+                          <MaterialIcons
+                            name="badge"
+                            size={22}
+                            color={
+                              fieldErrors.empId
+                                ? '#dc2626'
+                                : isFocused.empId
+                                ? '#024e32'
+                                : '#64748b'
+                            }
+                          />
+                          <TextInput
+                            placeholder="Enter Employee ID"
+                            placeholderTextColor="#64748b"
+                            style={{
+                              flex: 1,
                               marginLeft: 12,
-                            }}>
-                              Signing In...
-                            </Text>
-                          </View>
-                        ) : (
-                          <>
-                            <Text style={{
-                              color: 'white',
-                              fontSize: 18,
-                              fontWeight: '700',
-                              letterSpacing: 0.5,
-                            }}>
-                              Sign In
-                            </Text>
-                            <Animatable.View
-                              animation="pulse"
-                              easing="ease-out"
-                              iterationCount="infinite"
-                              style={{ marginLeft: 12 }}
-                            >
-                              <MaterialIcons name="arrow-forward" size={24} color="white" />
-                            </Animatable.View>
-                          </>
-                        )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animatable.View>
+                              fontSize: 16,
+                              color: '#1e293b',
+                              padding: 0,
+                              backgroundColor: 'transparent',
+                            }}
+                            value={empId}
+                            onChangeText={(t) => {
+                              setEmpId(t);
+                              // Clear this field's red as soon as the
+                              // user starts typing into it.
+                              if (fieldErrors.empId) {
+                                setFieldErrors((prev) => ({
+                                  ...prev,
+                                  empId: false,
+                                }));
+                              }
+                            }}
+                            onFocus={() => setIsFocused({ ...isFocused, empId: true })}
+                            onBlur={() => setIsFocused({ ...isFocused, empId: false })}
+                            autoCapitalize="none"
+                          />
+                          {empId.length > 0 && (
+                            <TouchableOpacity onPress={() => setEmpId('')}>
+                              <Ionicons name="close-circle" size={20} color="#64748b" />
+                            </TouchableOpacity>
+                          )}
+                        </Animated.View>
+                      </Animatable.View>
+
+                      {/* Password */}
+                      <Animatable.View
+                        animation="fadeInUp"
+                        duration={600}
+                        delay={isDesktopOrLaptop ? 900 : 700}
+                        style={{ marginBottom: 28 }}
+                      >
+                        <Text style={{
+                          fontSize: 13,
+                          fontWeight: '600',
+                          color: '#1e293b',
+                          marginBottom: 8,
+                          letterSpacing: 0.5,
+                          textTransform: 'uppercase',
+                        }}>
+                          Password
+                        </Text>
+                        <View style={[
+                          {
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            borderRadius: 16,
+                            paddingHorizontal: 16,
+                            paddingVertical: Platform.OS === 'ios' ? 16 : 12,
+                          },
+                          // CHANGED: pass fieldErrors.password so this
+                          // box goes red when submitted empty.
+                          glassInput(isFocused.password, fieldErrors.password),
+                        ]}>
+                          <MaterialIcons
+                            name="lock-outline"
+                            size={22}
+                            color={
+                              fieldErrors.password
+                                ? '#dc2626'
+                                : isFocused.password
+                                ? '#024e32'
+                                : '#64748b'
+                            }
+                          />
+                          <TextInput
+                            placeholder="Enter Password"
+                            placeholderTextColor="#64748b"
+                            secureTextEntry={!showPassword}
+                            style={{
+                              flex: 1,
+                              marginLeft: 12,
+                              fontSize: 16,
+                              color: '#1e293b',
+                              padding: 0,
+                              backgroundColor: 'transparent',
+                            }}
+                            value={password}
+                            onChangeText={(t) => {
+                              setPassword(t);
+                              // Clear this field's red as soon as the
+                              // user starts typing into it.
+                              if (fieldErrors.password) {
+                                setFieldErrors((prev) => ({
+                                  ...prev,
+                                  password: false,
+                                }));
+                              }
+                            }}
+                            onFocus={() => setIsFocused({ ...isFocused, password: true })}
+                            onBlur={() => setIsFocused({ ...isFocused, password: false })}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setShowPassword(!showPassword)}
+                            style={{ padding: 4 }}
+                          >
+                            <MaterialIcons
+                              name={showPassword ? "visibility" : "visibility-off"}
+                              size={24}
+                              color="#64748b"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </Animatable.View>
+
+                      {/* Login Button */}
+                      <Animatable.View
+                        animation="fadeInUp"
+                        duration={600}
+                        delay={isDesktopOrLaptop ? 1000 : 800}
+                      >
+                        <TouchableOpacity
+                          onPress={handleLogin}
+                          activeOpacity={0.85}
+                          disabled={isLoading}
+                          style={{
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <LinearGradient
+                            colors={['#024e32', '#0369a1']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={{
+                              paddingVertical: 18,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexDirection: 'row',
+                            }}
+                          >
+                            {isLoading ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Animated.View style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 10,
+                                  borderWidth: 3,
+                                  borderColor: 'white',
+                                  borderTopColor: 'transparent',
+                                  transform: [{
+                                    rotate: progressAnim.interpolate({
+                                      inputRange: [0, 1],
+                                      outputRange: ['0deg', '360deg'],
+                                    })
+                                  }],
+                                }} />
+                                <Text style={{
+                                  color: 'white',
+                                  fontSize: 18,
+                                  fontWeight: '700',
+                                  letterSpacing: 0.5,
+                                  marginLeft: 12,
+                                }}>
+                                  Signing In...
+                                </Text>
+                              </View>
+                            ) : (
+                              <>
+                                <Text style={{
+                                  color: 'white',
+                                  fontSize: 18,
+                                  fontWeight: '700',
+                                  letterSpacing: 0.5,
+                                }}>
+                                  Sign In
+                                </Text>
+                                <Animatable.View
+                                  animation="pulse"
+                                  easing="ease-out"
+                                  iterationCount="infinite"
+                                  style={{ marginLeft: 12 }}
+                                >
+                                  <MaterialIcons name="arrow-forward" size={24} color="white" />
+                                </Animatable.View>
+                              </>
+                            )}
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </Animatable.View>
+                    </>
+                  )}
 
                   {/* Message */}
-                  {message ? (
+                  {message && !loginSuccess ? (
                     <Animated.View style={{ opacity: messageFadeAnim }}>
                       <Animatable.View
-                        animation={message.includes("Welcome") ? "bounceIn" : "shake"}
+                        animation="shake"
                         duration={600}
                         style={{
                           marginTop: 20,
                           padding: 14,
                           borderRadius: 14,
-                          backgroundColor: message.includes("Welcome")
-                            ? 'rgba(220, 252, 231, 0.55)'
-                            : 'rgba(254, 226, 226, 0.55)',
+                          backgroundColor: 'rgba(254, 226, 226, 0.55)',
                           borderWidth: 1,
-                          borderColor: message.includes("Welcome")
-                            ? 'rgba(134, 239, 172, 0.9)'
-                            : 'rgba(252, 165, 165, 0.9)',
+                          borderColor: 'rgba(252, 165, 165, 0.9)',
                           flexDirection: 'row',
                           alignItems: 'center',
                         }}
                       >
                         <MaterialIcons
-                          name={message.includes("Welcome") ? "check-circle" : "error-outline"}
+                          name="error-outline"
                           size={20}
-                          color={message.includes("Welcome") ? '#16a34a' : '#dc2626'}
+                          color="#dc2626"
                         />
                         <Text style={{
                           flex: 1,
                           marginLeft: 10,
-                          color: message.includes("Welcome") ? '#15803d' : '#b91c1c',
+                          color: '#b91c1c',
                           fontSize: 14,
                           fontWeight: '500',
                         }}>
@@ -1031,49 +1197,51 @@ export default function EmployeeLogin() {
                     </Animated.View>
                   ) : null}
 
-                  {/* Help links */}
-                  <Animatable.View
-                    animation="fadeInUp"
-                    duration={600}
-                    delay={isDesktopOrLaptop ? 1100 : 900}
-                    style={{
-                      marginTop: 24,
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <TouchableOpacity>
-                      <Text style={{
-                        color: '#64748b',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}>
-                        Forgot ID?
-                      </Text>
-                    </TouchableOpacity>
-                    <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
-                    <TouchableOpacity>
-                      <Text style={{
-                        color: '#64748b',
-                        fontSize: 14,
-                        fontWeight: '500',
-                      }}>
-                        Forgot Password?
-                      </Text>
-                    </TouchableOpacity>
-                    <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
-                    <TouchableOpacity onPress={dialSupport}>
-                      <Text style={{
-                        color: '#024e32',
-                        fontSize: 14,
-                        fontWeight: '600',
-                      }}>
-                        Help
-                      </Text>
-                    </TouchableOpacity>
-                  </Animatable.View>
+                  {/* Help links -- suppressed during success panel */}
+                  {!loginSuccess && (
+                    <Animatable.View
+                      animation="fadeInUp"
+                      duration={600}
+                      delay={isDesktopOrLaptop ? 1100 : 900}
+                      style={{
+                        marginTop: 24,
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <TouchableOpacity>
+                        <Text style={{
+                          color: '#64748b',
+                          fontSize: 14,
+                          fontWeight: '500',
+                        }}>
+                          Forgot ID?
+                        </Text>
+                      </TouchableOpacity>
+                      <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
+                      <TouchableOpacity>
+                        <Text style={{
+                          color: '#64748b',
+                          fontSize: 14,
+                          fontWeight: '500',
+                        }}>
+                          Forgot Password?
+                        </Text>
+                      </TouchableOpacity>
+                      <View style={{ width: 1, height: 20, backgroundColor: 'rgba(2,78,50,0.15)' }} />
+                      <TouchableOpacity onPress={dialSupport}>
+                        <Text style={{
+                          color: '#024e32',
+                          fontSize: 14,
+                          fontWeight: '600',
+                        }}>
+                          Help
+                        </Text>
+                      </TouchableOpacity>
+                    </Animatable.View>
+                  )}
 
                   {/* Footer */}
                   {!isDesktopOrLaptop && (

@@ -35,13 +35,23 @@ export default function LoginScreen() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  /*
+    ADDED (red-field-on-empty):
+    Tracks which field(s) were left empty when Login was tapped, so
+    their border can turn red. Cleared per-field the moment the user
+    types into that field, so the red only ever stays while the field
+    is still empty. Nothing about the login flow changes.
+  */
+  const [fieldErrors, setFieldErrors] = useState({
+    userid: false,
+    password: false,
+  });
+
   const router = useRouter();
   const { width, height } = useWindowDimensions();
 
   const isDesktopOrLaptop = width >= 768;
   const isLargeScreen = width >= 1024;
-
-  
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -53,14 +63,21 @@ export default function LoginScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   /*
-    ADDED:
-    Drives the top navbar's shrink-on-scroll. Tracks how far the
-    ScrollView has scrolled, then navbarScale/navbarTranslateY below
-    interpolate that into a transform (not padding/fontSize, which
-    can't run on the native thread) so the whole pill smoothly
-    shrinks as you scroll down and springs back to full size once
-    you're back at the top - native-driven, so it stays smooth on
-    both iOS and Android instead of stepping/jumping.
+    ADDED (success panel): drives the checkmark scale + fade when
+    login succeeds, plus a soft pulsing ring behind it.
+  */
+  const checkScaleAnim = useRef(new Animated.Value(0)).current;
+  const checkFadeAnim = useRef(new Animated.Value(0)).current;
+  const ringPulseAnim = useRef(new Animated.Value(0)).current;
+
+  /*
+    Holds the currently-running auto-navigate timer so it can be
+    cleared cleanly if the component unmounts mid-success.
+  */
+  const navigateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+    Drives the top navbar's shrink-on-scroll.
   */
   const scrollY = useRef(new Animated.Value(0)).current;
   const navbarScale = scrollY.interpolate({
@@ -75,15 +92,8 @@ export default function LoginScreen() {
   });
 
   /*
-    ADDED:
     Holds the currently-running spinner loop so it can be
-    stopped/reset cleanly. Fixes: previously progressAnim was
-    driven with a single one-shot Animated.timing to 1, which
-    (a) only ever rotated once - a second login attempt started
-    from progressAnim already at 1, so nothing visibly moved -
-    and (b) stopped rotating after its fixed 2000ms even if the
-    request was still loading. This makes the spinner loop
-    continuously for as long as isLoading is true, every attempt.
+    stopped/reset cleanly.
   */
   const spinLoopRef = useRef<any>(null);
 
@@ -96,18 +106,9 @@ export default function LoginScreen() {
   };
 
   /*
-    FIX: intermittent "correct password but shows server error".
-    A plain fetch() with no timeout and no retry means any brief
-    network hiccup (weak signal, momentary drop, slow tower
-    handoff) either hangs until the OS gives up or throws once and
-    falls straight into the generic catch block below - even though
-    the credentials were completely correct. This wraps ONLY the
-    network call with a timeout + a couple of automatic retries,
-    and retries ONLY on network-level failures (timeout/abort or
-    "Network request failed") - never once a real response comes
-    back from the server, so an actual wrong-password rejection
-    still shows immediately and is never resubmitted. Nothing about
-    the login logic, validation, or UI below is changed.
+    Network timeout + retry: wraps ONLY the network call with a
+    timeout + a couple of automatic retries, retries ONLY on
+    network-level failures, never once a real response comes back.
   */
   const REQUEST_TIMEOUT_MS = 15000;
   const MAX_ATTEMPTS = 3;
@@ -144,7 +145,7 @@ export default function LoginScreen() {
     }
   };
 
-    useEffect(() => {
+  useEffect(() => {
     const checkSession = async () => {
       const stored = await AsyncStorage.getItem("loggedUser");
       if (stored) {
@@ -173,6 +174,13 @@ export default function LoginScreen() {
     }
   }, [message]);
 
+  // Clean up any pending auto-navigate timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (navigateTimeoutRef.current) clearTimeout(navigateTimeoutRef.current);
+    };
+  }, []);
+
   // Entrance animations
   useEffect(() => {
     Animated.parallel([
@@ -196,7 +204,6 @@ export default function LoginScreen() {
       }),
     ]).start();
 
-    // Floating animation for background elements
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatingAnim, {
@@ -214,7 +221,6 @@ export default function LoginScreen() {
       ]),
     ).start();
 
-    // Pulse animation for logo
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -233,26 +239,74 @@ export default function LoginScreen() {
     ).start();
   }, []);
 
+  /*
+    ADDED (success panel): true the moment handleLogin's own
+    setMessage("Login Successful! 🎉") lands.
+  */
+  const loginSuccess = !!message && message.includes("Successful");
+
+  // Play the checkmark pop + start the pulsing ring when login succeeds.
+  useEffect(() => {
+    if (loginSuccess) {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(checkScaleAnim, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }),
+        Animated.timing(checkFadeAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulseAnim, {
+            toValue: 1,
+            duration: 1400,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringPulseAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      checkScaleAnim.setValue(0);
+      checkFadeAnim.setValue(0);
+      ringPulseAnim.setValue(0);
+    }
+  }, [loginSuccess]);
+
   /* ================= LOGIN HANDLER ================= */
   const handleLogin = async () => {
-    // Hard guard against double-submit: `disabled={isLoading}` on the
-    // button relies on a React re-render to take effect, so a fast
-    // double-tap (or the touch system firing onPress twice) can still
-    // slip a SECOND request through before the first re-render lands.
-    // Two concurrent /members/login calls for the same account can race
-    // each other on the backend (or trip anti-bruteforce/lockout logic
-    // there), and that's a very plausible cause of "correct password,
-    // told it's wrong, retry with nothing changed and it works" — this
-    // stops it at the source instead of guessing at the backend.
+    // Hard guard against double-submit.
     if (isLoading) return;
 
     setMessage("");
 
     if (!userid || !password) {
+      // ADDED (red-field-on-empty): flag whichever field(s) are
+      // missing so their border turns red.
+      setFieldErrors({
+        userid: !userid,
+        password: !password,
+      });
       shakeAnimation();
       setMessage("Please enter UserID and Password");
       return;
     }
+
+    // Clear any lingering red as we move into a real attempt.
+    setFieldErrors({ userid: false, password: false });
 
     setIsLoading(true);
 
@@ -275,11 +329,6 @@ export default function LoginScreen() {
       const response = await fetchWithRetry(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Trim the User ID only — a stray leading/trailing space typed
-        // or auto-capitalized in is a common source of a login that
-        // "looks right" but doesn't match what's stored. Password is
-        // left untouched since trimming it could silently break a
-        // password that genuinely contains a space.
         body: JSON.stringify({ userid: userid.trim(), password }),
       });
 
@@ -314,6 +363,9 @@ export default function LoginScreen() {
 
       console.log("✅ LOGIN SUCCESS:", data.member.userid);
 
+      stopSpinner();
+      setIsLoading(false);
+
       setMessage("Login Successful! 🎉");
 
       Animated.sequence([
@@ -334,12 +386,11 @@ export default function LoginScreen() {
         }),
       ]).start();
 
-      // Redirect to Menu
-      setTimeout(() => {
-        stopSpinner();
-        setIsLoading(false);
+      // FAST AUTO-LOGIN: 1 second after the checkmark appears, land
+      // on the menu. No Continue button, no manual tap needed.
+      navigateTimeoutRef.current = setTimeout(() => {
         router.replace("/menu");
-      }, 800);
+      }, 1000);
     } catch (error) {
       console.log("LOGIN ERROR:", error);
       stopSpinner();
@@ -396,13 +447,22 @@ export default function LoginScreen() {
   });
 
   /* ================= TRANSPARENT / GLASS SURFACES ================= */
-  // Shared "glass" surfaces so iOS and Android render identically.
-  const glassInput = (focused: boolean) => ({
+  /*
+    CHANGED (red-field-on-empty): glassInput now also takes an
+    `hasError` flag. When true, the border is red regardless of
+    focus, so an empty field that was submitted reads as an error.
+    Priority: error > focused > idle.
+  */
+  const glassInput = (focused: boolean, hasError: boolean = false) => ({
     backgroundColor: focused
       ? "rgba(255,255,255,0.45)"
       : "rgba(255,255,255,0.25)",
     borderWidth: 1.5,
-    borderColor: focused ? "#024e32" : "rgba(255,255,255,0.6)",
+    borderColor: hasError
+      ? "#dc2626"
+      : focused
+      ? "#024e32"
+      : "rgba(255,255,255,0.6)",
   });
 
   return (
@@ -474,11 +534,7 @@ export default function LoginScreen() {
             }}
           />
 
-          {/* ================= TOP NAV BAR — Admin / Employee / Member =================
-              Pinned above the scroll area so it stays put as a real navbar.
-              Replaces the old hamburger + popup: the other two portals are
-              one tap away, the current one just reads as selected.
-              Transparent glass style to match the rest of the screen. */}
+          {/* ================= TOP NAV BAR ================= */}
           <Animatable.View
             animation="fadeInDown"
             duration={600}
@@ -895,315 +951,435 @@ export default function LoginScreen() {
 
                   {/* Form */}
                   <View>
-                    {/* User ID */}
-                    <Animatable.View
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={isDesktopOrLaptop ? 800 : 600}
-                      style={{ marginBottom: 20 }}
-                    >
-                      <Text
+                    {loginSuccess ? (
+                      /* ---------- SUCCESS STATE ---------- */
+                      <View
                         style={{
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: "#1e293b",
-                          marginBottom: 8,
-                          letterSpacing: 0.5,
-                          textTransform: "uppercase",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          paddingVertical: 28,
                         }}
                       >
-                        User ID
-                      </Text>
-                      <Animated.View
-                        style={[
-                          {
-                            flexDirection: "row",
-                            alignItems: "center",
-                            borderRadius: 16,
-                            paddingHorizontal: 16,
-                            paddingVertical: Platform.OS === "ios" ? 16 : 12,
-                          },
-                          glassInput(isFocused.userid),
-                          {
-                            transform: [
-                              {
-                                rotate: rotateAnim.interpolate({
-                                  inputRange: [-0.08, 0.08],
-                                  outputRange: ["-4deg", "4deg"],
-                                }),
-                              },
-                            ],
-                          },
-                        ]}
-                      >
-                        <MaterialIcons
-                          name="person"
-                          size={22}
-                          color={isFocused.userid ? "#024e32" : "#64748b"}
-                        />
-                        <TextInput
-                          placeholder="Enter User ID"
-                          placeholderTextColor="#64748b"
+                        <View
                           style={{
-                            flex: 1,
-                            marginLeft: 12,
-                            fontSize: 16,
-                            color: "#1e293b",
-                            padding: 0,
-                            backgroundColor: "transparent",
-                          }}
-                          value={userid}
-                          onChangeText={setUserid}
-                          onFocus={() =>
-                            setIsFocused({ ...isFocused, userid: true })
-                          }
-                          onBlur={() =>
-                            setIsFocused({ ...isFocused, userid: false })
-                          }
-                          autoCapitalize="none"
-                        />
-                        {userid.length > 0 && (
-                          <TouchableOpacity onPress={() => setUserid("")}>
-                            <Ionicons
-                              name="close-circle"
-                              size={20}
-                              color="#64748b"
-                            />
-                          </TouchableOpacity>
-                        )}
-                      </Animated.View>
-                    </Animatable.View>
-
-                    {/* Password */}
-                    <Animatable.View
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={isDesktopOrLaptop ? 900 : 700}
-                      style={{ marginBottom: 16 }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          fontWeight: "600",
-                          color: "#1e293b",
-                          marginBottom: 8,
-                          letterSpacing: 0.5,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        Password
-                      </Text>
-                      <Animated.View
-                        style={[
-                          {
-                            flexDirection: "row",
-                            alignItems: "center",
-                            borderRadius: 16,
-                            paddingHorizontal: 16,
-                            paddingVertical: Platform.OS === "ios" ? 16 : 12,
-                          },
-                          glassInput(isFocused.password),
-                        ]}
-                      >
-                        <MaterialIcons
-                          name="lock-outline"
-                          size={22}
-                          color={isFocused.password ? "#024e32" : "#64748b"}
-                        />
-                        <TextInput
-                          placeholder="Enter Password"
-                          placeholderTextColor="#64748b"
-                          secureTextEntry={!showPassword}
-                          style={{
-                            flex: 1,
-                            marginLeft: 12,
-                            fontSize: 16,
-                            color: "#1e293b",
-                            padding: 0,
-                            backgroundColor: "transparent",
-                          }}
-                          value={password}
-                          onChangeText={setPassword}
-                          onFocus={() =>
-                            setIsFocused({ ...isFocused, password: true })
-                          }
-                          onBlur={() =>
-                            setIsFocused({ ...isFocused, password: false })
-                          }
-                        />
-                        <TouchableOpacity
-                          onPress={() => setShowPassword(!showPassword)}
-                          style={{ padding: 4 }}
-                        >
-                          <MaterialIcons
-                            name={
-                              showPassword ? "visibility" : "visibility-off"
-                            }
-                            size={24}
-                            color="#64748b"
-                          />
-                        </TouchableOpacity>
-                      </Animated.View>
-                    </Animatable.View>
-
-                    {/* New User Register */}
-                    <Animatable.View
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={isDesktopOrLaptop ? 950 : 750}
-                      style={{ marginBottom: 24 }}
-                    >
-                      <TouchableOpacity
-                        onPress={() => router.push("/new-user")}
-                        style={{ alignSelf: "flex-end" }}
-                      >
-                        <Text
-                          style={{
-                            color: "#024e32",
-                            fontWeight: "600",
-                            fontSize: 14,
-                          }}
-                        >
-                          New Member? Register →
-                        </Text>
-                      </TouchableOpacity>
-                    </Animatable.View>
-
-                    {/* Login Button */}
-                    <Animatable.View
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={isDesktopOrLaptop ? 1000 : 800}
-                    >
-                      <TouchableOpacity
-                        onPress={handleLogin}
-                        activeOpacity={0.85}
-                        disabled={isLoading}
-                        style={{
-                          borderRadius: 16,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <LinearGradient
-                          colors={["#024e32", "#0369a1"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={{
-                            paddingVertical: 18,
+                            width: 110,
+                            height: 110,
                             alignItems: "center",
                             justifyContent: "center",
-                            flexDirection: "row",
                           }}
                         >
-                          {isLoading ? (
-                            <View
-                              style={{
+                          {/* Expanding ring */}
+                          <Animated.View
+                            pointerEvents="none"
+                            style={{
+                              position: "absolute",
+                              width: 92,
+                              height: 92,
+                              borderRadius: 46,
+                              borderWidth: 2,
+                              borderColor: "rgba(34,197,94,0.55)",
+                              opacity: ringPulseAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.9, 0],
+                              }),
+                              transform: [
+                                {
+                                  scale: ringPulseAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0.85, 1.35],
+                                  }),
+                                },
+                              ],
+                            }}
+                          />
+
+                          {/* Static glow disc */}
+                          <Animated.View
+                            style={{
+                              width: 84,
+                              height: 84,
+                              borderRadius: 42,
+                              backgroundColor: "rgba(34,197,94,0.16)",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              borderWidth: 1.5,
+                              borderColor: "#16a34a",
+                              shadowColor: "#16a34a",
+                              shadowOpacity: 0.55,
+                              shadowRadius: 24,
+                              shadowOffset: { width: 0, height: 0 },
+                              elevation: 8,
+                              transform: [{ scale: checkScaleAnim }],
+                            }}
+                          >
+                            <MaterialIcons name="check" size={46} color="#16a34a" />
+                          </Animated.View>
+                        </View>
+
+                        <Animated.Text
+                          style={{
+                            color: "#024e32",
+                            fontSize: 22,
+                            fontWeight: "800",
+                            marginTop: 22,
+                            letterSpacing: 0.3,
+                            opacity: checkFadeAnim,
+                          }}
+                        >
+                          Verified successfully
+                        </Animated.Text>
+                        <Animated.Text
+                          style={{
+                            color: "#64748b",
+                            fontSize: 14,
+                            marginTop: 8,
+                            textAlign: "center",
+                            lineHeight: 20,
+                            paddingHorizontal: 16,
+                            opacity: checkFadeAnim,
+                          }}
+                        >
+                          Welcome back! Logging you in…
+                        </Animated.Text>
+                      </View>
+                    ) : (
+                      /* ---------- NORMAL LOGIN FORM ---------- */
+                      <>
+                        {/* User ID */}
+                        <Animatable.View
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={isDesktopOrLaptop ? 800 : 600}
+                          style={{ marginBottom: 20 }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: "600",
+                              color: "#1e293b",
+                              marginBottom: 8,
+                              letterSpacing: 0.5,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            User ID
+                          </Text>
+                          <Animated.View
+                            style={[
+                              {
                                 flexDirection: "row",
                                 alignItems: "center",
+                                borderRadius: 16,
+                                paddingHorizontal: 16,
+                                paddingVertical: Platform.OS === "ios" ? 16 : 12,
+                              },
+                              // CHANGED: pass fieldErrors.userid so this
+                              // box goes red when submitted empty.
+                              glassInput(isFocused.userid, fieldErrors.userid),
+                              {
+                                transform: [
+                                  {
+                                    rotate: rotateAnim.interpolate({
+                                      inputRange: [-0.08, 0.08],
+                                      outputRange: ["-4deg", "4deg"],
+                                    }),
+                                  },
+                                ],
+                              },
+                            ]}
+                          >
+                            <MaterialIcons
+                              name="person"
+                              size={22}
+                              color={
+                                fieldErrors.userid
+                                  ? "#dc2626"
+                                  : isFocused.userid
+                                  ? "#024e32"
+                                  : "#64748b"
+                              }
+                            />
+                            <TextInput
+                              placeholder="Enter User ID"
+                              placeholderTextColor="#64748b"
+                              style={{
+                                flex: 1,
+                                marginLeft: 12,
+                                fontSize: 16,
+                                color: "#1e293b",
+                                padding: 0,
+                                backgroundColor: "transparent",
+                              }}
+                              value={userid}
+                              onChangeText={(t) => {
+                                setUserid(t);
+                                // Clear this field's red as soon as the
+                                // user starts typing into it.
+                                if (fieldErrors.userid) {
+                                  setFieldErrors((prev) => ({
+                                    ...prev,
+                                    userid: false,
+                                  }));
+                                }
+                              }}
+                              onFocus={() =>
+                                setIsFocused({ ...isFocused, userid: true })
+                              }
+                              onBlur={() =>
+                                setIsFocused({ ...isFocused, userid: false })
+                              }
+                              autoCapitalize="none"
+                            />
+                            {userid.length > 0 && (
+                              <TouchableOpacity onPress={() => setUserid("")}>
+                                <Ionicons
+                                  name="close-circle"
+                                  size={20}
+                                  color="#64748b"
+                                />
+                              </TouchableOpacity>
+                            )}
+                          </Animated.View>
+                        </Animatable.View>
+
+                        {/* Password */}
+                        <Animatable.View
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={isDesktopOrLaptop ? 900 : 700}
+                          style={{ marginBottom: 16 }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              fontWeight: "600",
+                              color: "#1e293b",
+                              marginBottom: 8,
+                              letterSpacing: 0.5,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            Password
+                          </Text>
+                          <Animated.View
+                            style={[
+                              {
+                                flexDirection: "row",
+                                alignItems: "center",
+                                borderRadius: 16,
+                                paddingHorizontal: 16,
+                                paddingVertical: Platform.OS === "ios" ? 16 : 12,
+                              },
+                              // CHANGED: pass fieldErrors.password so this
+                              // box goes red when submitted empty.
+                              glassInput(isFocused.password, fieldErrors.password),
+                            ]}
+                          >
+                            <MaterialIcons
+                              name="lock-outline"
+                              size={22}
+                              color={
+                                fieldErrors.password
+                                  ? "#dc2626"
+                                  : isFocused.password
+                                  ? "#024e32"
+                                  : "#64748b"
+                              }
+                            />
+                            <TextInput
+                              placeholder="Enter Password"
+                              placeholderTextColor="#64748b"
+                              secureTextEntry={!showPassword}
+                              style={{
+                                flex: 1,
+                                marginLeft: 12,
+                                fontSize: 16,
+                                color: "#1e293b",
+                                padding: 0,
+                                backgroundColor: "transparent",
+                              }}
+                              value={password}
+                              onChangeText={(t) => {
+                                setPassword(t);
+                                // Clear this field's red as soon as the
+                                // user starts typing into it.
+                                if (fieldErrors.password) {
+                                  setFieldErrors((prev) => ({
+                                    ...prev,
+                                    password: false,
+                                  }));
+                                }
+                              }}
+                              onFocus={() =>
+                                setIsFocused({ ...isFocused, password: true })
+                              }
+                              onBlur={() =>
+                                setIsFocused({ ...isFocused, password: false })
+                              }
+                            />
+                            <TouchableOpacity
+                              onPress={() => setShowPassword(!showPassword)}
+                              style={{ padding: 4 }}
+                            >
+                              <MaterialIcons
+                                name={
+                                  showPassword ? "visibility" : "visibility-off"
+                                }
+                                size={24}
+                                color="#64748b"
+                              />
+                            </TouchableOpacity>
+                          </Animated.View>
+                        </Animatable.View>
+
+                        {/* New User Register */}
+                        <Animatable.View
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={isDesktopOrLaptop ? 950 : 750}
+                          style={{ marginBottom: 24 }}
+                        >
+                          <TouchableOpacity
+                            onPress={() => router.push("/new-user")}
+                            style={{ alignSelf: "flex-end" }}
+                          >
+                            <Text
+                              style={{
+                                color: "#024e32",
+                                fontWeight: "600",
+                                fontSize: 14,
                               }}
                             >
-                              <Animated.View
-                                style={{
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: 10,
-                                  borderWidth: 3,
-                                  borderColor: "white",
-                                  borderTopColor: "transparent",
-                                  transform: [
-                                    {
-                                      rotate: progressAnim.interpolate({
-                                        inputRange: [0, 1],
-                                        outputRange: ["0deg", "360deg"],
-                                      }),
-                                    },
-                                  ],
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  color: "white",
-                                  fontSize: 18,
-                                  fontWeight: "700",
-                                  letterSpacing: 0.5,
-                                  marginLeft: 12,
-                                }}
-                              >
-                                Logging in...
-                              </Text>
-                            </View>
-                          ) : (
-                            <>
-                              <Text
-                                style={{
-                                  color: "white",
-                                  fontSize: 18,
-                                  fontWeight: "700",
-                                  letterSpacing: 0.5,
-                                }}
-                              >
-                                Login
-                              </Text>
-                              <Animatable.View
-                                animation="pulse"
-                                easing="ease-out"
-                                iterationCount="infinite"
-                                style={{ marginLeft: 12 }}
-                              >
-                                <MaterialIcons
-                                  name="arrow-forward"
-                                  size={24}
-                                  color="white"
-                                />
-                              </Animatable.View>
-                            </>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </Animatable.View>
+                              New Member? Register →
+                            </Text>
+                          </TouchableOpacity>
+                        </Animatable.View>
 
-                    {/* Message */}
-                    {message ? (
+                        {/* Login Button */}
+                        <Animatable.View
+                          animation="fadeInUp"
+                          duration={600}
+                          delay={isDesktopOrLaptop ? 1000 : 800}
+                        >
+                          <TouchableOpacity
+                            onPress={handleLogin}
+                            activeOpacity={0.85}
+                            disabled={isLoading}
+                            style={{
+                              borderRadius: 16,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <LinearGradient
+                              colors={["#024e32", "#0369a1"]}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={{
+                                paddingVertical: 18,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexDirection: "row",
+                              }}
+                            >
+                              {isLoading ? (
+                                <View
+                                  style={{
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <Animated.View
+                                    style={{
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: 10,
+                                      borderWidth: 3,
+                                      borderColor: "white",
+                                      borderTopColor: "transparent",
+                                      transform: [
+                                        {
+                                          rotate: progressAnim.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: ["0deg", "360deg"],
+                                          }),
+                                        },
+                                      ],
+                                    }}
+                                  />
+                                  <Text
+                                    style={{
+                                      color: "white",
+                                      fontSize: 18,
+                                      fontWeight: "700",
+                                      letterSpacing: 0.5,
+                                      marginLeft: 12,
+                                    }}
+                                  >
+                                    Logging in...
+                                  </Text>
+                                </View>
+                              ) : (
+                                <>
+                                  <Text
+                                    style={{
+                                      color: "white",
+                                      fontSize: 18,
+                                      fontWeight: "700",
+                                      letterSpacing: 0.5,
+                                    }}
+                                  >
+                                    Login
+                                  </Text>
+                                  <Animatable.View
+                                    animation="pulse"
+                                    easing="ease-out"
+                                    iterationCount="infinite"
+                                    style={{ marginLeft: 12 }}
+                                  >
+                                    <MaterialIcons
+                                      name="arrow-forward"
+                                      size={24}
+                                      color="white"
+                                    />
+                                  </Animatable.View>
+                                </>
+                              )}
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        </Animatable.View>
+                      </>
+                    )}
+
+                    {/* Message
+                        The success panel above already shows the
+                        checkmark, so this bottom bubble is suppressed
+                        for loginSuccess. Error messages still show
+                        here as before. */}
+                    {message && !loginSuccess ? (
                       <Animatable.View
-                        animation={
-                          message.includes("Successful") ? "bounceIn" : "shake"
-                        }
+                        animation="shake"
                         duration={600}
                         style={{
                           marginTop: 20,
                           padding: 14,
                           borderRadius: 14,
-                          backgroundColor: message.includes("Successful")
-                            ? "rgba(220, 252, 231, 0.55)"
-                            : "rgba(254, 226, 226, 0.55)",
+                          backgroundColor: "rgba(254, 226, 226, 0.55)",
                           borderWidth: 1,
-                          borderColor: message.includes("Successful")
-                            ? "rgba(134, 239, 172, 0.9)"
-                            : "rgba(252, 165, 165, 0.9)",
+                          borderColor: "rgba(252, 165, 165, 0.9)",
                           flexDirection: "row",
                           alignItems: "center",
                         }}
                       >
                         <MaterialIcons
-                          name={
-                            message.includes("Successful")
-                              ? "check-circle"
-                              : "error-outline"
-                          }
+                          name="error-outline"
                           size={20}
-                          color={
-                            message.includes("Successful")
-                              ? "#16a34a"
-                              : "#dc2626"
-                          }
+                          color="#dc2626"
                         />
                         <Text
                           style={{
                             flex: 1,
                             marginLeft: 10,
-                            color: message.includes("Successful")
-                              ? "#15803d"
-                              : "#b91c1c",
+                            color: "#b91c1c",
                             fontSize: 14,
                             fontWeight: "500",
                           }}
@@ -1213,49 +1389,51 @@ export default function LoginScreen() {
                       </Animatable.View>
                     ) : null}
 
-                    {/* Footer */}
-                    <Animatable.View
-                      animation="fadeInUp"
-                      duration={600}
-                      delay={isDesktopOrLaptop ? 1100 : 900}
-                      style={{
-                        marginTop: 24,
-                        flexDirection: "row",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <TouchableOpacity>
-                        <Text
-                          style={{
-                            color: "#64748b",
-                            fontSize: 14,
-                            fontWeight: "500",
-                          }}
-                        >
-                          Need help?
-                        </Text>
-                      </TouchableOpacity>
-                      <View
+                    {/* Footer -- suppressed during success panel */}
+                    {!loginSuccess && (
+                      <Animatable.View
+                        animation="fadeInUp"
+                        duration={600}
+                        delay={isDesktopOrLaptop ? 1100 : 900}
                         style={{
-                          width: 1,
-                          height: 20,
-                          backgroundColor: "rgba(2,78,50,0.15)",
+                          marginTop: 24,
+                          flexDirection: "row",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          gap: 8,
                         }}
-                      />
-                      <TouchableOpacity onPress={dialSupport}>
-                        <Text
+                      >
+                        <TouchableOpacity>
+                          <Text
+                            style={{
+                              color: "#64748b",
+                              fontSize: 14,
+                              fontWeight: "500",
+                            }}
+                          >
+                            Need help?
+                          </Text>
+                        </TouchableOpacity>
+                        <View
                           style={{
-                            color: "#024e32",
-                            fontSize: 14,
-                            fontWeight: "600",
+                            width: 1,
+                            height: 20,
+                            backgroundColor: "rgba(2,78,50,0.15)",
                           }}
-                        >
-                          Contact Support
-                        </Text>
-                      </TouchableOpacity>
-                    </Animatable.View>
+                        />
+                        <TouchableOpacity onPress={dialSupport}>
+                          <Text
+                            style={{
+                              color: "#024e32",
+                              fontSize: 14,
+                              fontWeight: "600",
+                            }}
+                          >
+                            Contact Support
+                          </Text>
+                        </TouchableOpacity>
+                      </Animatable.View>
+                    )}
 
                     {!isDesktopOrLaptop && (
                       <Animatable.View

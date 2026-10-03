@@ -5,8 +5,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   RefreshControl,
   SafeAreaView,
@@ -189,6 +191,7 @@ function FormField({
   placeholder,
   keyboardType,
   multiline,
+  maxLength,
 }: {
   label: string;
   icon: any;
@@ -197,6 +200,7 @@ function FormField({
   placeholder: string;
   keyboardType?: "default" | "phone-pad";
   multiline?: boolean;
+  maxLength?: number;
 }) {
   return (
     <View className="mb-4">
@@ -223,6 +227,7 @@ function FormField({
           multiline={multiline}
           numberOfLines={multiline ? 2 : 1}
           textAlignVertical={multiline ? "top" : "center"}
+          maxLength={maxLength}
           className="flex-1 py-3 text-base ml-2"
           style={multiline ? { minHeight: 56 } : undefined}
         />
@@ -251,6 +256,27 @@ function Footer() {
   );
 }
 
+/* FIXED: tap-to-call for the phone number shown on each entry card.
+   Always asks for confirmation BEFORE opening the dialer -- never
+   dials straight away. Same pattern as app/admin/dailyDatabaseDetail.tsx. */
+function handleCallPress(phone: string) {
+  if (!phone) return;
+
+  if (Platform.OS === "web") {
+    // @ts-ignore - window only exists on web
+    const confirmed = window.confirm(`Call ${phone}?`);
+    if (confirmed) {
+      Linking.openURL(`tel:${phone}`);
+    }
+    return;
+  }
+
+  Alert.alert("Call this number?", phone, [
+    { text: "Cancel", style: "cancel" },
+    { text: "Call", onPress: () => Linking.openURL(`tel:${phone}`) },
+  ]);
+}
+
 /* ================= ENTRY CARD (today's own entries) ================= */
 function EntryCard({ entry }: { entry: any }) {
   return (
@@ -263,8 +289,18 @@ function EntryCard({ entry }: { entry: any }) {
       </View>
 
       <View className="flex-row items-center mt-2">
-        <MaterialIcons name="call" size={14} color="#6b7280" />
-        <Text className="text-gray-500 text-xs ml-1">{entry.phone}</Text>
+        <TouchableOpacity
+          onPress={() => handleCallPress(entry.phone)}
+          disabled={!entry.phone}
+          activeOpacity={0.6}
+          hitSlop={8}
+          className="flex-row items-center bg-green-50 px-2 py-1 rounded-lg"
+        >
+          <MaterialIcons name="call" size={14} color="#024e32" />
+          <Text className="text-[#024e32] text-xs ml-1 font-semibold">
+            {entry.phone}
+          </Text>
+        </TouchableOpacity>
         {!!entry.occupation && (
           <>
             <Text className="text-gray-300 mx-2">•</Text>
@@ -275,6 +311,25 @@ function EntryCard({ entry }: { entry: any }) {
           </>
         )}
       </View>
+
+      {/* Telephone Number -- only shown when this entry actually has
+          one (it's optional). Same tap-to-call confirm-first behavior
+          as the Phone Number above. */}
+      {!!entry.telephone && (
+        <View className="flex-row items-center mt-1.5">
+          <TouchableOpacity
+            onPress={() => handleCallPress(entry.telephone)}
+            activeOpacity={0.6}
+            hitSlop={8}
+            className="flex-row items-center bg-blue-50 px-2 py-1 rounded-lg"
+          >
+            <MaterialIcons name="dialpad" size={14} color="#1d4ed8" />
+            <Text className="text-blue-700 text-xs ml-1 font-semibold">
+              {entry.telephone}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -292,6 +347,7 @@ export default function DailyDatabase() {
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [telephone, setTelephone] = useState("");
   const [occupation, setOccupation] = useState("");
   const [workAddress, setWorkAddress] = useState("");
   const [permanentAddress, setPermanentAddress] = useState("");
@@ -358,9 +414,29 @@ export default function DailyDatabase() {
     loadEntries(empId);
   };
 
+  // FIXED: Phone Number was plain free text before -- it silently
+  // accepted letters and any length. This strips anything that isn't a
+  // digit on every keystroke and hard-caps it at 10 characters, so only
+  // a clean 10-digit mobile number can ever land in this field (not just
+  // a soft keyboard hint that a user could still paste letters into).
+  const handlePhoneChange = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9]/g, "").slice(0, 10);
+    setPhone(digitsOnly);
+  };
+
+  // Telephone Number is the new OPTIONAL field for landline / telephone
+  // numbers that don't fit the strict 10-digit mobile format above --
+  // still digits-only (no alphabets allowed), just not capped at 10
+  // since landline numbers (with STD codes) can run longer.
+  const handleTelephoneChange = (text: string) => {
+    const digitsOnly = text.replace(/[^0-9]/g, "").slice(0, 15);
+    setTelephone(digitsOnly);
+  };
+
   const resetForm = () => {
     setName("");
     setPhone("");
+    setTelephone("");
     setOccupation("");
     setWorkAddress("");
     setPermanentAddress("");
@@ -385,6 +461,7 @@ export default function DailyDatabase() {
           employeeName,
           name: name.trim(),
           phone: phone.trim(),
+          telephone: telephone.trim(),
           occupation: occupation.trim(),
           workAddress: workAddress.trim(),
           permanentAddress: permanentAddress.trim(),
@@ -491,9 +568,20 @@ export default function DailyDatabase() {
                 label="Phone Number *"
                 icon="phone"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={handlePhoneChange}
                 placeholder="Enter phone number"
                 keyboardType="phone-pad"
+                maxLength={10}
+              />
+
+              <FormField
+                label="Telephone Number (optional)"
+                icon="dialpad"
+                value={telephone}
+                onChangeText={handleTelephoneChange}
+                placeholder="Enter landline / telephone number"
+                keyboardType="phone-pad"
+                maxLength={15}
               />
 
               <FormField

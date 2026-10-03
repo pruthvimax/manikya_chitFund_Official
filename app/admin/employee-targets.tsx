@@ -800,9 +800,53 @@ const prettyFieldName = (field: any): string => {
     .replace(/^./, (c) => c.toUpperCase());
 };
 
+// Shared by buildPaymentLog and recalcEditHistoryForLogEdit so both always
+// agree on what the ORIGINAL "Set Target" / creation-time collection
+// amount was. The FIRST entry ever inserted into editHistory (array
+// order, which editing never changes) is that original one -- its
+// oldValue IS that original amount; if nothing has ever been edited
+// yet, the current collectionAmount itself still is that original
+// amount.
+//
+// FIXED: this used to sort by editedAt to find the "earliest" entry.
+// But editedAt is exactly the field an admin can edit (moving one
+// entry's date onto another day) -- once that happens, a LATER entry
+// can sort as if it were earliest, its oldValue gets mistaken for the
+// original creation amount, and a bogus extra row appears on top of
+// what the employee actually entered (reported as "22 become 44" --
+// really a 3rd phantom row, not the real entry doubling). Array order
+// is never touched by a date edit, so it is the reliable signal here.
+const getOriginalCollectionAmount = (target: any, history: any[]): number => {
+  const collectionEdits = history.filter((i: any) =>
+    String(i?.field ?? "").toLowerCase().includes("collection")
+  );
+
+  return collectionEdits.length > 0
+    ? toNumber(collectionEdits[0].oldValue)
+    : toNumber(target?.collectionAmount);
+};
+
+// Same idea for payment method -- target.paymentMethod is the
+// CURRENT/live value on the record, which changes whenever ANY log
+// entry's payment method is edited. Using it directly for the creation
+// row made that row's payment method appear to change along with it,
+// even though the creation entry itself was never touched. The FIRST
+// payment-method edit ever inserted (array order, not sorted by the
+// editable editedAt field -- same reasoning as above) is what it
+// actually was at creation; if it was never edited, the current value
+// still is it.
+const getOriginalPaymentMethod = (target: any, history: any[]): string => {
+  const paymentEdits = history.filter((i: any) =>
+    String(i?.field ?? "").toLowerCase().includes("payment")
+  );
+
+  return paymentEdits.length > 0
+    ? String(paymentEdits[0].oldValue ?? target?.paymentMethod ?? "")
+    : String(target?.paymentMethod ?? "");
+};
+
 const buildPaymentLog = (target: any): PaymentLogEntry[] => {
   const history = Array.isArray(target?.editHistory) ? target.editHistory : [];
-  if (history.length === 0) return [];
 
   const groups = new Map<string, { editedAt: string | null; items: any[] }>();
 
@@ -820,38 +864,99 @@ const buildPaymentLog = (target: any): PaymentLogEntry[] => {
   const log: PaymentLogEntry[] = [];
 
   groups.forEach((group, stamp) => {
-    const collection = group.items.find((i) =>
+    // Normally one save = one collection change (+ maybe a payment-method
+    // change), all logged at the same second. If two SEPARATE saves land
+    // on the exact same second, this group holds more than one collection
+    // change -- give each its own row below instead of merging them,
+    // which used to make one of the two amounts silently vanish from the
+    // log (and from the Edit screen).
+    const collectionItems = group.items.filter((i) =>
       String(i?.field ?? "").toLowerCase().includes("collection")
     );
-    const payment = group.items.find((i) =>
+    const paymentItems = group.items.filter((i) =>
       String(i?.field ?? "").toLowerCase().includes("payment")
     );
+    const otherItems = group.items.filter(
+      (i) => !collectionItems.includes(i) && !paymentItems.includes(i)
+    );
 
-    const newTotal = collection ? toNumber(collection.newValue) : null;
-    const amount = collection
-      ? toNumber(collection.newValue) - toNumber(collection.oldValue)
-      : null;
+    if (collectionItems.length <= 1) {
+      const collection = collectionItems[0];
+      const payment = paymentItems[0];
 
-    const otherFields = group.items
-      .filter((i) => i !== collection && i !== payment)
-      .map((i) => prettyFieldName(i?.field))
-      .filter(Boolean);
+      const newTotal = collection ? toNumber(collection.newValue) : null;
+      const amount = collection
+        ? toNumber(collection.newValue) - toNumber(collection.oldValue)
+        : null;
 
-    log.push({
-      stamp,
-      editedAt: group.editedAt,
-      amount,
-      newTotal,
-      paymentMethod: payment?.newValue
-        ? String(payment.newValue)
-        : String(target?.paymentMethod ?? ""),
-      otherFields,
-      editId: group.items[0]?._id || `edit-${stamp}`,
-      collectionId: collection?._id,
-      oldAmount: collection ? toNumber(collection.oldValue) : undefined,
-      oldPaymentMethod: payment?.oldValue ? String(payment.oldValue) : undefined,
-    });
+      const otherFields = otherItems
+        .map((i) => prettyFieldName(i?.field))
+        .filter(Boolean);
+
+      log.push({
+        stamp,
+        editedAt: group.editedAt,
+        amount,
+        newTotal,
+        paymentMethod: payment?.newValue
+          ? String(payment.newValue)
+          : String(target?.paymentMethod ?? ""),
+        otherFields,
+        editId: group.items[0]?._id || `edit-${stamp}`,
+        collectionId: collection?._id,
+        oldAmount: collection ? toNumber(collection.oldValue) : undefined,
+        oldPaymentMethod: payment?.oldValue ? String(payment.oldValue) : undefined,
+      });
+    } else {
+      collectionItems.forEach((collection, i) => {
+        const payment = paymentItems[i] || (i === 0 ? paymentItems[0] : undefined);
+        const newTotal = toNumber(collection.newValue);
+        const amount = toNumber(collection.newValue) - toNumber(collection.oldValue);
+        const otherFields =
+          i === 0
+            ? otherItems.map((it) => prettyFieldName(it?.field)).filter(Boolean)
+            : [];
+
+        log.push({
+          stamp: `${stamp}#${i}`,
+          editedAt: group.editedAt,
+          amount,
+          newTotal,
+          paymentMethod: payment?.newValue
+            ? String(payment.newValue)
+            : String(target?.paymentMethod ?? ""),
+          otherFields,
+          editId: collection?._id || `edit-${stamp}-${i}`,
+          collectionId: collection?._id,
+          oldAmount: toNumber(collection.oldValue),
+          oldPaymentMethod: payment?.oldValue ? String(payment.oldValue) : undefined,
+        });
+      });
+    }
   });
+
+  // The Collection Amount typed on the very first "Set Target" entry
+  // never showed up here, because editHistory only starts recording once
+  // something is EDITED afterwards -- a brand new target has no edit yet
+  // at the moment it's created. Add one more row for that original
+  // amount (dated at creation time) so it always shows here AND can be
+  // edited, same as every other row -- its stamp ("created-...") is
+  // handled specially in recalcEditHistoryForLogEdit below.
+  if (target) {
+    const originalCollectionAmount = getOriginalCollectionAmount(target, history);
+    if (originalCollectionAmount > 0) {
+      log.push({
+        stamp: `created-${target._id || target.createdAt || "0"}`,
+        editedAt: target.createdAt || null,
+        amount: originalCollectionAmount,
+        newTotal: originalCollectionAmount,
+        paymentMethod: getOriginalPaymentMethod(target, history),
+        otherFields: [],
+        editId: `created-${target._id || "0"}`,
+        oldAmount: 0,
+      });
+    }
+  }
 
   return log.sort(
     (a, b) =>
@@ -916,9 +1021,13 @@ const sanitizeEditHistory = (history: any): any[] => {
 };
 
 const putTarget = async (id: string, payload: Record<string, any>) => {
+  // Backend's updateTarget only allows editing an Approved/Rejected
+  // target when req.headers.role === "admin" -- this page IS the admin
+  // panel, so it must send that header, or the backend treats every
+  // save here as a non-admin edit and blocks it after approval.
   const response = await fetch(`${BACKEND_URL}/target/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", role: "admin" },
     body: JSON.stringify(payload),
   });
 
@@ -989,14 +1098,89 @@ const recalcEditHistoryForLogEdit = (
     ? target.editHistory.map((item) => ({ ...item }))
     : [];
 
+  const newDateIso =
+    newDate instanceof Date && !Number.isNaN(newDate.getTime())
+      ? newDate.toISOString()
+      : new Date().toISOString();
+
+  // Editing the synthetic "creation" row (see buildPaymentLog) has no
+  // matching entry in editHistory yet -- it's handled separately here:
+  // insert a real entry for it, then shift every later collection
+  // entry's old/new values by the same correction so the running totals
+  // stay consistent, without touching anything else about them.
+  if (editedStamp.startsWith("created-")) {
+    const originalCollectionAmount = getOriginalCollectionAmount(target, history);
+    const diff = newAmount - originalCollectionAmount;
+
+    const shifted = history.map((item) => {
+      if (String(item?.field ?? "").toLowerCase().includes("collection")) {
+        return {
+          ...item,
+          oldValue: toNumber(item.oldValue) + diff,
+          newValue: toNumber(item.newValue) + diff,
+        };
+      }
+      return item;
+    });
+
+    shifted.unshift({
+      field: "collectionAmount",
+      oldValue: 0,
+      newValue: newAmount,
+      editedAt: newDateIso,
+    });
+
+    const originalPaymentMethod = getOriginalPaymentMethod(target, history);
+    if (newPaymentMethod !== originalPaymentMethod) {
+      shifted.unshift({
+        field: "paymentMethod",
+        oldValue: originalPaymentMethod,
+        newValue: newPaymentMethod,
+        editedAt: newDateIso,
+      });
+    }
+
+    const finalCollectionAmount = toNumber(target.collectionAmount) + diff;
+
+    return { editHistory: shifted, collectionAmount: finalCollectionAmount };
+  }
+
   const stampOf = (item: any, idx: number) =>
     item?.editedAt ? new Date(item.editedAt).toISOString().slice(0, 19) : `unknown-${idx}`;
 
-  const groupMap = new Map<string, { editedAt: string | null; indices: number[] }>();
+  // Mirrors buildPaymentLog's grouping, including splitting a group that
+  // holds more than one collection change sharing the exact same second
+  // -- otherwise editing one of those two entries could silently fold
+  // the other one into it (see buildPaymentLog for the full note).
+  const baseGroups = new Map<string, { editedAt: string | null; indices: number[] }>();
   history.forEach((item, idx) => {
     const stamp = stampOf(item, idx);
-    if (!groupMap.has(stamp)) groupMap.set(stamp, { editedAt: item?.editedAt ?? null, indices: [] });
-    groupMap.get(stamp)!.indices.push(idx);
+    if (!baseGroups.has(stamp)) baseGroups.set(stamp, { editedAt: item?.editedAt ?? null, indices: [] });
+    baseGroups.get(stamp)!.indices.push(idx);
+  });
+
+  const groupMap = new Map<string, { editedAt: string | null; indices: number[] }>();
+  baseGroups.forEach((group, baseStamp) => {
+    const collectionIdxs = group.indices.filter((idx) =>
+      String(history[idx]?.field ?? "").toLowerCase().includes("collection")
+    );
+    if (collectionIdxs.length <= 1) {
+      groupMap.set(baseStamp, group);
+      return;
+    }
+    const paymentIdxs = group.indices.filter((idx) =>
+      String(history[idx]?.field ?? "").toLowerCase().includes("payment")
+    );
+    const otherIdxs = group.indices.filter(
+      (idx) => !collectionIdxs.includes(idx) && !paymentIdxs.includes(idx)
+    );
+    collectionIdxs.forEach((collectionIdx, i) => {
+      const indices = [collectionIdx];
+      if (paymentIdxs[i] !== undefined) indices.push(paymentIdxs[i]);
+      else if (i === 0 && paymentIdxs[0] !== undefined) indices.push(paymentIdxs[0]);
+      if (i === 0) indices.push(...otherIdxs);
+      groupMap.set(`${baseStamp}#${i}`, { editedAt: group.editedAt, indices });
+    });
   });
 
   const orderedStamps = Array.from(groupMap.keys()).sort((a, b) => {
@@ -1004,11 +1188,6 @@ const recalcEditHistoryForLogEdit = (
     const tb = groupMap.get(b)!.editedAt ? new Date(groupMap.get(b)!.editedAt as string).getTime() : 0;
     return ta - tb;
   });
-
-  const newDateIso =
-    newDate instanceof Date && !Number.isNaN(newDate.getTime())
-      ? newDate.toISOString()
-      : new Date().toISOString();
 
   let carryOldValue: number | null = null;
   let pastEditPoint = false;
@@ -1564,7 +1743,7 @@ export default function AdminTargetsView() {
   const handleDelete = async (id: string) => {
     setModalVisible(false);
 
-    const doDelete = async () => {
+    const performDelete = async () => {
       try {
         const response = await fetch(`${BACKEND_URL}/target/${id}`, {
           method: "DELETE",
@@ -1579,14 +1758,19 @@ export default function AdminTargetsView() {
       }
     };
 
-    // FIX: Alert.alert's Cancel/Delete button pair doesn't render as a
-    // real clickable dialog on web (desktop/laptop) -- only native
-    // iOS/Android show it properly. On web this now uses a plain
-    // window.confirm() instead, same reasoning as the Platform.OS ===
-    // "web" branches already used for printing elsewhere in this file.
+    // FIXED: Alert.alert's multi-button (Cancel/Delete) confirm dialog
+    // does not reliably fire its onPress callback on web (laptop/desktop
+    // browser) in this Expo setup -- same reason addPayment in
+    // CollectPayment.tsx, and the "Locked" message on the employee
+    // targets page, use window.confirm()/window.alert() there instead
+    // of Alert.alert. Native (iOS/Android) keeps the exact same dialog
+    // it already had.
     if (Platform.OS === "web") {
-      if (window.confirm("Are you sure you want to delete this target?")) {
-        doDelete();
+      if (
+        typeof window !== "undefined" &&
+        window.confirm("Are you sure you want to delete this target?")
+      ) {
+        performDelete();
       }
       return;
     }
@@ -1601,7 +1785,7 @@ export default function AdminTargetsView() {
           {
             text: "Delete",
             style: "destructive",
-            onPress: doDelete,
+            onPress: performDelete,
           },
         ]
       );

@@ -53,22 +53,22 @@ let currentPrintMethod = 'none';
 const getReceiptFlags = (receipt: any) => ({
   hasDividend: Number(receipt?.dividendAmount) > 0,
   hasTodayInstallment: Number(receipt?.todayInstallmentPaid) > 0,
+  hasPendingInstallment: Number(receipt?.pendingInstallment) > 0,
+  hasTodayPenalty: Number(receipt?.todayPenaltyPaid) > 0,
+  hasPendingPenalty: Number(receipt?.pendingPenalty) > 0,
   // hasPenaltyActivity controls whether the whole Penalty section
-  // (divider + Pending Penalty) shows at all -- true whenever there's
-  // any penalty history or pending amount, even if nothing was paid
-  // TODAY. hasTodayPenalty is separate: it only controls the
-  // "Paid Today (Penalty)" row, so that row never shows "₹ 0" on a
-  // day nothing was actually paid toward penalty.
+  // (divider + its rows) shows at all. Since "Paid Today (Penalty)"
+  // and "Pending Penalty" are now each individually hidden when
+  // they're 0 (to keep the receipt short), this only needs to check
+  // those same two things -- a section with nothing left to show
+  // inside it shouldn't render an empty divider either.
   hasPenaltyActivity:
     Number(receipt?.todayPenaltyPaid) > 0 ||
-    Number(receipt?.totalPenaltyPaid) > 0 ||
     Number(receipt?.pendingPenalty) > 0,
-  hasTodayPenalty: Number(receipt?.todayPenaltyPaid) > 0,
-  hasPendingInstallment: Number(receipt?.pendingInstallment) > 0,
 });
 
 const generateReceiptHTML = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
 
   return `
     <!DOCTYPE html>
@@ -148,12 +148,23 @@ const generateReceiptHTML = (receipt: any) => {
           margin-top: 1px;
           line-height: 1.3;
         }
+        /* FIXED: every printed number/value was only as dark as the
+           page's default text color, which some print drivers render
+           lighter than the rest of the receipt. Forcing every value
+           (the right-hand side of every row) to pure black and a
+           heavier weight keeps every number printing dark, not just
+           the ones already wrapped in .highlight. */
+        .row span:last-child {
+          font-weight: 600;
+          color: #000;
+        }
       </style>
     </head>
     <body>
     <div class="receipt">
       <div class="center header">MANIKYA CHITS PVT LTD</div>
       <div class="address">#102 Shri Siddivinayaka Complex, In Front of Government Hospital, JC Road, Sagara, Shivamogga, Karnataka - 577401</div>
+      <div class="address">Ph: +91 7259201729</div>
       <div class="center">Payment Receipt</div>
 
       <div class="date-time">
@@ -170,17 +181,21 @@ const generateReceiptHTML = (receipt: any) => {
         <span>Month:</span>
         <span>M${receipt.monthIndex || 'N/A'}</span>
       </div>
+      <div class="row">
+        <span>Due Date:</span>
+        <span>${receipt.dueDate || 'N/A'}</span>
+      </div>
 
       <div class="divider"></div>
 
       <div class="row">
         <span>Installment:</span>
-        <span>₹ ${receipt.installmentAmount || 0}</span>
+        <span>Rs. ${receipt.installmentAmount || 0}</span>
       </div>
       ${hasDividend ? `
       <div class="row">
         <span>Dividend:</span>
-        <span>₹ ${receipt.dividendAmount}</span>
+        <span>Rs. ${receipt.dividendAmount}</span>
       </div>
       ` : ''}
 
@@ -189,13 +204,13 @@ const generateReceiptHTML = (receipt: any) => {
       ${hasTodayInstallment ? `
       <div class="row">
         <span>Paid Today (Inst):</span>
-        <span>₹ ${receipt.todayInstallmentPaid}</span>
+        <span>Rs. ${receipt.todayInstallmentPaid}</span>
       </div>
       ` : ''}
       ${hasPendingInstallment ? `
       <div class="row highlight">
         <span>Pending Installment:</span>
-        <span>₹ ${receipt.pendingInstallment || 0}</span>
+        <span>Rs. ${receipt.pendingInstallment || 0}</span>
       </div>
       ` : ''}
 
@@ -205,36 +220,38 @@ const generateReceiptHTML = (receipt: any) => {
       ${hasTodayPenalty ? `
       <div class="row">
         <span>Paid Today (Penalty):</span>
-        <span>₹ ${receipt.todayPenaltyPaid || 0}</span>
+        <span>Rs. ${receipt.todayPenaltyPaid || 0}</span>
       </div>
       ` : ''}
+      ${hasPendingPenalty ? `
       <div class="row highlight">
         <span>Pending Penalty:</span>
-        <span>₹ ${receipt.pendingPenalty || 0}</span>
+        <span>Rs. ${receipt.pendingPenalty || 0}</span>
       </div>
+      ` : ''}
       ` : ''}
 
       <div class="divider"></div>
 
       <div class="row highlight">
         <span>TOTAL DUE:</span>
-        <span>₹ ${receipt.totalDue || 0}</span>
+        <span>Rs. ${receipt.totalDue || 0}</span>
       </div>
 
       <div class="divider"></div>
 
+      <div class="row">
+        <span>Payment Mode:</span>
+        <span>${receipt.paymentMode || '-'}</span>
+      </div>
       <div class="row">
         <span>Collected By:</span>
         <span>${receipt.collectedBy || '-'}</span>
       </div>
-      <div class="row">
-        <span>Employee Phone:</span>
-        <span>${receipt.employeePhone || '-'}</span>
-      </div>
 
       <div class="divider"></div>
 
-      <div class="center">Thank you 🙏</div>
+      <div class="center">Thank you</div>
       <div class="center">Payment received</div>
 
       <div class="footer">
@@ -248,12 +265,13 @@ const generateReceiptHTML = (receipt: any) => {
 };
 
 const formatReceiptText = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
 
   return `
 ================================
      MANIKYA CHITS PVT LTD
  JC Road, Sagara, Shivamogga-577401
+     Ph: +91 7259201729
      Payment Receipt
 ================================
 Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
@@ -261,20 +279,20 @@ Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
 
 Member ID:     ${receipt.groupMemberId || 'N/A'}
 Month:         M${receipt.monthIndex || 'N/A'}
+Due Date:      ${receipt.dueDate || 'N/A'}
 
 --------------------------------
-Installment:   ₹ ${receipt.installmentAmount || '0'}
-${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
+Installment:   Rs. ${receipt.installmentAmount || '0'}
+${hasDividend ? `Dividend:      Rs. ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
-${hasTodayPenalty ? `Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}\n` : ''}PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
-` : ''}================================
-TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
+${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}${hasPendingPenalty ? `PENDING PENALTY:     Rs. ${receipt.pendingPenalty || '0'}\n` : ''}` : ''}================================
+TOTAL DUE:     Rs. ${receipt.totalDue || '0'}
 ================================
+Payment Mode:  ${receipt.paymentMode || '-'}
 Collected By:  ${receipt.collectedBy || '-'}
-Emp Phone:     ${receipt.employeePhone || '-'}
 
-      Thank you 🙏
+      Thank you
 ================================
 `;
 };
@@ -315,12 +333,23 @@ const printViaBluetooth = async (receipt: any, device: any) => {
   try {
     console.log('🖨️ Trying Bluetooth Print...');
 
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
 
+    // FIXED: this plain-text block is sent straight to the thermal
+    // printer's own ESC/POS chip, not drawn by a font on screen --
+    // that chip has no ₹ glyph and no emoji glyph in its built-in
+    // character table, and most of these cheap printers default to
+    // a Chinese (GBK) character table for anything they can't match
+    // to plain ASCII. That combination is exactly why the ₹ symbol
+    // (and the 🙏 emoji) was coming out as Chinese-looking characters
+    // on paper -- removed both here ("Rs." instead of ₹, emoji
+    // dropped) so every character sent to the printer is plain ASCII
+    // it can always match correctly.
     const receiptText = `
 ================================
      MANIKYA CHITS PVT LTD
  JC Road, Sagara, Shivamogga-577401
+     Ph: +91 7259201729
      Payment Receipt
 ================================
 Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
@@ -328,28 +357,42 @@ Date: ${receipt.date || 'N/A'} | Time: ${receipt.time || 'N/A'}
 
 Member ID:     ${receipt.groupMemberId || 'N/A'}
 Month:         M${receipt.monthIndex || 'N/A'}
+Due Date:      ${receipt.dueDate || 'N/A'}
 
 --------------------------------
-Installment:   ₹ ${receipt.installmentAmount || '0'}
-${hasDividend ? `Dividend:      ₹ ${receipt.dividendAmount}\n` : ''}
+Installment:   Rs. ${receipt.installmentAmount || '0'}
+${hasDividend ? `Dividend:      Rs. ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    ₹ ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: ₹ ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
-${hasTodayPenalty ? `Penalty Today: ₹ ${receipt.todayPenaltyPaid || '0'}\n` : ''}PENDING PENALTY:     ₹ ${receipt.pendingPenalty || '0'}
-` : ''}================================
-TOTAL DUE:     ₹ ${receipt.totalDue || '0'}
+${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}${hasPendingPenalty ? `PENDING PENALTY:     Rs. ${receipt.pendingPenalty || '0'}\n` : ''}` : ''}================================
+TOTAL DUE:     Rs. ${receipt.totalDue || '0'}
 ================================
+Payment Mode:  ${receipt.paymentMode || '-'}
 Collected By:  ${receipt.collectedBy || '-'}
-Emp Phone:     ${receipt.employeePhone || '-'}
 
-      Thank you 🙏
+      Thank you
 ================================
 
 
 
 `;
 
+    // FIXED: explicitly telling the printer "use the plain Western
+    // character table, not Chinese" (codepage 0) instead of leaving
+    // it on whatever table it powers on with -- the actual, direct
+    // fix for text printing as Chinese characters on this kind of
+    // printer. fonttype 1 is the printer's normal (not condensed)
+    // font, so the same ASCII numbers and letters print at full,
+    // dark weight instead of the thinner condensed font some of
+    // these printers fall back to.
     await BluetoothEscposPrinter.setPrinter(0, 0, 0, 0);
-    await BluetoothEscposPrinter.printText(receiptText, {});
+    await BluetoothEscposPrinter.printText(receiptText, {
+      encoding: 'GBK',
+      codepage: 0,
+      widthtimes: 0,
+      heigthtimes: 0,
+      fonttype: 1,
+    });
     await BluetoothEscposPrinter.lineFeed(4);
     await BluetoothEscposPrinter.cutPaper();
 
@@ -690,7 +733,7 @@ export default function ReceiptScreen() {
 
   /* ================= RENDER RECEIPT CONTENT ================= */
   const renderReceiptContent = () => {
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
 
     return (
     <ViewShot
@@ -706,6 +749,7 @@ export default function ReceiptScreen() {
         <Text style={styles.address}>
           #102 Shri Siddivinayaka Complex, In Front of Government Hospital, JC Road, Sagara, Shivamogga, Karnataka - 577401
         </Text>
+        <Text style={styles.address}>Ph: +91 7259201729</Text>
         <Text style={styles.center}>Payment Receipt</Text>
 
         {/* DATE & TIME IN FIRST ROW */}
@@ -720,16 +764,17 @@ export default function ReceiptScreen() {
 
         <Row label="Member ID" value={receipt.groupMemberId} />
         <Row label="Month" value={`M${receipt.monthIndex}`} />
+        <Row label="Due Date" value={receipt.dueDate || "N/A"} />
 
         <Divider />
 
         <Row
           label="Installment Amount"
-          value={`₹ ${receipt.installmentAmount}`}
+          value={`Rs. ${receipt.installmentAmount}`}
         />
 
         {hasDividend && (
-          <Row label="Dividend" value={`₹ ${receipt.dividendAmount}`} />
+          <Row label="Dividend" value={`Rs. ${receipt.dividendAmount}`} />
         )}
 
         <Divider />
@@ -740,14 +785,14 @@ export default function ReceiptScreen() {
         {hasTodayInstallment && (
           <Row
             label="Paid Today (Installment)"
-            value={`₹ ${receipt.todayInstallmentPaid}`}
+            value={`Rs. ${receipt.todayInstallmentPaid}`}
           />
         )}
         {/* PENDING INSTALLMENT - BOLD */}
         {hasPendingInstallment && (
           <Row
             label="Pending Installment"
-            value={`₹ ${receipt.pendingInstallment || 0}`}
+            value={`Rs. ${receipt.pendingInstallment || 0}`}
             bold
           />
         )}
@@ -762,16 +807,18 @@ export default function ReceiptScreen() {
             {hasTodayPenalty && (
               <Row
                 label="Paid Today (Penalty)"
-                value={`₹ ${receipt.todayPenaltyPaid || 0}`}
+                value={`Rs. ${receipt.todayPenaltyPaid || 0}`}
               />
             )}
 
             {/* PENDING PENALTY - BOLD */}
-            <Row
-              label="Pending Penalty"
-              value={`₹ ${receipt.pendingPenalty || 0}`}
-              bold
-            />
+            {hasPendingPenalty && (
+              <Row
+                label="Pending Penalty"
+                value={`Rs. ${receipt.pendingPenalty || 0}`}
+                bold
+              />
+            )}
           </>
         )}
 
@@ -780,14 +827,14 @@ export default function ReceiptScreen() {
         {/* TOTAL DUE - BOLD */}
         <Row
           label="TOTAL DUE"
-          value={`₹ ${receipt.totalDue}`}
+          value={`Rs. ${receipt.totalDue}`}
           bold
         />
 
         <Divider />
 
+        <Row label="Payment Mode" value={receipt.paymentMode || "-"} />
         <Row label="Collected By" value={receipt.collectedBy || "-"} />
-        <Row label="Employee Phone" value={receipt.employeePhone || "-"} />
 
         <Divider />
 
@@ -1082,7 +1129,14 @@ const styles = StyleSheet.create({
     marginVertical: 4
   },
   label: { fontSize: 13, color: "#555" },
-  value: { fontSize: 13, fontWeight: "500" },
+  // FIXED: was fontWeight "500" with no explicit color (so it just
+  // inherited whatever default text color was in effect). On a
+  // printed/scanned copy that prints noticeably lighter than the
+  // bold rows next to it, which is what was reported as "numbers not
+  // printing dark". Every value is now pure black and a touch
+  // heavier, same as the rows already marked bold -- so every number
+  // on the receipt prints at the same, fully dark weight.
+  value: { fontSize: 13, fontWeight: "600", color: "#000" },
   bold: { fontWeight: "bold", color: "#000" },
   footer: {
     textAlign: "center",
