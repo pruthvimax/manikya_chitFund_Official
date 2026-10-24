@@ -60,6 +60,8 @@ const spinSessionSchema = new mongoose.Schema(
     // Shown on the winner card. Saved when the spin starts.
     chitValue: { type: Number, default: 0 },
     previousWinningBid: { type: Number, default: 0 },
+    // which month / auction this is (1, 2, 3 ...)
+    auctionNumber: { type: Number, default: 0 },
 
     // true when nobody reached the maximum bid and the highest-bid
     // tie was used instead

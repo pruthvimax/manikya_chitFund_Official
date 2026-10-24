@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import LiveSpinnerView from "../../components/spinner/LiveSpinnerView";
+import SpinAnnounceCard from "../../components/spinner/SpinAnnounceCard";
 import {
   CandidatesResponse,
   SpinnerHttpError,
@@ -36,7 +37,7 @@ import { useSpinnerSession } from "../../components/spinner/useSpinnerSession";
 
 const KEY_STORAGE = "spinnerAdminKey";
 const DURATIONS = [6, 9, 12, 15];
-const ROTATIONS = [5, 6, 8];
+const ROTATIONS = [5, 6, 8, 10, 12, 15, 18, 20];
 
 const GREEN = "#024E32";
 const GOLD = "#C9A227";
@@ -578,6 +579,17 @@ export default function AdminSpinner() {
               {/* ---------- candidates + controls ---------- */}
               {!session ? (
                 <>
+                  {/* ADDED: "spin starts at ..." notification + reminders */}
+                  <SpinAnnounceCard
+                    identity={identity}
+                    adminKey={adminKey}
+                    groupCode={groupCode || data?.groupId || ""}
+                    defaultDate={data?.auctionEndDate}
+                    onInvalidKey={() =>
+                      forgetKey("That key was not accepted. Enter the spinner admin key again.")
+                    }
+                  />
+
                   <View style={card}>
                     <Text style={{ fontSize: 16, fontWeight: "800", color: "#111827" }}>
                       Members on the wheel

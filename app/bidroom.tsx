@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
   import {
     View,
+    TextInput,
     Text,
     FlatList,
     TouchableOpacity,
@@ -19,6 +20,8 @@ import { useEffect, useRef, useState } from "react";
   import { useRouter } from "expo-router";
   import AsyncStorage from "@react-native-async-storage/async-storage";
   import BACKEND_URL from "../config";
+  import { useLiveBadges } from "../components/useLiveBadges";
+  import { isPinned, pinSpin, syncPins, unpinSpin } from "../components/spinPin";
 
   // =========================================================
   // SCREENSHOT PREVENTION FOR ALL PLATFORMS
@@ -277,8 +280,201 @@ import { useEffect, useRef, useState } from "react";
   }
 
   /* =========================================================
+    SPIN COUNTDOWN (shown after the auction ends, once the admin
+    has announced the live spin date & time)
+  ========================================================= */
+  function SpinCountdown({
+    spin,
+    onOpen,
+    groupKey,
+    groupCode,
+    route,
+  }: {
+    spin: any;
+    onOpen: () => void;
+    groupKey: string;
+    groupCode: string;
+    route: string;
+  }) {
+    const [left, setLeft] = useState(() => Number(spin?.spinAt) - Date.now());
+    const [pinned, setPinned] = useState(false);
+    const [pinMsg, setPinMsg] = useState("");
+
+    useEffect(() => {
+      let alive = true;
+      isPinned(groupKey).then((v) => alive && setPinned(v));
+      return () => {
+        alive = false;
+      };
+    }, [groupKey, spin?.spinAt]);
+
+    const togglePin = async () => {
+      setPinMsg("");
+      if (pinned) {
+        await unpinSpin(groupKey);
+        setPinned(false);
+        return;
+      }
+      const r = await pinSpin({
+        groupKey,
+        spinAt: Number(spin.spinAt),
+        spinDateText: spin.spinDateText,
+        spinTimeText: spin.spinTimeText,
+        groupCode,
+        route,
+      });
+      if (r.ok) setPinned(true);
+      else setPinMsg(r.reason || "Could not pin.");
+    };
+
+    useEffect(() => {
+      const tick = () => setLeft(Number(spin?.spinAt) - Date.now());
+      tick();
+      const t = setInterval(tick, 1000);
+      return () => clearInterval(t);
+    }, [spin?.spinAt]);
+
+    if (!spin || !Number.isFinite(Number(spin.spinAt))) return null;
+
+    const started = left <= 0;
+    const total = Math.max(0, Math.floor(left / 1000));
+    const days = Math.floor(total / 86400);
+    const hh = String(Math.floor((total % 86400) / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+    const ss = String(total % 60).padStart(2, "0");
+    const clock = days > 0 ? `${days}d ${hh}h ${mm}m ${ss}s` : `${hh}:${mm}:${ss}`;
+
+    return (
+      <View
+        style={{
+          marginTop: 12,
+          borderRadius: 14,
+          backgroundColor: started ? "#fff7e0" : "#f3e8fd",
+          borderWidth: 1,
+          borderColor: started ? "#f3d27a" : "#dcc3f7",
+          padding: 12,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: started ? "#d97706" : "#7e22ce",
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 10,
+            }}
+          >
+            <MaterialIcons name="casino" size={18} color="white" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: "800", color: started ? "#92400e" : "#581c87" }}>
+              {started ? "Live spin time reached" : "Live spin starts in"}
+            </Text>
+            <Text style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
+              {spin.spinDateText} at {spin.spinTimeText}
+            </Text>
+          </View>
+          {!started && (
+            <Text style={{ fontSize: 18, fontWeight: "800", color: "#581c87" }}>{clock}</Text>
+          )}
+        </View>
+
+        {!started && (
+          <View style={{ marginTop: 10 }}>
+            <TouchableOpacity
+              onPress={togglePin}
+              activeOpacity={0.85}
+              style={{
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: pinned ? "#7e22ce" : "#ffffff",
+                borderWidth: 1,
+                borderColor: "#7e22ce",
+                borderRadius: 999,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+              }}
+            >
+              <MaterialIcons name="push-pin" size={14} color={pinned ? "#ffffff" : "#7e22ce"} />
+              <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: "800", color: pinned ? "#ffffff" : "#7e22ce" }}>
+                {pinned ? "Pinned to notification bar (tap to remove)" : "Pin to notification bar"}
+              </Text>
+            </TouchableOpacity>
+            {pinMsg ? (
+              <Text style={{ marginTop: 6, fontSize: 11, color: "#b91c1c" }}>{pinMsg}</Text>
+            ) : null}
+          </View>
+        )}
+
+        {started && (
+          <TouchableOpacity
+            onPress={onOpen}
+            activeOpacity={0.85}
+            style={{
+              marginTop: 10,
+              backgroundColor: "#d97706",
+              borderRadius: 10,
+              paddingVertical: 9,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <MaterialIcons name="play-circle-filled" size={18} color="white" />
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 13, marginLeft: 6 }}>
+              WATCH LIVE SPIN
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  /* =========================================================
     MAIN COMPONENT
   ========================================================= */
+  // =========================================================
+  // LOOK ONLY: each group code gets its own colour (same code = same colour)
+  // =========================================================
+  type GroupColor = { main: string; soft: string };
+  const GROUP_COLORS: GroupColor[] = [
+    { main: "#024e32", soft: "#e6f4ee" },
+    { main: "#1d4ed8", soft: "#e8efff" },
+    { main: "#b45309", soft: "#fdf1e0" },
+    { main: "#7e22ce", soft: "#f3e8fd" },
+    { main: "#be123c", soft: "#fde8ee" },
+    { main: "#0e7490", soft: "#e0f5f9" },
+  ];
+  const colorForGroup = (code: string) => {
+    let h = 0;
+    for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+    return GROUP_COLORS[h % GROUP_COLORS.length];
+  };
+  const isNoticeLive = (n: any) => {
+    if (!n?.auctionEndDate || !n?.auctionEndTime) return false;
+    try {
+      const d = String(n.auctionEndDate).split("-");
+      const t = String(n.auctionEndTime).split(":");
+      if (d.length !== 3 || t.length !== 2) return false;
+      return (
+        new Date(
+          parseInt(d[2], 10),
+          parseInt(d[1], 10) - 1,
+          parseInt(d[0], 10),
+          parseInt(t[0], 10),
+          parseInt(t[1], 10),
+          0,
+          0
+        ).getTime() > Date.now()
+      );
+    } catch {
+      return false;
+    }
+  };
   export default function UserNotifications() {
     const router = useRouter();
 
@@ -407,6 +603,9 @@ import { useEffect, useRef, useState } from "react";
     const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [spinAnnouncements, setSpinAnnouncements] = useState<any[]>([]);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchText, setSearchText] = useState("");
 
     /* =========================================================
       PENDING INSTALLMENT CHECK
@@ -477,6 +676,48 @@ import { useEffect, useRef, useState } from "react";
       }
     }, [userid]);
 
+    /* ================= LOAD SPIN TIMES SET BY ADMIN ================= */
+    const loadSpinAnnouncements = async () => {
+      if (!userid) return;
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/spinner/announcements?userid=${encodeURIComponent(userid)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setSpinAnnouncements(data);
+          // keeps pinned notification-bar notes correct (time changed / cancelled / over)
+          syncPins(data);
+        }
+      } catch {
+        // keep what is already on screen
+      }
+    };
+
+    useEffect(() => {
+      if (userid) loadSpinAnnouncements();
+    }, [userid]);
+
+    // admin sets / changes the spin time -> shows up here by itself
+    useLiveBadges(Boolean(userid), loadSpinAnnouncements);
+
+    // the spin announcement that belongs to this auction notice
+    const findSpinFor = (n: any) => {
+      const gid = String(n?.groupId?._id || "");
+      const code = String(getGroupCode(n));
+      const sameGroup = spinAnnouncements.filter(
+        (a) => (gid && String(a.groupMongoId) === gid) || String(a.groupCode) === code
+      );
+      const exact = sameGroup.filter(
+        (a) =>
+          String(a.auctionEndDate || "") === String(n?.auctionEndDate || "") &&
+          String(a.auctionEndTime || "") === String(n?.auctionEndTime || "")
+      );
+      const pool = exact.length > 0 ? exact : [];
+      return pool.sort((x, y) => Number(y.createdAt ? new Date(y.createdAt).getTime() : 0) - Number(x.createdAt ? new Date(x.createdAt).getTime() : 0))[0] || null;
+    };
+
     /* ================= CHECK PENDING INSTALLMENTS ================= */
     useEffect(() => {
       const checkOutstanding = async () => {
@@ -532,6 +773,7 @@ import { useEffect, useRef, useState } from "react";
     const handleRefresh = () => {
       setRefreshing(true);
       loadNotifications();
+      loadSpinAnnouncements();
     };
 
     /* ================= LOAD BIDS FOR NOTIFICATION ================= */
@@ -732,6 +974,25 @@ import { useEffect, useRef, useState } from "react";
       </View>
     );
 
+    // search (filter only): group, message, date, time, winner, LIVE / ENDED
+    const searchQuery = searchText.trim().toLowerCase();
+    const shownNotifications = searchQuery
+      ? notifications.filter((n) => {
+          const text = [
+            getGroupCode(n),
+            n?.message,
+            n?.auctionEndDate,
+            n?.auctionEndTime,
+            n?.winnerName,
+            isNoticeLive(n) ? "live" : "ended",
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return text.includes(searchQuery);
+        })
+      : notifications;
+
     /* ================= UI ================= */
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
@@ -751,6 +1012,18 @@ import { useEffect, useRef, useState } from "react";
             <Text className="text-white text-2xl font-bold ml-4 mt-1 flex-1">
               Bid Room Notifications
             </Text>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (searchOpen) setSearchText("");
+                setSearchOpen(!searchOpen);
+              }}
+              activeOpacity={0.8}
+              className="mt-1 mr-4"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MaterialIcons name={searchOpen ? "close" : "search"} size={26} color="white" />
+            </TouchableOpacity>
 
             <View className="mt-1">
               <MaterialIcons name="notifications" size={24} color="white" />
@@ -791,6 +1064,46 @@ import { useEffect, useRef, useState } from "react";
               </View>
             )}
           </View>
+
+          {/* SEARCH BAR */}
+          {searchOpen && !loading && notifications.length > 0 && (
+            <View style={{ paddingHorizontal: 20, paddingTop: 12 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 14,
+                  borderWidth: 1.5,
+                  borderColor: "#024e32",
+                  paddingHorizontal: 14,
+                  height: 48,
+                }}
+              >
+                <MaterialIcons name="search" size={22} color="#024e32" />
+                <TextInput
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  placeholder="Search group, message, date, winner..."
+                  placeholderTextColor="#9ca3af"
+                  autoFocus
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  style={{ flex: 1, marginLeft: 10, fontSize: 15, color: "#1f2937", paddingVertical: 0 }}
+                />
+                {searchText.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchText("")} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <MaterialIcons name="cancel" size={20} color="#9ca3af" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {searchQuery.length > 0 && (
+                <Text style={{ marginTop: 6, marginLeft: 4, fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+                  {shownNotifications.length} {shownNotifications.length === 1 ? "result" : "results"}
+                </Text>
+              )}
+            </View>
+          )}
 
           {/* CONTENT - WRAPPED WITH FOOTER AT BOTTOM */}
           {loading ? (
@@ -838,8 +1151,31 @@ import { useEffect, useRef, useState } from "react";
             </View>
           ) : (
             <FlatList
-              data={notifications}
+              data={shownNotifications}
               keyExtractor={(item) => item._id}
+              contentContainerStyle={{ paddingTop: 16 }}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <View style={{ alignItems: "center", paddingVertical: 40, paddingHorizontal: 30 }}>
+                  <View
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 40,
+                      backgroundColor: "#f3f4f6",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginBottom: 14,
+                    }}
+                  >
+                    <MaterialIcons name="search-off" size={40} color="#9ca3af" />
+                  </View>
+                  <Text style={{ fontSize: 18, fontWeight: "800", color: "#374151" }}>No results found</Text>
+                  <Text style={{ marginTop: 6, color: "#6b7280", textAlign: "center" }}>
+                    Nothing matches "{searchText.trim()}". Try a group name or a date.
+                  </Text>
+                </View>
+              }
               showsVerticalScrollIndicator={false}
               refreshControl={
                 <RefreshControl
@@ -894,134 +1230,136 @@ import { useEffect, useRef, useState } from "react";
                   ? Math.max(...notifBids.map((b: any) => Number(b.bidAmount || 0)))
                   : 0;
 
+                const accent = colorForGroup(String(getGroupCode(item)));
+
                 return (
                   <View
-                    className="bg-white mb-3 rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+                    style={{
+                      marginHorizontal: 16,
+                      marginBottom: 16,
+                      borderRadius: 18,
+                      backgroundColor: "#ffffff",
+                      borderWidth: 1,
+                      borderColor: "#e8ecea",
+                      overflow: "hidden",
+                      elevation: 3,
+                      shadowColor: "#000",
+                      shadowOpacity: 0.07,
+                      shadowRadius: 8,
+                      shadowOffset: { width: 0, height: 3 },
+                    }}
                   >
-                    {/* NOTIFICATION HEADER */}
-                    <View className="bg-gray-50 px-4 py-2.5 flex-row items-center justify-between border-b border-gray-100">
-                      <View className="flex-row items-center">
-                        <View className="w-8 h-8 rounded-full bg-[#024e32] items-center justify-center mr-2.5">
-                          <MaterialIcons name="gavel" size={17} color="white" />
-                        </View>
-                        <View>
-                          <Text className="font-bold text-gray-800 text-sm">
-                            Auction Notice
-                          </Text>
-                          <Text className="text-xs text-gray-500">
-                            Group: {getGroupCode(item)}
-                          </Text>
-                        </View>
+                    {/* HEADER: group name + status */}
+                    <View
+                      style={{
+                        backgroundColor: accent.soft,
+                        borderBottomWidth: 3,
+                        borderBottomColor: isLive ? accent.main : "#c4cac7",
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        flexDirection: "row",
+                        alignItems: "center",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: accent.main,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 12,
+                        }}
+                      >
+                        <MaterialIcons name="gavel" size={20} color="white" />
                       </View>
-                      <View className={`px-3 py-1 rounded-full ${isLive ? 'bg-green-100' : 'bg-red-100'}`}>
-                        <Text className={`text-xs font-medium ${isLive ? 'text-green-700' : 'text-red-700'}`}>
-                          {isLive ? '● LIVE' : '● ENDED'}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 16, fontWeight: "800", color: "#1f2937" }}>Auction Notice</Text>
+                        <Text style={{ fontSize: 13, fontWeight: "800", color: accent.main, marginTop: 1 }}>
+                          Group: {getGroupCode(item)}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: isLive ? "#dcfce7" : "#fee2e2",
+                          borderRadius: 999,
+                          paddingHorizontal: 12,
+                          paddingVertical: 4,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "800", color: isLive ? "#15803d" : "#b91c1c" }}>
+                          {isLive ? "● LIVE" : "● ENDED"}
                         </Text>
                       </View>
                     </View>
 
-                    {/* =================================================
-                        SUMMARY SECTION (Top of each group card)
-                    ================================================= */}
-                    <View className="px-4 pt-3">
-                      <View className="bg-[#024e32]/5 rounded-lg p-3 border border-[#024e32]/10">
-                        <View className="flex-row items-center mb-2">
-                          <MaterialIcons name="info-outline" size={15} color="#024e32" />
-                          <Text className="text-[#024e32] font-bold text-xs ml-1.5">
-                            Auction Summary
-                          </Text>
-                        </View>
+                    <View style={{ padding: 14 }}>
+                      <Text style={{ fontSize: 14, color: "#374151", lineHeight: 20 }}>{item.message}</Text>
 
-                        <View className="flex-row flex-wrap">
-                          {/* NOTIFICATION NAME */}
-                          <View className="flex-1 min-w-[45%] mb-2">
-                            <Text className="text-gray-400 text-[9px] font-semibold tracking-wider uppercase">
-                              Notification
-                            </Text>
-                            <Text className="text-gray-800 font-semibold mt-0.5 text-xs" numberOfLines={1}>
-                              {item.message || "Auction Notice"}
-                            </Text>
-                          </View>
-
-                          {/* GROUP ID */}
-                          <View className="flex-1 min-w-[45%] mb-2">
-                            <Text className="text-gray-400 text-[9px] font-semibold tracking-wider uppercase">
-                              Group ID
-                            </Text>
-                            <Text className="text-gray-800 font-semibold mt-0.5 text-xs">
-                              {getGroupCode(item)}
-                            </Text>
-                          </View>
-
-                          {/* HIGHEST BID */}
-                          <View className="flex-1 min-w-[45%] mb-2">
-                            <Text className="text-gray-400 text-[9px] font-semibold tracking-wider uppercase">
-                              Highest Bid
-                            </Text>
-                            <Text className="text-[#024e32] font-bold mt-0.5 text-xs">
-                              {highestBid > 0 ? formatAmount(highestBid) : "-"}
-                            </Text>
-                          </View>
-
-                          {/* TOTAL BIDS */}
-                          <View className="flex-1 min-w-[45%] mb-2">
-                            <Text className="text-gray-400 text-[9px] font-semibold tracking-wider uppercase">
-                              Total Bids
-                            </Text>
-                            <Text className="text-gray-800 font-bold mt-0.5 text-xs">
-                              {notifBidsLoading ? "..." : notifBids.length}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* NOTIFICATION BODY */}
-                    <View className="p-4">
-                      <View className="mb-3">
-                        <Text className="text-gray-700 text-xs mb-2">{item.message}</Text>
-                      </View>
-
-                      {/* AUCTION DETAILS WITH END TIME */}
-                      <View className="bg-gray-50 rounded-lg p-3">
-                        <View className="flex-row items-center mb-2">
-                          <MaterialIcons name="calendar-today" size={16} color="#024e32" />
-                          <Text className="ml-2 text-gray-700 font-medium text-xs">
-                            Auction Date
-                          </Text>
-                          <Text className="ml-auto text-gray-800 font-semibold text-xs">
+                      {/* DATE / TIME */}
+                      <View style={{ backgroundColor: "#f8faf9", borderRadius: 12, padding: 12, marginTop: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <MaterialIcons name="calendar-today" size={17} color={accent.main} />
+                          <Text style={{ marginLeft: 8, fontSize: 13, fontWeight: "600", color: "#4b5563" }}>Auction Date</Text>
+                          <Text style={{ marginLeft: "auto", fontSize: 13, fontWeight: "800", color: "#1f2937" }}>
                             {item.auctionEndDate || "Not specified"}
                           </Text>
                         </View>
-
-                        <View className="flex-row items-center">
-                          <MaterialIcons name="access-time" size={16} color="#024e32" />
-                          <Text className="ml-2 text-gray-700 font-medium text-xs">
-                            End Time
-                          </Text>
-                          <Text className="ml-auto text-gray-800 font-semibold text-xs">
+                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
+                          <MaterialIcons name="access-time" size={17} color={accent.main} />
+                          <Text style={{ marginLeft: 8, fontSize: 13, fontWeight: "600", color: "#4b5563" }}>End Time</Text>
+                          <Text style={{ marginLeft: "auto", fontSize: 13, fontWeight: "800", color: "#1f2937" }}>
                             {item.auctionEndTime || "Not specified"}
                           </Text>
                         </View>
+                      </View>
 
-                        {/* CREATED AT - Auto timestamp */}
-                        {item.createdAt && (
-                          <View className="flex-row items-center mt-3 pt-3 border-t border-gray-200">
-                            <MaterialIcons name="schedule" size={14} color="#6b7280" />
-                            <Text className="ml-2 text-gray-500 text-[10px]">
-                              Created: {new Date(item.createdAt).toLocaleString()}
-                            </Text>
-                          </View>
-                        )}
+                      {/* BIDS */}
+                      <View style={{ flexDirection: "row", marginTop: 10 }}>
+                        <View style={{ flex: 1, backgroundColor: accent.soft, borderRadius: 12, padding: 10, marginRight: 8 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: "#6b7280", letterSpacing: 0.8 }}>HIGHEST BID</Text>
+                          <Text style={{ fontSize: 16, fontWeight: "800", color: accent.main, marginTop: 2 }}>
+                            {highestBid > 0 ? formatAmount(highestBid) : "-"}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, backgroundColor: accent.soft, borderRadius: 12, padding: 10 }}>
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: "#6b7280", letterSpacing: 0.8 }}>TOTAL BIDS</Text>
+                          <Text style={{ fontSize: 16, fontWeight: "800", color: "#1f2937", marginTop: 2 }}>
+                            {notifBidsLoading ? "..." : notifBids.length}
+                          </Text>
+                        </View>
                       </View>
 
                       {/* COUNTDOWN TIMER */}
                       {item.auctionEndDate && item.auctionEndTime && (
-                        <CountdownTimer 
-                          auctionEndDate={item.auctionEndDate} 
-                          auctionEndTime={item.auctionEndTime} 
+                        <CountdownTimer
+                          auctionEndDate={item.auctionEndDate}
+                          auctionEndTime={item.auctionEndTime}
                         />
                       )}
+
+                      {/* LIVE SPIN COUNTDOWN - after the auction ends, when admin set the spin time */}
+                      {!isLive && findSpinFor(item) ? (
+                        <SpinCountdown
+                          spin={findSpinFor(item)}
+                          groupKey={String(item.groupId?._id || getGroupCode(item))}
+                          groupCode={String(getGroupCode(item))}
+                          route={`/spinnerLive?groupId=${encodeURIComponent(String(item.groupId?._id || ""))}&groupCode=${encodeURIComponent(String(getGroupCode(item)))}&auctionEndDate=${encodeURIComponent(String(item.auctionEndDate || ""))}&auctionEndTime=${encodeURIComponent(String(item.auctionEndTime || ""))}&userid=${encodeURIComponent(String(userid || ""))}`}
+                          onOpen={() =>
+                            router.push({
+                              pathname: "/spinnerLive",
+                              params: {
+                                groupId: String(item.groupId?._id || ""),
+                                groupCode: String(getGroupCode(item)),
+                                auctionEndDate: String(item.auctionEndDate || ""),
+                                auctionEndTime: String(item.auctionEndTime || ""),
+                                userid: String(userid || ""),
+                              },
+                            })
+                          }
+                        />
+                      ) : null}
 
                       {/* BID BUTTON - Only show if auction is live */}
                       {isLive ? (
@@ -1155,14 +1493,13 @@ import { useEffect, useRef, useState } from "react";
                             )}
                           </View>
                         )}
-                      </View>
 
-                      {/* NOTIFICATION FOOTER */}
-                      <View className="bg-gray-50 px-4 py-2 border-t border-gray-100">
-                        <Text className="text-gray-500 text-[10px]">
-                          Sent to all group members
+                      {item.createdAt && (
+                        <Text style={{ marginTop: 8, fontSize: 10, color: "#9ca3af" }}>
+                          Created: {new Date(item.createdAt).toLocaleString()}
                         </Text>
-                      </View>
+                      )}
+                    </View>
                   </View>
                 );
               }}

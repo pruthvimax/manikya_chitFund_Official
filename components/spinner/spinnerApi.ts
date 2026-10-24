@@ -27,6 +27,7 @@ export type SpinState = {
   };
   chitValue?: number;
   previousWinningBid?: number;
+  auctionNumber?: number;
   rotations: number;
   durationMs: number;
   seed: number;

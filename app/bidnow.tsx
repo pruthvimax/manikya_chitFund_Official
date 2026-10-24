@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
   import BACKEND_URL from "../config";
 import SpinnerAutoOpen from "../components/spinner/SpinnerAutoOpen";
+import { AppState } from "react-native";
 
   const { width } = Dimensions.get("window");
 
@@ -142,6 +143,26 @@ import SpinnerAutoOpen from "../components/spinner/SpinnerAutoOpen";
     };
 
     /* =====================================================
+      FORMAT BID DATE  (DD/MM/YYYY)
+      Shown with the time on every bid bubble.
+    ===================================================== */
+
+    const formatDate = (value: string) => {
+      if (!value) return "-";
+
+      const date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return "-";
+      }
+
+      const dd = String(date.getDate()).padStart(2, "0");
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+
+      return `${dd}/${mm}/${date.getFullYear()}`;
+    };
+
+    /* =====================================================
       PARSE DATE
       
       Supported:
@@ -194,187 +215,376 @@ import SpinnerAutoOpen from "../components/spinner/SpinnerAutoOpen";
     };
 
     /* =====================================================
-      FOOTER
+      SMALL UI PIECES (module scope - never declared inside
+      the page component, so they keep a stable identity)
     ===================================================== */
 
     const Footer = () => (
-      <View className="bg-white border-t border-gray-200 pt-4 pb-6 px-5">
-        <View className="items-center">
-          <Text
-            {...TXT}
-            className="text-[#024e32] font-bold"
-            style={{ fontSize: S.cardTitle }}
-          >
-            MANIKYA CHITS PVT LTD
-          </Text>
-
-          <Text
-            {...TXT}
-            className="text-gray-500 mt-1 text-center"
-            style={{ fontSize: S.small }}
-          >
-            Secure • Transparent • Trusted
-          </Text>
-
-          <Text
-            {...TXT}
-            className="text-gray-400 mt-1 text-center"
-            style={{ fontSize: S.tiny }}
-          >
-            ©{" "}
-            {new Date().getFullYear()}{" "}
-            Manikya Chits Pvt Ltd.
-            All rights reserved.
-          </Text>
-        </View>
-      </View>
-    );
-
-    // =====================================================
-    // BID BUBBLE COMPONENT - WhatsApp Style
-    // =====================================================
-
-const BidBubble = ({
-  bid,
-  isUserBid,
-  isHighest,
-  ticketNumber,
-}: any) => {
-  return (
-    <View
-      style={{
-        marginBottom: 10,
-        alignItems: isUserBid ? "flex-end" : "flex-start",
-      }}
-    >
-      <View
-        style={{
-          maxWidth: "85%",
-          borderRadius: 14,
-          borderTopRightRadius: isUserBid ? 0 : 14,
-          borderTopLeftRadius: isUserBid ? 14 : 0,
-          paddingHorizontal: 13,
-          paddingVertical: 10,
-          backgroundColor: isUserBid ? "#024E32" : "#FFFFFF",
-          borderWidth: isUserBid ? 0 : 1,
-          borderColor: "#E5E7EB",
-        }}
-      >
-        {/* Header */}
+      <View style={{ alignItems: "center", paddingTop: 18, paddingBottom: 12 }}>
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 3,
+            width: 40,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: "#CBD5D1",
+            marginBottom: 14,
           }}
-        >
-          <Text
-            {...TXT}
-            style={{
-              fontSize: S.tiny,
-              fontWeight: "600",
-              color: isUserBid
-                ? "rgba(255,255,255,0.6)"
-                : "#9CA3AF",
-            }}
-          >
-            Ticket #{ticketNumber}
-          </Text>
+        />
 
-          {isHighest && (
-            <View
-              style={{
-                marginLeft: 6,
-                backgroundColor: "#FACC15",
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderRadius: 999,
-              }}
-            >
-              <Text
-                {...TXT}
-                style={{
-                  color: "#854D0E",
-                  fontSize: 8,
-                  fontWeight: "700",
-                }}
-              >
-                🏆 HIGHEST
-              </Text>
-            </View>
-          )}
-
-          {isUserBid && (
-            <View
-              style={{
-                marginLeft: 6,
-                backgroundColor: "rgba(255,255,255,0.2)",
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderRadius: 999,
-              }}
-            >
-              <Text
-                {...TXT}
-                style={{
-                  color: "#FFFFFF",
-                  fontSize: 8,
-                  fontWeight: "700",
-                }}
-              >
-                YOU
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* Bid Amount */}
         <Text
           {...TXT}
           style={{
-            fontSize: S.valueLg,
+            fontSize: S.cardTitle,
             fontWeight: "800",
-            color: isUserBid ? "#FFFFFF" : "#024E32",
+            color: "#024E32",
+            letterSpacing: 1.2,
           }}
         >
-          {formatAmount(bid.bidAmount)}
+          MANIKYA CHITS PVT LTD
         </Text>
 
-        {/* Time */}
+        <Text
+          {...TXT}
+          style={{
+            fontSize: S.small,
+            color: "#6B7C74",
+            marginTop: 4,
+            textAlign: "center",
+          }}
+        >
+          Secure • Transparent • Trusted
+        </Text>
+
+        <Text
+          {...TXT}
+          style={{
+            fontSize: S.tiny,
+            color: "#9AA8A1",
+            marginTop: 4,
+            textAlign: "center",
+          }}
+        >
+          © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+        </Text>
+      </View>
+    );
+
+    /* one box of the big countdown (days / hours / minutes / seconds) */
+    const TimeBox = ({ value, label, ended }: any) => (
+      <View
+        style={{
+          flex: 1,
+          marginHorizontal: 4,
+          alignItems: "center",
+          borderRadius: 16,
+          paddingVertical: 12,
+          backgroundColor: ended
+            ? "#FEE2E2"
+            : "rgba(255,255,255,0.13)",
+          borderWidth: 1,
+          borderColor: ended
+            ? "#FECACA"
+            : "rgba(255,255,255,0.20)",
+        }}
+      >
+        <Text
+          {...TXT}
+          style={{
+            fontSize: isTablet ? 32 : 26,
+            fontWeight: "800",
+            color: ended ? "#B91C1C" : "#FFFFFF",
+          }}
+        >
+          {value}
+        </Text>
+
+        <Text
+          {...TXT}
+          style={{
+            fontSize: 9,
+            fontWeight: "700",
+            letterSpacing: 1.4,
+            marginTop: 2,
+            color: ended ? "#DC2626" : "rgba(255,255,255,0.72)",
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+    );
+
+    /* one small summary tile (chit amount / total bids / highest bid) */
+    const StatTile = ({
+      icon,
+      label,
+      value,
+      accent,
+      flex,
+    }: any) => (
+      <View
+        style={{
+          flex: flex || 1,
+          marginHorizontal: 4,
+          backgroundColor: "#FFFFFF",
+          borderRadius: 20,
+          padding: 12,
+          borderWidth: 1,
+          borderColor: "#E6ECE9",
+          shadowColor: "#0B3D2A",
+          shadowOpacity: 0.07,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 3 },
+          elevation: 2,
+        }}
+      >
         <View
           style={{
-            flexDirection: "row",
+            width: 30,
+            height: 30,
+            borderRadius: 10,
             alignItems: "center",
-            marginTop: 3,
+            justifyContent: "center",
+            backgroundColor: accent ? "#FEF3C7" : "#EAF5EF",
           }}
         >
           <MaterialIcons
-            name="schedule"
-            size={11}
-            color={
-              isUserBid
-                ? "rgba(255,255,255,0.5)"
-                : "#9CA3AF"
-            }
+            name={icon}
+            size={17}
+            color={accent ? "#B45309" : "#024E32"}
           />
+        </View>
 
-          <Text
-            {...TXT}
+        <Text
+          {...TXT}
+          style={{
+            fontSize: S.label,
+            fontWeight: "700",
+            letterSpacing: 1,
+            color: "#8A9A92",
+            marginTop: 8,
+          }}
+        >
+          {label}
+        </Text>
+
+        <Text
+          {...TXT}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+          style={{
+            fontSize: S.valueLg,
+            fontWeight: "800",
+            marginTop: 2,
+            color: accent ? "#B45309" : "#024E32",
+          }}
+        >
+          {value}
+        </Text>
+      </View>
+    );
+
+    /* =====================================================
+      BID BUBBLE - chat style, with rank medals
+    ===================================================== */
+
+    const BidBubble = ({
+      bid,
+      isUserBid,
+      isHighest,
+      ticketNumber,
+      groupMemberId,
+      rank,
+    }: any) => {
+      const medal =
+        rank === 1
+          ? "#F5B301"
+          : rank === 2
+          ? "#9CA3AF"
+          : rank === 3
+          ? "#C77C3A"
+          : null;
+
+      return (
+        <View
+          style={{
+            marginBottom: 12,
+            alignItems: isUserBid ? "flex-end" : "flex-start",
+          }}
+        >
+          <View
             style={{
-              fontSize: S.tiny,
-              marginLeft: 4,
-              color: isUserBid
-                ? "rgba(255,255,255,0.5)"
-                : "#9CA3AF",
+              maxWidth: "90%",
+              minWidth: 190,
+              borderRadius: 20,
+              borderTopRightRadius: isUserBid ? 6 : 20,
+              borderTopLeftRadius: isUserBid ? 20 : 6,
+              paddingHorizontal: 14,
+              paddingVertical: 12,
+              backgroundColor: isUserBid ? "#024E32" : "#FFFFFF",
+              borderWidth: isHighest ? 2 : 1,
+              borderColor: isHighest
+                ? "#F5B301"
+                : isUserBid
+                ? "#024E32"
+                : "#E6ECE9",
+              shadowColor: "#0B3D2A",
+              shadowOpacity: 0.08,
+              shadowRadius: 6,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: 2,
             }}
           >
-            {formatTime(bid.bidTime)}
-          </Text>
+            {/* top row */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              {medal && (
+                <View
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: medal,
+                    marginRight: 6,
+                  }}
+                >
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: 11,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {rank}
+                  </Text>
+                </View>
+              )}
+
+              <View
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 2,
+                  borderRadius: 999,
+                  backgroundColor: isUserBid
+                    ? "rgba(255,255,255,0.18)"
+                    : "#EAF5EF",
+                }}
+              >
+                <Text
+                  {...TXT}
+                  style={{
+                    fontSize: S.tiny,
+                    fontWeight: "700",
+                    color: isUserBid ? "#FFFFFF" : "#024E32",
+                  }}
+                >
+                  Ticket  {groupMemberId || "-"}
+                </Text>
+              </View>
+
+              {isHighest && (
+                <View
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: "#FACC15",
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    borderRadius: 999,
+                  }}
+                >
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#854D0E",
+                      fontSize: 8,
+                      fontWeight: "800",
+                    }}
+                  >
+                    🏆 HIGHEST
+                  </Text>
+                </View>
+              )}
+
+              {isUserBid && (
+                <View
+                  style={{
+                    marginLeft: 6,
+                    backgroundColor: "rgba(255,255,255,0.25)",
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    borderRadius: 999,
+                  }}
+                >
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: 8,
+                      fontWeight: "800",
+                    }}
+                  >
+                    YOU
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* amount */}
+            <Text
+              {...TXT}
+              style={{
+                fontSize: S.big + 3,
+                fontWeight: "800",
+                marginTop: 6,
+                color: isUserBid ? "#FFFFFF" : "#024E32",
+              }}
+            >
+              {formatAmount(bid.bidAmount)}
+            </Text>
+
+            {/* time */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginTop: 4,
+              }}
+            >
+              <MaterialIcons
+                name="schedule"
+                size={11}
+                color={
+                  isUserBid
+                    ? "rgba(255,255,255,0.6)"
+                    : "#9CA3AF"
+                }
+              />
+
+              <Text
+                {...TXT}
+                style={{
+                  fontSize: S.tiny,
+                  marginLeft: 4,
+                  color: isUserBid
+                    ? "rgba(255,255,255,0.6)"
+                    : "#9CA3AF",
+                }}
+              >
+                {formatDate(bid.bidTime)} • {formatTime(bid.bidTime)}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
-    </View>
-  );
-};
+      );
+    };
 
   export default function CustomerBidRoom() {
     const router = useRouter();
@@ -449,9 +659,27 @@ const initialGroupMemberId = String(
       Future months do NOT block bidding.
     ===================================================== */
 
-    const [installmentBlocked, setInstallmentBlocked] =
+    const [installmentOnlyBlocked, setInstallmentBlocked] =
       useState(false);
-    const [blockedReason, setBlockedReason] = useState("");
+    const [installmentReason, setBlockedReason] = useState("");
+
+    /* =====================================================
+      PENDING PENALTY CHECK (same rule as installment)
+      Member cannot bid if he has a pending penalty.
+      installmentBlocked / blockedReason below now cover BOTH
+      (pending installment OR pending penalty), so the button,
+      the warning box and the bid guard all work unchanged.
+    ===================================================== */
+
+    const [penaltyBlocked, setPenaltyBlocked] =
+      useState(false);
+    const [penaltyReason, setPenaltyReason] = useState("");
+
+    const installmentBlocked =
+      installmentOnlyBlocked || penaltyBlocked;
+    const blockedReason = installmentOnlyBlocked
+      ? installmentReason
+      : penaltyReason;
 
     /* =====================================================
       CHIT AMOUNT
@@ -1001,6 +1229,82 @@ const [showGroupMemberDropdown, setShowGroupMemberDropdown] =
     }, [userid]);
 
     /* =====================================================
+        LOAD PENDING PENALTY (LIVE)
+        Fetched fresh when the page opens, again every 20
+        seconds, and whenever the app comes back to the
+        foreground - no manual refresh needed. The server
+        also re-checks at the moment a bid is placed.
+    ===================================================== */
+
+    useEffect(() => {
+      if (!userid) return;
+
+      const checkPenalty = async () => {
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/member/my-outstanding/${encodeURIComponent(
+              userid
+            )}?_=${Date.now()}`
+          );
+
+          if (!res.ok) return;
+
+          const data = await res.json();
+
+          const list = Array.isArray(data?.penaltyByTicket)
+            ? data.penaltyByTicket
+            : [];
+
+          const ids = [groupCode, groupId]
+            .filter(Boolean)
+            .map((x) => String(x));
+
+          const pending = list
+            .filter(
+              (x: any) =>
+                ids.includes(String(x?.groupId)) &&
+                (!selectedGroupMemberId ||
+                  String(x?.groupMemberId) ===
+                    String(selectedGroupMemberId))
+            )
+            .reduce(
+              (sum: number, x: any) =>
+                sum + Number(x?.pendingPenalty || 0),
+              0
+            );
+
+          if (pending > 0) {
+            setPenaltyReason(
+              `You have a pending penalty of ${formatAmount(
+                pending
+              )}. Please clear your pending penalty to participate in bidding.`
+            );
+            setPenaltyBlocked(true);
+          } else {
+            setPenaltyBlocked(false);
+            setPenaltyReason("");
+          }
+        } catch (error) {
+          // Fail open - the server still blocks the bid itself
+          console.log("Penalty check error:", error);
+        }
+      };
+
+      checkPenalty();
+
+      const timer = setInterval(checkPenalty, 20000);
+
+      const sub = AppState.addEventListener("change", (s) => {
+        if (s === "active") checkPenalty();
+      });
+
+      return () => {
+        clearInterval(timer);
+        sub.remove();
+      };
+    }, [userid, selectedGroupMemberId, groupCode, groupId]);
+
+    /* =====================================================
         LOAD CHIT AMOUNT FOR THE GROUP
     ===================================================== */
 
@@ -1133,6 +1437,16 @@ const exactChitAmount = Number(
     /* =====================================================
       AUTO REFRESH
     ===================================================== */
+    // ADDED: bids can not change after the auction ends, so the 5-second reload stops there
+    const auctionEndedRef = useRef(false);
+    auctionEndedRef.current = auctionEnded;
+
+    // one last load at the moment the auction ends (so the final list is shown)
+    useEffect(() => {
+      if (auctionEnded) loadBids();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [auctionEnded]);
+
 
     useEffect(() => {
       /*
@@ -1144,6 +1458,8 @@ const exactChitAmount = Number(
 
       const interval =
         setInterval(() => {
+          // the auction is over: nothing new can arrive, so stop reloading
+          if (auctionEndedRef.current) return;
           loadBids();
         }, 5000);
 
@@ -1584,15 +1900,39 @@ const body = {
     };
 
     /* =====================================================
+      PULSE (new look only - small glowing "live" dot)
+    ===================================================== */
+
+    const pulseAnim = useRef(
+      new Animated.Value(0)
+    ).current;
+
+    useEffect(() => {
+      const loop = Animated.loop(
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        })
+      );
+
+      loop.start();
+
+      return () => {
+        loop.stop();
+      };
+    }, []);
+    /* =====================================================
       UI
     ===================================================== */
 
     return (
-      <View style={{ flex: 1, backgroundColor: "#F5F7F6" }}>
+      <View style={{ flex: 1, backgroundColor: "#F2F6F4" }}>
         <StatusBar
           barStyle="light-content"
-          backgroundColor="#024E32"
+          backgroundColor="#013D27"
         />
+
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={
@@ -1608,386 +1948,477 @@ const body = {
         >
 
           {/* =================================================
-              HEADER
-
-              Real safe-area inset instead of hardcoded 50 / 30,
-              so the green bar reaches the top edge and the
-              content sits below the notch on every device.
+              TOP BAR (fixed)
           ================================================= */}
 
-  <View
-    className="bg-[#024E32] px-4"
-    style={{
-      paddingTop: insets.top + 10,
-      paddingBottom: 14,
-    }}
-  >
-    <View className="flex-row items-center">
-      <TouchableOpacity
-        onPress={() => router.back()}
-        className="rounded-full bg-white/10 items-center justify-center"
-        activeOpacity={0.7}
-        style={{
-          width: isTablet ? 40 : 36,
-          height: isTablet ? 40 : 36,
-        }}
-      >
-        <MaterialIcons
-          name="arrow-back"
-          size={S.iconBack}
-          color="white"
-        />
-      </TouchableOpacity>
-
-      <View className="ml-3 flex-1">
-        <Text
-          {...TXT}
-          className="text-white font-bold"
-          style={{ fontSize: S.headerTitle }}
-          numberOfLines={1}
-        >
-          🏛️ Bid Room
-        </Text>
-
-        <Text
-          {...TXT}
-          className="text-green-100 mt-0.5"
-          style={{ fontSize: S.headerSub }}
-          numberOfLines={1}
-        >
-          Group {groupCode || groupId}
-        </Text>
-      </View>
-
-      <View className="flex-row items-center">
-        {newBidCount > 0 && (
-          <Animated.View
+          <View
             style={{
-              opacity: fadeAnim,
-              backgroundColor: "#EF4444",
-              borderRadius: 9999,
-              paddingHorizontal: 8,
-              paddingVertical: 2,
-              marginRight: 8,
+              backgroundColor: "#013D27",
+              paddingTop: insets.top + 10,
+              paddingBottom: 6,
+              paddingHorizontal: 16,
             }}
           >
-            <Text
-              {...TXT}
-              style={{
-                color: "white",
-                fontSize: S.tiny,
-                fontWeight: "700",
-              }}
-            >
-              +{newBidCount}
-            </Text>
-          </Animated.View>
-        )}
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                activeOpacity={0.7}
+                style={{
+                  width: isTablet ? 42 : 38,
+                  height: isTablet ? 42 : 38,
+                  borderRadius: 14,
+                  backgroundColor: "rgba(255,255,255,0.12)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={S.iconBack}
+                  color="white"
+                />
+              </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={onRefresh}
-          className="rounded-full bg-white/10 items-center justify-center"
-          activeOpacity={0.7}
-          style={{
-            width: isTablet ? 40 : 36,
-            height: isTablet ? 40 : 36,
-          }}
-        >
-          <MaterialIcons
-            name="refresh"
-            size={S.iconMd}
-            color="white"
-            style={{ opacity: refreshing ? 0.5 : 1 }}
-          />
-        </TouchableOpacity>
-      </View>
-    </View>
-  </View>
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text
+                  {...TXT}
+                  numberOfLines={1}
+                  style={{
+                    color: "#FFFFFF",
+                    fontWeight: "800",
+                    fontSize: S.headerTitle,
+                  }}
+                >
+                  Bid Room
+                </Text>
+
+                <Text
+                  {...TXT}
+                  numberOfLines={1}
+                  style={{
+                    color: "rgba(255,255,255,0.7)",
+                    fontSize: S.headerSub,
+                    marginTop: 1,
+                  }}
+                >
+                  Group {groupCode || groupId}
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                {newBidCount > 0 && (
+                  <Animated.View
+                    style={{
+                      opacity: fadeAnim,
+                      backgroundColor: "#EF4444",
+                      borderRadius: 9999,
+                      paddingHorizontal: 9,
+                      paddingVertical: 3,
+                      marginRight: 8,
+                    }}
+                  >
+                    <Text
+                      {...TXT}
+                      style={{
+                        color: "white",
+                        fontSize: S.tiny + 1,
+                        fontWeight: "800",
+                      }}
+                    >
+                      +{newBidCount} NEW
+                    </Text>
+                  </Animated.View>
+                )}
+
+                <TouchableOpacity
+                  onPress={onRefresh}
+                  activeOpacity={0.7}
+                  style={{
+                    width: isTablet ? 42 : 38,
+                    height: isTablet ? 42 : 38,
+                    borderRadius: 14,
+                    backgroundColor: "rgba(255,255,255,0.12)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <MaterialIcons
+                    name="refresh"
+                    size={S.iconMd}
+                    color="white"
+                    style={{ opacity: refreshing ? 0.5 : 1 }}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
 
           {/* =================================================
               CONTENT
           ================================================= */}
 
           <ScrollView
-            showsVerticalScrollIndicator={
-              false
-            }
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
-                refreshing={
-                  refreshing
-                }
-                onRefresh={
-                  onRefresh
-                }
+                refreshing={refreshing}
+                onRefresh={onRefresh}
               />
             }
             contentContainerStyle={{
-              padding: isTablet ? 24 : 14,
-              paddingBottom: 16 + insets.bottom,
+              paddingBottom: 16,
               flexGrow: 1,
             }}
           >
 
-            <View style={{ flex: 1 }}>
+            {/* ===============================================
+                HERO - live status + big countdown
+            =============================================== */}
 
-              {/* =================================================
-                  AUCTION INFO
-              ================================================= */}
-
+            <View
+              style={{
+                backgroundColor: "#013D27",
+                borderBottomLeftRadius: 34,
+                borderBottomRightRadius: 34,
+                paddingHorizontal: isTablet ? 28 : 18,
+                paddingTop: 10,
+                paddingBottom: 50,
+                overflow: "hidden",
+              }}
+            >
+              {/* soft decorative circles */}
               <View
-                className="bg-white border border-gray-100 shadow-sm"
+                pointerEvents="none"
                 style={{
-                  borderRadius: S.cardRadius,
-                  padding: S.cardPad,
+                  position: "absolute",
+                  top: -60,
+                  right: -50,
+                  width: 190,
+                  height: 190,
+                  borderRadius: 95,
+                  backgroundColor: "rgba(255,255,255,0.05)",
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: -70,
+                  left: -40,
+                  width: 170,
+                  height: 170,
+                  borderRadius: 85,
+                  backgroundColor: "rgba(245,179,1,0.10)",
+                }}
+              />
+
+              {/* status row */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-
-                <View className="flex-row items-center">
-
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <View
-                    className="rounded-2xl bg-[#EAF5EF] items-center justify-center"
-                    style={{ width: 38, height: 38 }}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    <MaterialIcons
-                      name="gavel"
-                      size={S.iconMd}
-                      color="#024E32"
-                    />
-                  </View>
+                    {!auctionEnded && (
+                      <Animated.View
+                        style={{
+                          position: "absolute",
+                          width: 16,
+                          height: 16,
+                          borderRadius: 8,
+                          backgroundColor: "#4ADE80",
+                          opacity: pulseAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.55, 0],
+                          }),
+                          transform: [
+                            {
+                              scale: pulseAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.5, 1.6],
+                              }),
+                            },
+                          ],
+                        }}
+                      />
+                    )}
 
-                  <View className="ml-3 flex-1">
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-400 font-semibold tracking-wider uppercase"
-                      style={{ fontSize: S.label }}
-                    >
-                      Live Auction
-                    </Text>
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-900 font-bold"
-                      style={{ fontSize: S.cardTitle }}
-                      numberOfLines={1}
-                    >
-                      {groupCode ||
-                        groupId}
-                    </Text>
-
-                  </View>
-
-                  <View
-                    className={`px-2.5 py-1 rounded-full ${
-                      auctionEnded
-                        ? "bg-red-500"
-                        : "bg-green-500"
-                    }`}
-                  >
-                    <Text
-                      {...TXT}
-                      className="text-white font-bold tracking-wider"
-                      style={{ fontSize: S.label }}
-                    >
-                      {auctionEnded
-                        ? "ENDED"
-                        : "LIVE"}
-                    </Text>
-                  </View>
-
-                </View>
-
-                <View className="flex-row flex-wrap mt-4 pt-3 border-t border-gray-100">
-
-                  {/* END DATE */}
-
-                  <View className="flex-1" style={{ minWidth: 0 }}>
-                    <Text
-                      {...TXT}
-                      className="text-gray-400 font-semibold tracking-wider uppercase"
-                      style={{ fontSize: S.label }}
-                    >
-                      📅 End Date
-                    </Text>
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-800 font-semibold mt-1"
-                      style={{ fontSize: S.value }}
-                      numberOfLines={1}
-                    >
-                      {auctionEndDate ||
-                        "-"}
-                    </Text>
-                  </View>
-
-                  {/* END TIME */}
-
-                  <View className="flex-1" style={{ minWidth: 0 }}>
-                    <Text
-                      {...TXT}
-                      className="text-gray-400 font-semibold tracking-wider uppercase"
-                      style={{ fontSize: S.label }}
-                    >
-                      ⏰ End Time
-                    </Text>
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-800 font-semibold mt-1"
-                      style={{ fontSize: S.value }}
-                      numberOfLines={1}
-                    >
-                      {auctionEndTime ||
-                        "-"}
-                    </Text>
-                  </View>
-
-                  {/* USER ID */}
-
-                  <View className="flex-1" style={{ minWidth: 0 }}>
-                    <Text
-                      {...TXT}
-                      className="text-gray-400 font-semibold tracking-wider uppercase"
-                      style={{ fontSize: S.label }}
-                    >
-                      👤 Your ID
-                    </Text>
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-800 font-semibold mt-1"
-                      style={{ fontSize: S.value }}
-                      numberOfLines={1}
-                    >
-                      {userid ||
-                        "-"}
-                    </Text>
-                  </View>
-
-                </View>
-              </View>
-
-              {/* =================================================
-                  COUNTDOWN
-              ================================================= */}
-
-             <View
-  style={{
-    marginTop: S.gap,
-    borderRadius: S.cardRadius,
-    paddingHorizontal: S.cardPad,
-    paddingVertical: 13,
-    borderWidth: 2,
-    backgroundColor: auctionEnded ? "#FEF2F2" : "#EAF5EF",
-    borderColor: auctionEnded ? "#FECACA" : "#024E32",
-  }}
->
-
-                <View className="flex-row items-center">
-
-                 <View
-  style={{
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: auctionEnded ? "#EF4444" : "#024E32",
-  }}
->
-                    <MaterialIcons
-                      name={
-                        auctionEnded
-                          ? "timer-off"
-                          : "timer"
-                      }
-                      size={S.iconMd}
-                      color="white"
-                    />
-                  </View>
-
-                  <View className="ml-3 flex-1">
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-500 font-semibold tracking-wider uppercase"
-                      style={{ fontSize: S.label }}
-                    >
-                      {auctionEnded
-                        ? "Auction Ended"
-                        : "Time Remaining"}
-                    </Text>
-
-                    <Text
-                      {...TXT}
+                    <View
                       style={{
-                        fontWeight: "700",
-                        fontSize: S.value,
-                        color: auctionEnded ? "#DC2626" : "#024E32",
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: auctionEnded
+                          ? "#F87171"
+                          : "#4ADE80",
                       }}
-                      numberOfLines={1}
-                    >
-                      {auctionEnded
-                        ? "🔴 BIDDING CLOSED"
-                        : "🟢 BIDDING OPEN"}
-                    </Text>
-
+                    />
                   </View>
 
-                  <View className="items-end">
-
-                    <Text
-                      {...TXT}
-                      className={`font-extrabold font-mono ${
-                        auctionEnded
-                          ? "text-red-600"
-                          : "text-[#024E32]"
-                      }`}
-                      style={{ fontSize: S.countdown }}
-                      numberOfLines={1}
-                    >
-                      {countdown}
-                    </Text>
-
-                    <Text
-                      {...TXT}
-                      className="text-gray-400"
-                      style={{ fontSize: 8 }}
-                    >
-                      {timeRemaining.days >
-                      0
-                        ? "DAYS • HOURS • MINUTES • SECONDS"
-                        : "HH : MM : SS"}
-                    </Text>
-
-                  </View>
-
-                </View>
-
-                {/* END DATE TARGET */}
-
-                <View className="mt-3 pt-2.5 border-t border-gray-200">
                   <Text
                     {...TXT}
-                    className="text-gray-500 text-center"
-                    style={{ fontSize: S.tiny }}
+                    style={{
+                      marginLeft: 6,
+                      color: "#FFFFFF",
+                      fontSize: S.small,
+                      fontWeight: "800",
+                      letterSpacing: 1.6,
+                    }}
                   >
-                    Auction closes on{" "}
-                    <Text className="font-bold text-gray-700">
-                      {auctionEndDate ||
-                        "-"}
-                    </Text>{" "}
-                    at{" "}
-                    <Text className="font-bold text-gray-700">
-                      {auctionEndTime ||
-                        "-"}
-                    </Text>
+                    {auctionEnded ? "AUCTION ENDED" : "LIVE AUCTION"}
                   </Text>
                 </View>
 
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 999,
+                    backgroundColor: auctionEnded
+                      ? "#EF4444"
+                      : "#16A34A",
+                  }}
+                >
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: S.label,
+                      fontWeight: "800",
+                      letterSpacing: 1.2,
+                    }}
+                  >
+                    {auctionEnded ? "CLOSED" : "BIDDING OPEN"}
+                  </Text>
+                </View>
+              </View>
+
+              <Text
+                {...TXT}
+                style={{
+                  marginTop: 16,
+                  marginBottom: 10,
+                  textAlign: "center",
+                  color: "rgba(255,255,255,0.7)",
+                  fontSize: S.label + 1,
+                  fontWeight: "700",
+                  letterSpacing: 2.2,
+                }}
+              >
+                {auctionEnded ? "THIS AUCTION HAS ENDED" : "TIME REMAINING"}
+              </Text>
+
+              {/* countdown boxes */}
+              <View style={{ flexDirection: "row", marginHorizontal: -4 }}>
+                <TimeBox
+                  value={
+                    auctionEndDate && auctionEndTime
+                      ? String(timeRemaining.days).padStart(2, "0")
+                      : "--"
+                  }
+                  label="DAYS"
+                  ended={auctionEnded}
+                />
+                <TimeBox
+                  value={
+                    auctionEndDate && auctionEndTime
+                      ? String(timeRemaining.hours).padStart(2, "0")
+                      : "--"
+                  }
+                  label="HOURS"
+                  ended={auctionEnded}
+                />
+                <TimeBox
+                  value={
+                    auctionEndDate && auctionEndTime
+                      ? String(timeRemaining.minutes).padStart(2, "0")
+                      : "--"
+                  }
+                  label="MINUTES"
+                  ended={auctionEnded}
+                />
+                <TimeBox
+                  value={
+                    auctionEndDate && auctionEndTime
+                      ? String(timeRemaining.seconds).padStart(2, "0")
+                      : "--"
+                  }
+                  label="SECONDS"
+                  ended={auctionEnded}
+                />
+              </View>
+
+              <Text
+                {...TXT}
+                style={{
+                  marginTop: 14,
+                  textAlign: "center",
+                  color: "rgba(255,255,255,0.75)",
+                  fontSize: S.small,
+                }}
+              >
+                Closes on{" "}
+                <Text style={{ color: "#FFFFFF", fontWeight: "800" }}>
+                  {auctionEndDate || "-"}
+                </Text>{" "}
+                at{" "}
+                <Text style={{ color: "#FFFFFF", fontWeight: "800" }}>
+                  {auctionEndTime || "-"}
+                </Text>
+              </Text>
+            </View>
+
+            {/* ===============================================
+                BODY (cards float up over the green hero)
+            =============================================== */}
+
+            <View
+              style={{
+                paddingHorizontal: isTablet ? 24 : 14,
+                marginTop: -30,
+              }}
+            >
+
+              {/* SUMMARY TILES */}
+
+              <View style={{ flexDirection: "row", marginHorizontal: -4 }}>
+                <StatTile
+                  flex={1.35}
+                  icon="account-balance-wallet"
+                  label="CHIT AMOUNT"
+                  value={chitAmount ? formatAmount(chitAmount) : "-"}
+                />
+                <StatTile
+                  icon="list-alt"
+                  label="TOTAL BIDS"
+                  value={String(bids.length)}
+                />
+                <StatTile
+                  flex={1.2}
+                  accent
+                  icon="emoji-events"
+                  label="HIGHEST"
+                  value={highestBid ? formatAmount(highestBid) : "-"}
+                />
+              </View>
+
+              <Text
+                {...TXT}
+                style={{
+                  color: "#8A9A92",
+                  fontSize: S.tiny,
+                  textAlign: "center",
+                  marginTop: 8,
+                }}
+              >
+                Bidding starts from the chit amount • Highest bid shown above
+              </Text>
+
+              {/* YOUR DETAILS STRIP */}
+
+              <View
+                style={{
+                  marginTop: S.gap,
+                  flexDirection: "row",
+                  backgroundColor: "#FFFFFF",
+                  borderRadius: 20,
+                  paddingVertical: 12,
+                  borderWidth: 1,
+                  borderColor: "#E6ECE9",
+                }}
+              >
+                <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#8A9A92",
+                      fontSize: S.label,
+                      fontWeight: "700",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    END DATE
+                  </Text>
+                  <Text
+                    {...TXT}
+                    numberOfLines={1}
+                    style={{
+                      color: "#1F2D27",
+                      fontSize: S.value,
+                      fontWeight: "700",
+                      marginTop: 3,
+                    }}
+                  >
+                    {auctionEndDate || "-"}
+                  </Text>
+                </View>
+
+                <View style={{ width: 1, backgroundColor: "#E6ECE9" }} />
+
+                <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#8A9A92",
+                      fontSize: S.label,
+                      fontWeight: "700",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    END TIME
+                  </Text>
+                  <Text
+                    {...TXT}
+                    numberOfLines={1}
+                    style={{
+                      color: "#1F2D27",
+                      fontSize: S.value,
+                      fontWeight: "700",
+                      marginTop: 3,
+                    }}
+                  >
+                    {auctionEndTime || "-"}
+                  </Text>
+                </View>
+
+                <View style={{ width: 1, backgroundColor: "#E6ECE9" }} />
+
+                <View style={{ flex: 1, alignItems: "center", minWidth: 0 }}>
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#8A9A92",
+                      fontSize: S.label,
+                      fontWeight: "700",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    YOUR ID
+                  </Text>
+                  <Text
+                    {...TXT}
+                    numberOfLines={1}
+                    style={{
+                      color: "#1F2D27",
+                      fontSize: S.value,
+                      fontWeight: "700",
+                      marginTop: 3,
+                    }}
+                  >
+                    {userid || "-"}
+                  </Text>
+                </View>
               </View>
 
               <SpinnerAutoOpen
@@ -1999,807 +2430,726 @@ const body = {
                 userid={userid}
               />
 
-              {/* =================================================
+              {/* =============================================
                   PLACE BID
-              ================================================= */}
+              ============================================= */}
 
               <View
-                className="bg-white border border-gray-100 shadow-sm"
                 style={{
                   marginTop: S.gap,
-                  borderRadius: S.cardRadius,
-                  padding: S.cardPad,
+                  backgroundColor: "#FFFFFF",
+                  borderRadius: 28,
+                  padding: isTablet ? 22 : 18,
+                  borderWidth: 1,
+                  borderColor: "#E6ECE9",
+                  shadowColor: "#0B3D2A",
+                  shadowOpacity: 0.1,
+                  shadowRadius: 16,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 4,
                 }}
               >
-
-                <View className="flex-row items-center mb-3">
-
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginBottom: 14,
+                  }}
+                >
                   <View
-                    className="rounded-xl bg-[#EAF5EF] items-center justify-center"
-                    style={{ width: 34, height: 34 }}
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 15,
+                      backgroundColor: "#024E32",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    <MaterialIcons
-                      name="payments"
-                      size={S.iconSm + 2}
-                      color="#024E32"
-                    />
+                    <MaterialIcons name="gavel" size={S.iconMd} color="white" />
                   </View>
 
-                  <View className="ml-3">
-
+                  <View style={{ marginLeft: 12, flex: 1 }}>
                     <Text
                       {...TXT}
-                      className="text-gray-900 font-bold"
-                      style={{ fontSize: S.cardTitle }}
+                      style={{
+                        color: "#10231B",
+                        fontSize: S.sectionTitle + 1,
+                        fontWeight: "800",
+                      }}
                     >
                       Place Your Bid
                     </Text>
 
                     <Text
                       {...TXT}
-                      className="text-gray-400 mt-0.5"
-                      style={{ fontSize: S.small }}
+                      style={{
+                        color: "#8A9A92",
+                        fontSize: S.small,
+                        marginTop: 1,
+                      }}
                     >
-                      Enter the amount you want to bid
+                      Pick your ticket and slide to choose the amount
                     </Text>
-
                   </View>
-
                 </View>
 
-                {/* QUICK AMOUNTS */}
-                {/* =================================================
-    GROUP MEMBER ID
-================================================= */}
-
-<View className="mb-3">
-
-  <Text
-    {...TXT}
-    className="text-gray-500 font-semibold tracking-wider uppercase mb-2"
-    style={{ fontSize: S.label }}
-  >
-    Select Group Member ID
-  </Text>
-
-  <TouchableOpacity
-    onPress={() => {
-      if (
-        !auctionEnded &&
-        !installmentBlocked &&
-        !placingBid
-      ) {
-        setShowGroupMemberDropdown(
-          !showGroupMemberDropdown
-        );
-      }
-    }}
-    disabled={
-      auctionEnded ||
-      installmentBlocked ||
-      placingBid ||
-      groupMemberIds.length === 0
-    }
-    activeOpacity={0.8}
-    className="bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4 flex-row items-center justify-between"
-    style={{ height: 48 }}
-  >
-
-    <View className="flex-row items-center">
-
-      <MaterialIcons
-        name="confirmation-number"
-        size={S.iconSm + 2}
-        color="#024E32"
-      />
-
-      <Text
-        {...TXT}
-        className="text-gray-900 font-semibold ml-3"
-        style={{ fontSize: S.value }}
-      >
-        {selectedGroupMemberId ||
-          "Select Group Member ID"}
-      </Text>
-
-    </View>
-
-    <MaterialIcons
-      name={
-        showGroupMemberDropdown
-          ? "keyboard-arrow-up"
-          : "keyboard-arrow-down"
-      }
-      size={S.iconMd}
-      color="#024E32"
-    />
-
-  </TouchableOpacity>
-
-  {/* DROPDOWN OPTIONS */}
-
-  {showGroupMemberDropdown &&
-    groupMemberIds.length > 0 && (
-      <View className="mt-2 bg-white border border-gray-200 rounded-2xl overflow-hidden">
-
-        {groupMemberIds.map(
-          (id, index) => (
-            <TouchableOpacity
-              key={id}
-              onPress={() => {
-                setSelectedGroupMemberId(id);
-                setShowGroupMemberDropdown(false);
-              }}
-              className={`px-4 py-3 flex-row items-center justify-between ${
-                index <
-                groupMemberIds.length - 1
-                  ? "border-b border-gray-100"
-                  : ""
-              }`}
-              activeOpacity={0.7}
-            >
-
-              <View className="flex-row items-center">
-
-                <MaterialIcons
-                  name="confirmation-number"
-                  size={S.iconSm}
-                  color="#024E32"
-                />
+                {/* TICKET (GROUP MEMBER ID) CHIPS */}
 
                 <Text
                   {...TXT}
-                  className="text-gray-900 font-semibold ml-3"
-                  style={{ fontSize: S.value }}
+                  style={{
+                    color: "#6B7C74",
+                    fontSize: S.label,
+                    fontWeight: "700",
+                    letterSpacing: 1.2,
+                    marginBottom: 8,
+                  }}
                 >
-                  {id}
+                  SELECT YOUR TICKET
                 </Text>
 
-              </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                  {groupMemberIds.map((id) => {
+                    const active = selectedGroupMemberId === id;
+                    const off =
+                      auctionEnded || installmentBlocked || placingBid;
 
-              {selectedGroupMemberId ===
-                id && (
-                <MaterialIcons
-                  name="check"
-                  size={S.iconSm + 2}
-                  color="#024E32"
-                />
-              )}
+                    return (
+                      <TouchableOpacity
+                        key={id}
+                        disabled={off}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setSelectedGroupMemberId(id);
+                          setShowGroupMemberDropdown(false);
+                        }}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          paddingHorizontal: 14,
+                          height: 40,
+                          borderRadius: 14,
+                          marginRight: 8,
+                          marginBottom: 8,
+                          backgroundColor: active ? "#024E32" : "#F2F6F4",
+                          borderWidth: 1.5,
+                          borderColor: active ? "#024E32" : "#DDE6E1",
+                          opacity: off ? 0.55 : 1,
+                        }}
+                      >
+                        <MaterialIcons
+                          name={active ? "check-circle" : "confirmation-number"}
+                          size={S.iconSm}
+                          color={active ? "#FFFFFF" : "#024E32"}
+                        />
+                        <Text
+                          {...TXT}
+                          style={{
+                            marginLeft: 7,
+                            fontSize: S.value,
+                            fontWeight: "700",
+                            color: active ? "#FFFFFF" : "#10231B",
+                          }}
+                        >
+                          {id}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
-            </TouchableOpacity>
-          )
-        )}
+                {groupMemberIds.length === 0 && (
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#DC2626",
+                      fontSize: S.small,
+                      marginBottom: 6,
+                    }}
+                  >
+                    No Group Member ID found for this account.
+                  </Text>
+                )}
 
-      </View>
-    )}
-
-  {groupMemberIds.length === 0 && (
-    <Text
-      {...TXT}
-      className="text-red-500 mt-2"
-      style={{ fontSize: S.small }}
-    >
-      No Group Member ID found for this account.
-    </Text>
-  )}
-
-</View>
-  <View className="mb-3">
-    <Text
-      {...TXT}
-      className="text-gray-500 font-semibold uppercase mb-2"
-      style={{ fontSize: S.label }}
-    >
-      Slide to Select Bid Amount
-    </Text>
-
-    <View className="bg-gray-50 rounded-2xl border border-gray-200 p-3">
-
-      <View className="items-center mb-1">
-        <Text
-          {...TXT}
-          className="text-gray-400"
-          style={{ fontSize: S.small }}
-        >
-          Selected Bid
-        </Text>
-
-        <Text
-          {...TXT}
-          className="text-[#024E32] font-bold"
-          style={{ fontSize: S.big }}
-        >
-          {formatAmount(
-            PREDEFINED_AMOUNTS[selectedPredefinedIndex]
-          )}
-        </Text>
-      </View>
-
-      <Slider
-        style={{
-          width: "100%",
-          height: 36,
-        }}
-        minimumValue={0}
-        maximumValue={PREDEFINED_AMOUNTS.length - 1}
-        step={1}
-        value={selectedPredefinedIndex}
-        minimumTrackTintColor="#024E32"
-        maximumTrackTintColor="#D1D5DB"
-        thumbTintColor="#024E32"
-        disabled={auctionEnded || installmentBlocked}
-        onValueChange={(value) => {
-          const index = Math.round(value);
-          const amount = PREDEFINED_AMOUNTS[index];
-
-          setSelectedPredefinedIndex(index);
-          setBidAmount(String(amount));
-        }}
-      />
-
-     <View className="flex-row justify-between px-1">
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹10K</Text>
-       {/* <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹60K</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹1lakh</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹1.5lakh</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹2lakh</Text>
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹2.5lakh</Text>*/}
-        <Text {...TXT} className="text-gray-400" style={{ fontSize: S.tiny }}>₹3lakh</Text>
-      </View>
-
-    </View>
-  </View>
-
-                {/* INPUT */}
-
-                <Text
-                  {...TXT}
-                  className="text-gray-500 font-semibold tracking-wider uppercase mb-2"
-                  style={{ fontSize: S.label }}
-                >
-                  Or Enter Amount
-                </Text>
+                {/* BIG AMOUNT + SLIDER (amount selection - stays in the card) */}
 
                 <View
-                  className="flex-row items-center bg-[#F7F9F8] border border-gray-200 rounded-2xl px-4"
-                  style={{ height: 48 }}
+                  style={{
+                    marginTop: 8,
+                    backgroundColor: "#F2F8F5",
+                    borderRadius: 24,
+                    borderWidth: 1,
+                    borderColor: "#D6E8DE",
+                    paddingHorizontal: 14,
+                    paddingTop: 16,
+                    paddingBottom: 10,
+                  }}
                 >
+                  <Text
+                    {...TXT}
+                    style={{
+                      textAlign: "center",
+                      color: "#6B7C74",
+                      fontSize: S.label,
+                      fontWeight: "700",
+                      letterSpacing: 2,
+                    }}
+                  >
+                    YOUR BID
+                  </Text>
 
                   <Text
                     {...TXT}
-                    className="text-[#024E32] font-bold mr-2"
-                    style={{ fontSize: S.valueLg }}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.6}
+                    style={{
+                      textAlign: "center",
+                      color: "#024E32",
+                      fontSize: isTablet ? 46 : 38,
+                      fontWeight: "800",
+                      marginTop: 2,
+                    }}
                   >
-                    ₹
+                    {formatAmount(
+                      bidAmount
+                        ? Number(bidAmount)
+                        : PREDEFINED_AMOUNTS[selectedPredefinedIndex]
+                    )}
                   </Text>
 
-                  <TextInput
-                    allowFontScaling={false}
-                    value={
-                      bidAmount
-                    }
-                    onChangeText={(
-                      text
-                    ) => {
-                      const cleaned =
-                        text.replace(
-                          /[^0-9]/g,
-                          ""
-                        );
-
-                      setBidAmount(
-                        cleaned
-                      );
+                  <Slider
+                    style={{
+                      width: "100%",
+                      height: 40,
+                      marginTop: 6,
                     }}
-                    placeholder="Enter bid amount"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="number-pad"
-                    editable={
-                      !placingBid &&
-                      !auctionEnded &&
-                      !installmentBlocked
-                    }
-                    className="flex-1 text-gray-900 font-semibold"
-                    style={{ fontSize: S.value, paddingVertical: 0 }}
+                    minimumValue={0}
+                    maximumValue={PREDEFINED_AMOUNTS.length - 1}
+                    step={1}
+                    value={selectedPredefinedIndex}
+                    minimumTrackTintColor="#024E32"
+                    maximumTrackTintColor="#C9D8D0"
+                    thumbTintColor="#024E32"
+                    disabled={auctionEnded || installmentBlocked}
+                    onValueChange={(value) => {
+                      const index = Math.round(value);
+                      const amount = PREDEFINED_AMOUNTS[index];
+
+                      setSelectedPredefinedIndex(index);
+                      setBidAmount(String(amount));
+                    }}
                   />
 
-                  {bidAmount !==
-                    "" && (
-                    <TouchableOpacity
-                      onPress={() =>
-                        setBidAmount(
-                          ""
-                        )
-                      }
-                    >
-                      <MaterialIcons
-                        name="close"
-                        size={S.iconSm + 2}
-                        color="#9CA3AF"
-                      />
-                    </TouchableOpacity>
-                  )}
-
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      paddingHorizontal: 4,
+                    }}
+                  >
+                    <Text {...TXT} style={{ color: "#8A9A92", fontSize: S.tiny, fontWeight: "600" }}>
+                      ₹10K
+                    </Text>
+                    <Text {...TXT} style={{ color: "#8A9A92", fontSize: S.tiny, fontWeight: "600" }}>
+                      ₹3 lakh
+                    </Text>
+                  </View>
                 </View>
 
                 {/* HIGHEST BID */}
 
-                {highestBid >
-                  0 && (
-                  <View className="mt-3 bg-yellow-50 rounded-xl p-3 border border-yellow-200">
-
-                    <Text
-                      {...TXT}
-                      className="text-yellow-700"
-                      style={{ fontSize: S.small }}
+                {highestBid > 0 && (
+                  <View
+                    style={{
+                      marginTop: 14,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: "#FFF8E1",
+                      borderRadius: 16,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: "#FDE68A",
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 12,
+                        backgroundColor: "#FACC15",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
                     >
-                      💡 Current highest bid:{" "}
-                      <Text className="font-bold">
-                        {formatAmount(
-                          highestBid
-                        )}
+                      <MaterialIcons name="emoji-events" size={S.iconSm + 2} color="#854D0E" />
+                    </View>
+
+                    <View style={{ marginLeft: 10, flex: 1 }}>
+                      <Text
+                        {...TXT}
+                        style={{ color: "#92400E", fontSize: S.small }}
+                      >
+                        Current highest bid{" "}
+                        <Text style={{ fontWeight: "800" }}>
+                          {formatAmount(highestBid)}
+                        </Text>
                       </Text>
-                    </Text>
 
-                    <Text
-                      {...TXT}
-                      className="text-yellow-600 mt-0.5"
-                      style={{ fontSize: S.tiny }}
-                    >
-                      Your bid must be higher than the current highest bid
-                    </Text>
-
+                      <Text
+                        {...TXT}
+                        style={{
+                          color: "#B45309",
+                          fontSize: S.tiny,
+                          marginTop: 2,
+                        }}
+                      >
+                        Your bid must be higher than the current highest bid
+                      </Text>
+                    </View>
                   </View>
                 )}
 
-                {/* PENDING INSTALLMENT WARNING */}
+                {/* PENDING INSTALLMENT / PENALTY WARNING */}
 
                 {installmentBlocked && (
-                  <View className="mt-3 bg-red-50 p-3 rounded-xl border border-red-200">
-
-                    <View className="flex-row items-center">
-                      <MaterialIcons
-                        name="block"
-                        size={S.iconSm}
-                        color="#DC2626"
-                      />
+                  <View
+                    style={{
+                      marginTop: 14,
+                      backgroundColor: "#FEF2F2",
+                      borderRadius: 16,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: "#FECACA",
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <MaterialIcons name="block" size={S.iconSm + 2} color="#DC2626" />
                       <Text
                         {...TXT}
-                        className="text-red-700 font-bold ml-2"
-                        style={{ fontSize: S.small }}
+                        style={{
+                          color: "#B91C1C",
+                          fontWeight: "800",
+                          marginLeft: 8,
+                          fontSize: S.small + 1,
+                          flex: 1,
+                        }}
                       >
-                        ⛔ Bidding Disabled – Pending Installment
+                        {installmentOnlyBlocked
+                          ? "Bidding Disabled – Pending Installment"
+                          : "Bidding Disabled – Pending Penalty"}
                       </Text>
                     </View>
 
                     <Text
                       {...TXT}
-                      className="text-red-600 mt-1.5 flex-1"
-                      style={{ fontSize: S.small }}
+                      style={{
+                        color: "#DC2626",
+                        marginTop: 6,
+                        fontSize: S.small,
+                      }}
                     >
                       {blockedReason}
                     </Text>
-
                   </View>
                 )}
-
-                {/* BUTTON */}
-
-                <TouchableOpacity
-                  onPress={
-                    placeBid
-                  }
-                  disabled={
-                    placingBid ||
-                    auctionEnded ||
-                    installmentBlocked
-                  }
-                  activeOpacity={
-                    0.8
-                  }
-                  className={`mt-3 rounded-2xl items-center justify-center ${
-                    placingBid ||
-                    auctionEnded ||
-                    installmentBlocked
-                      ? "bg-gray-300"
-                      : "bg-[#024E32]"
-                  }`}
-                  style={{ height: 48 }}
-                >
-
-                  {placingBid ? (
-                    <View className="flex-row items-center">
-
-                      <ActivityIndicator
-                        color="white"
-                        size="small"
-                      />
-
-                      <Text
-                        {...TXT}
-                        className="text-white font-bold ml-2"
-                        style={{ fontSize: S.value }}
-                      >
-                        SUBMITTING...
-                      </Text>
-
-                    </View>
-                  ) : auctionEnded ? (
-                    <View className="flex-row items-center">
-
-                      <MaterialIcons
-                        name="lock"
-                        size={S.iconSm + 2}
-                        color="white"
-                      />
-
-                      <Text
-                        {...TXT}
-                        className="text-white font-bold ml-2"
-                        style={{ fontSize: S.value }}
-                      >
-                        AUCTION ENDED
-                      </Text>
-
-                    </View>
-                  ) : installmentBlocked ? (
-                    <View className="flex-row items-center">
-
-                      <MaterialIcons
-                        name="money-off"
-                        size={S.iconSm + 2}
-                        color="white"
-                      />
-
-                      <Text
-                        {...TXT}
-                        className="text-white font-bold ml-2"
-                        style={{ fontSize: S.value }}
-                      >
-                        INSTALLMENT PENDING
-                      </Text>
-
-                    </View>
-                  ) : (
-                    <View className="flex-row items-center">
-
-                      <MaterialIcons
-                        name="gavel"
-                        size={S.iconSm + 2}
-                        color="white"
-                      />
-
-                      <Text
-                        {...TXT}
-                        className="text-white font-bold ml-2"
-                        style={{ fontSize: S.value }}
-                      >
-                        PLACE BID
-                      </Text>
-
-                    </View>
-                  )}
-
-                </TouchableOpacity>
 
                 {/* STATUS */}
 
                 {auctionEnded && (
-                  <View className="flex-row items-center mt-3 bg-red-50 p-3 rounded-xl border border-red-200">
-
-                    <MaterialIcons
-                      name="info-outline"
-                      size={S.iconSm}
-                      color="#DC2626"
-                    />
-
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginTop: 14,
+                      backgroundColor: "#FEF2F2",
+                      borderRadius: 16,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: "#FECACA",
+                    }}
+                  >
+                    <MaterialIcons name="info-outline" size={S.iconSm + 2} color="#DC2626" />
                     <Text
                       {...TXT}
-                      className="text-red-700 ml-2 flex-1"
-                      style={{ fontSize: S.small }}
+                      style={{
+                        color: "#B91C1C",
+                        marginLeft: 8,
+                        flex: 1,
+                        fontSize: S.small,
+                      }}
                     >
-                      ⛔ This auction has ended. No more bids accepted.
+                      This auction has ended. No more bids accepted.
                     </Text>
-
                   </View>
                 )}
 
-                {(!auctionEndDate ||
-                  !auctionEndTime) && (
-                    <View className="flex-row items-center mt-3 bg-yellow-50 p-3 rounded-xl border border-yellow-200">
+                {(!auctionEndDate || !auctionEndTime) && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      marginTop: 14,
+                      backgroundColor: "#FFFBEB",
+                      borderRadius: 16,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: "#FDE68A",
+                    }}
+                  >
+                    <MaterialIcons name="info-outline" size={S.iconSm + 2} color="#D97706" />
+                    <Text
+                      {...TXT}
+                      style={{
+                        color: "#B45309",
+                        marginLeft: 8,
+                        flex: 1,
+                        fontSize: S.small,
+                      }}
+                    >
+                      Auction end date/time is not available.
+                    </Text>
+                  </View>
+                )}
+              </View>
 
-                      <MaterialIcons
-                        name="info-outline"
-                        size={S.iconSm}
-                        color="#D97706"
-                      />
+              {/* =============================================
+                  LIVE BIDS HEADER
+              ============================================= */}
 
+              <View style={{ marginTop: 26, marginBottom: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 12,
+                      backgroundColor: "#EAF5EF",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <MaterialIcons name="forum" size={S.iconMd - 2} color="#024E32" />
+                  </View>
+
+                  <Text
+                    {...TXT}
+                    style={{
+                      color: "#10231B",
+                      fontWeight: "800",
+                      marginLeft: 10,
+                      fontSize: S.sectionTitle + 1,
+                    }}
+                  >
+                    Live Bids
+                  </Text>
+
+                  {bids.length > 0 && (
+                    <View
+                      style={{
+                        marginLeft: 8,
+                        backgroundColor: "#024E32",
+                        paddingHorizontal: 9,
+                        paddingVertical: 2,
+                        borderRadius: 999,
+                      }}
+                    >
                       <Text
                         {...TXT}
-                        className="text-yellow-700 ml-2 flex-1"
-                        style={{ fontSize: S.small }}
+                        style={{
+                          color: "#FFFFFF",
+                          fontWeight: "800",
+                          fontSize: S.small,
+                        }}
                       >
-                        ⚠️ Auction end date/time is not available.
+                        {bids.length}
                       </Text>
-
                     </View>
                   )}
-
-              </View>
-
-              {/* =================================================
-                  SUMMARY
-              ================================================= */}
-
-              {/* CHIT AMOUNT - bidding starts from this amount */}
-
-              <View
-                className="bg-white border border-gray-100 shadow-sm"
-                style={{
-                  marginTop: S.gap,
-                  borderRadius: S.cardRadius,
-                  padding: S.cardPad,
-                }}
-              >
+                </View>
 
                 <Text
                   {...TXT}
-                  className="text-gray-400 font-semibold tracking-wider uppercase"
-                  style={{ fontSize: S.label }}
-                >
-                  💰 Chit Amount
-                </Text>
-
-                <Text
-                  {...TXT}
-                  className="text-[#024E32] font-extrabold mt-1"
-                  style={{ fontSize: S.big }}
-                >
-                  {chitAmount
-                    ? formatAmount(
-                        chitAmount
-                      )
-                    : "-"}
-                </Text>
-
-                <Text
-                  {...TXT}
-                  className="text-gray-400 mt-1"
-                  style={{ fontSize: S.tiny }}
-                >
-                  Bidding starts from this amount • Current bided (highest) amount shown below
-                </Text>
-
-              </View>
-
-              <View className="flex-row" style={{ marginTop: S.gap }}>
-
-                <View
-                  className="flex-1 bg-white mr-2 border border-gray-100 shadow-sm"
                   style={{
-                    borderRadius: S.cardRadius,
-                    padding: S.cardPad,
+                    color: "#6B7C74",
+                    marginTop: 6,
+                    fontSize: S.small,
                   }}
-                >
-
-                  <Text
-                    {...TXT}
-                    className="text-gray-400 font-semibold tracking-wider uppercase"
-                    style={{ fontSize: S.label }}
-                  >
-                    Total Bids
-                  </Text>
-
-                  <Text
-                    {...TXT}
-                    className="text-[#024E32] font-bold mt-1"
-                    style={{ fontSize: S.valueLg }}
-                  >
-                    {
-                      bids.length
-                    }
-                  </Text>
-
-                </View>
-
-                <View
-                  className="flex-1 bg-white ml-2 border border-gray-100 shadow-sm"
-                  style={{
-                    borderRadius: S.cardRadius,
-                    padding: S.cardPad,
-                  }}
-                >
-
-                  <Text
-                    {...TXT}
-                    className="text-gray-400 font-semibold tracking-wider uppercase"
-                    style={{ fontSize: S.label }}
-                  >
-                    Highest Bid
-                  </Text>
-
-                  <Text
-                    {...TXT}
-                    className="text-[#024E32] font-bold mt-1"
-                    style={{ fontSize: S.valueLg }}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    {highestBid
-                      ? formatAmount(
-                          highestBid
-                        )
-                      : "-"}
-                  </Text>
-
-                </View>
-
-              </View>
-
-              {/* =================================================
-                  ALL BIDS - WhatsApp Style Chat
-              ================================================= */}
-
-              <View className="mt-6 mb-3">
-
-                <View className="flex-row items-center">
-
-                  <MaterialIcons
-                    name="chat"
-                    size={S.iconMd}
-                    color="#024E32"
-                  />
-
-                  <Text
-                    {...TXT}
-                    className="text-gray-900 font-bold ml-2"
-                    style={{ fontSize: S.sectionTitle }}
-                  >
-                    Bids Chat
-                  </Text>
-
-                  {bids.length >
-                    0 && (
-                    <View className="ml-2 bg-[#EAF5EF] px-2 py-0.5 rounded-full">
-
-                      <Text
-                        {...TXT}
-                        className="text-[#024E32] font-bold"
-                        style={{ fontSize: S.small }}
-                      >
-                        {
-                          bids.length
-                        }
-                      </Text>
-
-                    </View>
-                  )}
-
-                </View>
-
-                <Text
-                  {...TXT}
-                  className="text-gray-500 mt-1 ml-8"
-                  style={{ fontSize: S.small }}
                 >
                   Bids of this auction only ({auctionEndDate || "-"}
                   {auctionEndTime ? ` • ${auctionEndTime}` : ""}). Other auctions
                   of this group have their own bid chat.
                 </Text>
-
               </View>
 
-              {/* =================================================
-                  BIDS LIST - WhatsApp Style Chat Bubbles
-              ================================================= */}
+              {/* =============================================
+                  BIDS LIST
+              ============================================= */}
 
               {loading ? (
                 <View
                   key="bid-chat-loading"
-                  className="items-center py-12 bg-white border border-gray-100"
-                  style={{ borderRadius: S.cardRadius }}
+                  style={{
+                    alignItems: "center",
+                    paddingVertical: 44,
+                    backgroundColor: "#FFFFFF",
+                    borderWidth: 1,
+                    borderColor: "#E6ECE9",
+                    borderRadius: 24,
+                  }}
                 >
-
-                  <ActivityIndicator
-                    size="large"
-                    color="#024E32"
-                  />
+                  <ActivityIndicator size="large" color="#024E32" />
 
                   <Text
                     {...TXT}
-                    className="text-gray-500 mt-3 font-medium"
-                    style={{ fontSize: S.value }}
+                    style={{
+                      color: "#6B7C74",
+                      marginTop: 12,
+                      fontWeight: "600",
+                      fontSize: S.value,
+                    }}
                   >
                     Loading bids...
                   </Text>
-
                 </View>
-              ) : bids.length ===
-                0 ? (
+              ) : bids.length === 0 ? (
                 <View
                   key="bid-chat-empty"
-                  className="bg-white p-6 items-center border border-gray-100"
                   style={{
-                    borderRadius: S.cardRadius,
-                    shadowColor: "#000000",
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 2,
-                    elevation: 1,
+                    backgroundColor: "#FFFFFF",
+                    padding: 26,
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: "#E6ECE9",
+                    borderStyle: "dashed",
+                    borderRadius: 24,
                   }}
                 >
-
                   <View
-                    className="rounded-full bg-gray-100 items-center justify-center"
-                    style={{ width: 64, height: 64 }}
+                    style={{
+                      width: 66,
+                      height: 66,
+                      borderRadius: 33,
+                      backgroundColor: "#EAF5EF",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-
-                    <MaterialIcons
-                      name="chat-bubble-outline"
-                      size={30}
-                      color="#9CA3AF"
-                    />
-
+                    <MaterialIcons name="gavel" size={30} color="#024E32" />
                   </View>
 
                   <Text
                     {...TXT}
-                    className="text-gray-800 font-bold mt-3"
-                    style={{ fontSize: S.cardTitle }}
+                    style={{
+                      color: "#10231B",
+                      fontWeight: "800",
+                      marginTop: 12,
+                      fontSize: S.cardTitle + 1,
+                    }}
                   >
                     No bids yet
                   </Text>
 
                   <Text
                     {...TXT}
-                    className="text-gray-500 text-center mt-2"
-                    style={{ fontSize: S.small }}
+                    style={{
+                      color: "#6B7C74",
+                      textAlign: "center",
+                      marginTop: 6,
+                      fontSize: S.small,
+                    }}
                   >
                     Be the first to place a bid! Your bid will appear here.
                   </Text>
-
                 </View>
               ) : (
-                displayBids.map(
-                  (bid) => {
-                   const ticketNumber = bid.groupMemberId;
+                displayBids.map((bid, index) => {
+                  const ticketNumber = getTicketNumber(bid._id);
 
-                    const isHighest =
-                      Number(
-                        bid.bidAmount
-                      ) ===
-                      highestBid;
+                  const isHighest =
+                    Number(bid.bidAmount) === highestBid;
 
-                    const isUserBid =
-                      isCurrentUserBid(
-                        bid.memberId
-                      );
+                  const isUserBid = isCurrentUserBid(bid.memberId);
 
-                    return (
-                      <BidBubble
-                        key={bid._id}
-                        bid={bid}
-                        isUserBid={isUserBid}
-                        isHighest={isHighest}
-                        ticketNumber={ticketNumber}
-                      />
-                    );
-                  }
-                )
+                  return (
+                    <BidBubble
+                      key={bid._id}
+                      bid={bid}
+                      isUserBid={isUserBid}
+                      isHighest={isHighest}
+                      ticketNumber={ticketNumber}
+                      groupMemberId={bid.groupMemberId}
+                      rank={index + 1}
+                    />
+                  );
+                })
               )}
 
-              {/* =================================================
+              {/* =============================================
                   FOOTER
-              ================================================= */}
+              ============================================= */}
 
-              <View className="mt-5">
-                <Footer />
-              </View>
+              <Footer />
 
             </View>
 
           </ScrollView>
+
+          {/* =================================================
+              BOTTOM BAR (fixed, like a WhatsApp message box)
+              - top: amount input + send button
+              - below: amount selection slider
+          ================================================= */}
+
+          <View
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderTopLeftRadius: 26,
+              borderTopRightRadius: 26,
+              paddingHorizontal: isTablet ? 24 : 14,
+              paddingTop: 12,
+              paddingBottom: Math.max(insets.bottom, 10) + 4,
+              borderTopWidth: 1,
+              borderColor: "#E6ECE9",
+              shadowColor: "#0B3D2A",
+              shadowOpacity: 0.12,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 12,
+            }}
+          >
+            {/* INPUT ROW */}
+
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: "#F2F6F4",
+                  borderWidth: 1.5,
+                  borderColor: "#DDE6E1",
+                  borderRadius: 28,
+                  paddingHorizontal: 18,
+                  height: 52,
+                }}
+              >
+                <Text
+                  {...TXT}
+                  style={{
+                    color: "#024E32",
+                    fontWeight: "800",
+                    marginRight: 8,
+                    fontSize: S.big,
+                  }}
+                >
+                  ₹
+                </Text>
+
+                <TextInput
+                  allowFontScaling={false}
+                  value={bidAmount}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/[^0-9]/g, "");
+
+                    setBidAmount(cleaned);
+                  }}
+                  placeholder="Enter bid amount"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="number-pad"
+                  editable={
+                    !placingBid &&
+                    !auctionEnded &&
+                    !installmentBlocked
+                  }
+                  className="flex-1 text-gray-900 font-semibold"
+                  style={{ fontSize: S.valueLg, paddingVertical: 0 }}
+                />
+
+                {bidAmount !== "" && (
+                  <TouchableOpacity onPress={() => setBidAmount("")}>
+                    <MaterialIcons
+                      name="cancel"
+                      size={S.iconSm + 4}
+                      color="#B6C2BC"
+                    />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* SEND / PLACE BID */}
+
+              <TouchableOpacity
+                onPress={placeBid}
+                disabled={
+                  placingBid ||
+                  auctionEnded ||
+                  installmentBlocked
+                }
+                activeOpacity={0.85}
+                style={{
+                  marginLeft: 10,
+                  width: 52,
+                  height: 52,
+                  borderRadius: 26,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor:
+                    placingBid || auctionEnded || installmentBlocked
+                      ? "#C4CCC8"
+                      : "#024E32",
+                  shadowColor: "#024E32",
+                  shadowOpacity:
+                    placingBid || auctionEnded || installmentBlocked
+                      ? 0
+                      : 0.35,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 4 },
+                  elevation:
+                    placingBid || auctionEnded || installmentBlocked
+                      ? 0
+                      : 5,
+                }}
+              >
+                {placingBid ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : auctionEnded ? (
+                  <MaterialIcons name="lock" size={S.iconMd + 2} color="white" />
+                ) : installmentBlocked ? (
+                  <MaterialIcons name="money-off" size={S.iconMd + 2} color="white" />
+                ) : (
+                  <MaterialIcons name="send" size={S.iconMd + 2} color="white" />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* button meaning (small caption under the input row) */}
+
+            <Text
+              {...TXT}
+              style={{
+                textAlign: "center",
+                marginTop: 6,
+                fontSize: S.tiny,
+                fontWeight: "700",
+                letterSpacing: 0.8,
+                color: auctionEnded || installmentBlocked
+                  ? "#DC2626"
+                  : "#6B7C74",
+              }}
+            >
+              {placingBid
+                ? "SUBMITTING..."
+                : auctionEnded
+                ? "AUCTION ENDED"
+                : installmentBlocked
+                ? installmentOnlyBlocked
+                  ? "INSTALLMENT PENDING"
+                  : "PENALTY PENDING"
+                : "TAP SEND TO PLACE BID"}
+            </Text>
+          </View>
 
         </KeyboardAvoidingView>
       </View>

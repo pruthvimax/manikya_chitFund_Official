@@ -13,6 +13,9 @@ import {
   ActivityIndicator,
   Platform,
   Modal,
+  Keyboard,
+  KeyboardAvoidingView,
+  InputAccessoryView,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
@@ -691,6 +694,7 @@ const openWinnerModal = async (item: any) => {
         AUTO-FILL FROM THE LIVE SPIN (only when no winner is saved yet).
         Fills Member ID and Group Member ID. Both fields stay editable.
       */
+      let filledFromSpin = false; // ADDED: tells the "no max bid" fill below
       try {
         if (!item.winnerId && !item.winnerGroupId) {
           const spinKey = await AsyncStorage.getItem("spinnerAdminKey");
@@ -711,6 +715,8 @@ const openWinnerModal = async (item: any) => {
               spinData?.status === "completed" &&
               spinData?.winner?.groupMemberId
             ) {
+              filledFromSpin = true;
+
               const spinGroupMemberId = String(
                 spinData.winner.groupMemberId
               );
@@ -734,6 +740,70 @@ const openWinnerModal = async (item: any) => {
         }
       } catch (spinErr) {
         console.log("Spin auto-fill skipped:", spinErr);
+      }
+
+      /*
+        ADDED - AUTO-FILL WHEN NOBODY REACHED THE MAX BID
+        If no live spin winner was filled above, nobody is saved yet and
+        NO member bid reached the maximum bid, the member with the highest
+        bid (the earliest one if two bid the same amount) is the winner.
+        Fills Member ID, Group Member ID, Bid Amount and (when the spinner
+        admin key is saved on this phone) the name. Every field stays
+        editable. If someone reached the maximum bid, nothing is filled
+        here: that winner comes from the spin.
+      */
+      try {
+        // only once the auction has ended (the top bid can still change before that)
+        const [eD, eM, eY] = String(item.auctionEndDate || "").trim().split("-").map(Number);
+        const [eH, eMin] = String(item.auctionEndTime || "").trim().split(":").map(Number);
+        const auctionOver = new Date(eY, (eM || 1) - 1, eD || 1, eH || 0, eMin || 0, 0, 0).getTime() <= Date.now();
+
+        if (auctionOver && !filledFromSpin && !item.winnerId && !item.winnerGroupId && bids.length > 0) {
+          const maxBid = Number(item.maxBidAmount || 0);
+          const topAmount = Math.max(...bids.map((b: any) => Number(b.bidAmount || 0)));
+          const nobodyReachedMax = maxBid <= 0 ? true : topAmount < maxBid;
+
+          if (nobodyReachedMax && topAmount > 0) {
+            const top = bids
+              .filter((b: any) => Number(b.bidAmount || 0) === topAmount)
+              .sort(
+                (a: any, b: any) =>
+                  new Date(a.bidTime || 0).getTime() - new Date(b.bidTime || 0).getTime()
+              )[0];
+
+            if (top) {
+              setModalWinnerGroupId((prev) => prev || String(top.groupMemberId || ""));
+              setModalWinnerId((prev) => prev || String(top.memberId || ""));
+              setModalWinnerBidAmount((prev) => prev || String(topAmount));
+
+              // the member's name comes from the spinner admin lookup
+              try {
+                const nameKey = await AsyncStorage.getItem("spinnerAdminKey");
+                if (nameKey) {
+                  const candRes = await fetch(
+                    `${BACKEND_URL}/spinner/candidates?notificationId=${encodeURIComponent(
+                      String(item._id || "")
+                    )}`,
+                    { headers: { "x-spinner-key": nameKey } }
+                  );
+                  const candData = await candRes.json();
+                  const match = Array.isArray(candData?.candidates)
+                    ? candData.candidates.find(
+                        (c: any) => String(c.memberId) === String(top.memberId)
+                      )
+                    : null;
+                  if (match?.memberName) {
+                    setModalWinnerName((prev) => prev || String(match.memberName));
+                  }
+                }
+              } catch (nameErr) {
+                console.log("Top bidder name lookup skipped:", nameErr);
+              }
+            }
+          }
+        }
+      } catch (topErr) {
+        console.log("Top bidder auto-fill skipped:", topErr);
       }
     } catch (error) {
       console.log(
@@ -943,7 +1013,25 @@ const handleDeleteWinner = (item: any) => {
       animationType="fade"
       onRequestClose={() => setWinnerModalVisible(false)}
     >
-      <View className="flex-1 justify-center items-center bg-black/60 px-4">
+      {/* keyboard fix: the card scrolls above the keyboard, tapping outside the
+          fields closes the keyboard, and buttons work with one tap */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        showsVerticalScrollIndicator={false}
+        style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          paddingHorizontal: 16,
+          paddingVertical: 24,
+        }}
+      >
         <View className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl">
           
           {/* HEADER */}
@@ -971,6 +1059,8 @@ const handleDeleteWinner = (item: any) => {
             placeholder="Enter winner member name..."
             value={modalWinnerName}
             onChangeText={setModalWinnerName}
+            returnKeyType="done"
+            onSubmitEditing={() => Keyboard.dismiss()}
             className="border border-gray-300 px-4 py-3 rounded-xl bg-white text-gray-800 mb-4"
           />
 
@@ -981,6 +1071,8 @@ const handleDeleteWinner = (item: any) => {
             value={modalWinnerId}
             onChangeText={setModalWinnerId}
             autoCapitalize="none"
+            returnKeyType="done"
+            onSubmitEditing={() => Keyboard.dismiss()}
             className="border border-gray-300 px-4 py-3 rounded-xl bg-white text-gray-800 mb-4"
           />
 
@@ -995,6 +1087,8 @@ const handleDeleteWinner = (item: any) => {
   value={modalWinnerGroupId}
   onChangeText={setModalWinnerGroupId}
   autoCapitalize="characters"
+  returnKeyType="done"
+  onSubmitEditing={() => Keyboard.dismiss()}
   className="border border-gray-300 px-4 py-3 rounded-xl bg-white text-gray-800 mb-4"
 />
           <View className="border border-gray-300 px-4 py-3 rounded-xl bg-gray-50 flex-row items-center mb-4">
@@ -1022,6 +1116,8 @@ const handleDeleteWinner = (item: any) => {
               value={modalWinnerBidAmount}
               onChangeText={(text) => setModalWinnerBidAmount(text.replace(/[^0-9]/g, ""))}
               keyboardType="number-pad"
+              returnKeyType="done"
+              inputAccessoryViewID="winnerKeyboardDone"
               className="flex-1 py-3 text-gray-800"
             />
           </View>
@@ -1047,7 +1143,29 @@ const handleDeleteWinner = (item: any) => {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* iOS number keypad has no Done key, so give it one */}
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID="winnerKeyboardDone">
+          <View
+            style={{
+              backgroundColor: "#F3F4F6",
+              borderTopWidth: 1,
+              borderTopColor: "#D1D5DB",
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              flexDirection: "row",
+              justifyContent: "flex-end",
+            }}
+          >
+            <TouchableOpacity onPress={() => Keyboard.dismiss()} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+              <Text style={{ color: "#024e32", fontWeight: "700", fontSize: 16 }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </Modal>
   );
 

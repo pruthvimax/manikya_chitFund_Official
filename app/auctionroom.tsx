@@ -4,6 +4,7 @@ import {
   View,
   Text,
   FlatList,
+  TextInput,
   TouchableOpacity,
   StatusBar,
   SafeAreaView,
@@ -15,6 +16,7 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
 import BACKEND_URL from "../config";
 
 // =========================================================
@@ -264,6 +266,74 @@ function CountdownTimer({
 /* =========================================================
    MAIN COMPONENT
 ========================================================= */
+// =========================================================
+// GROUP-WISE VIEW (look only): notices of the same group sit
+// together under one coloured group heading
+// =========================================================
+
+type GroupColor = { main: string; light: string; soft: string };
+
+const GROUP_COLORS: GroupColor[] = [
+  { main: "#024e32", light: "#10a36b", soft: "#e6f4ee" }, // green
+  { main: "#1d4ed8", light: "#4f8bff", soft: "#e8efff" }, // blue
+  { main: "#b45309", light: "#f5a524", soft: "#fdf1e0" }, // amber
+  { main: "#7e22ce", light: "#b06cf5", soft: "#f3e8fd" }, // purple
+  { main: "#be123c", light: "#fb5a7e", soft: "#fde8ee" }, // rose
+  { main: "#0e7490", light: "#27c4e0", soft: "#e0f5f9" }, // teal
+];
+
+// same group code -> same colour every time
+const colorForGroup = (code: string) => {
+  let h = 0;
+  for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+  return GROUP_COLORS[h % GROUP_COLORS.length];
+};
+
+const isNoticeLive = (item: any) => {
+  if (!item?.auctionEndDate || !item?.auctionEndTime) return false;
+  try {
+    const d = String(item.auctionEndDate).split("-");
+    const t = String(item.auctionEndTime).split(":");
+    if (d.length !== 3 || t.length !== 2) return false;
+    return (
+      new Date(
+        parseInt(d[2], 10),
+        parseInt(d[1], 10) - 1,
+        parseInt(d[0], 10),
+        parseInt(t[0], 10),
+        parseInt(t[1], 10),
+        0,
+        0
+      ).getTime() > Date.now()
+    );
+  } catch {
+    return false;
+  }
+};
+
+type GroupBlock = { key: string; code: string; items: any[]; live: number; color: GroupColor };
+
+// groups with a LIVE auction come first; notices keep their own order inside a group
+const buildGroupRows = (list: any[]): GroupBlock[] => {
+  const map = new Map<string, any[]>();
+  list.forEach((n) => {
+    const code = String(n?.groupId?.groupId || "N/A");
+    if (!map.has(code)) map.set(code, []);
+    map.get(code)!.push(n);
+  });
+
+  const groups: GroupBlock[] = Array.from(map.entries()).map(([code, items]) => ({
+    key: `group-${code}`,
+    code,
+    items,
+    live: items.filter(isNoticeLive).length,
+    color: colorForGroup(code),
+  }));
+  // Array.sort is stable, so equal groups keep the order they came in
+  groups.sort((x, y) => (y.live > 0 ? 1 : 0) - (x.live > 0 ? 1 : 0));
+  return groups;
+};
+
 export default function UserNotifications() {
   const router = useRouter();
 
@@ -392,6 +462,8 @@ export default function UserNotifications() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
 
   /* ================= SESSION GUARD ================= */
   useEffect(() => {
@@ -459,6 +531,26 @@ export default function UserNotifications() {
     </View>
   );
 
+  // search (look/filter only): group name, message, date, time, LIVE / ENDED
+  const searchQuery = searchText.trim().toLowerCase();
+  const searchedNotifications = searchQuery
+    ? notifications.filter((n) => {
+        const text = [
+          n?.groupId?.groupId,
+          n?.message,
+          n?.auctionEndDate,
+          n?.auctionEndTime,
+          isNoticeLive(n) ? "live" : "ended",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return text.includes(searchQuery);
+      })
+    : notifications;
+  const groupRows = buildGroupRows(searchedNotifications);
+  const totalGroupCount = searchQuery ? buildGroupRows(notifications).length : groupRows.length;
+
   /* ================= UI ================= */
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
@@ -478,6 +570,18 @@ export default function UserNotifications() {
           <Text className="text-white text-2xl font-bold ml-4 mt-1 flex-1">
             Notifications
           </Text>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (searchOpen) setSearchText("");
+              setSearchOpen(!searchOpen);
+            }}
+            activeOpacity={0.8}
+            className="mt-1 mr-4"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <MaterialIcons name={searchOpen ? "close" : "search"} size={26} color="white" />
+          </TouchableOpacity>
 
           <View className="mt-1">
             <MaterialIcons name="notifications" size={24} color="white" />
@@ -509,6 +613,7 @@ export default function UserNotifications() {
                   </Text>
                   <Text className="text-gray-600">
                     {notifications.length} {notifications.length === 1 ? 'notification' : 'notifications'}
+                    {totalGroupCount > 0 ? ` · ${totalGroupCount} ${totalGroupCount === 1 ? "group" : "groups"}` : ""}
                   </Text>
                 </View>
                 <View className="bg-[#024e32] px-4 py-2 rounded-full">
@@ -518,6 +623,52 @@ export default function UserNotifications() {
             </View>
           )}
         </View>
+
+        {/* SEARCH BAR */}
+        {searchOpen && !loading && notifications.length > 0 && (
+          <View style={{ paddingHorizontal: 20, paddingTop: 14 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "#ffffff",
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: "#024e32",
+                paddingHorizontal: 14,
+                height: 50,
+                elevation: 2,
+                shadowColor: "#024e32",
+                shadowOpacity: 0.12,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 3 },
+              }}
+            >
+              <MaterialIcons name="search" size={22} color="#024e32" />
+              <TextInput
+                value={searchText}
+                onChangeText={setSearchText}
+                placeholder="Search group, message, date..."
+                placeholderTextColor="#9ca3af"
+                autoFocus
+                autoCorrect={false}
+                returnKeyType="search"
+                style={{ flex: 1, marginLeft: 10, fontSize: 15, color: "#1f2937", paddingVertical: 0 }}
+              />
+              {searchText.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchText("")} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <MaterialIcons name="cancel" size={20} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </View>
+            {searchQuery.length > 0 && (
+              <Text style={{ marginTop: 8, marginLeft: 4, fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+                {searchedNotifications.length} {searchedNotifications.length === 1 ? "result" : "results"}
+                {groupRows.length > 0 ? ` in ${groupRows.length} ${groupRows.length === 1 ? "group" : "groups"}` : ""}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* CONTENT - WRAPPED WITH FOOTER AT BOTTOM */}
         {loading ? (
@@ -565,9 +716,32 @@ export default function UserNotifications() {
           </View>
         ) : (
           <FlatList
-            data={notifications}
-            keyExtractor={(item) => item._id}
+            data={groupRows}
+            keyExtractor={(group) => group.key}
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: 18 }}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={{ alignItems: "center", paddingVertical: 40, paddingHorizontal: 30 }}>
+                <View
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 40,
+                    backgroundColor: "#f3f4f6",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 14,
+                  }}
+                >
+                  <MaterialIcons name="search-off" size={40} color="#9ca3af" />
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: "800", color: "#374151" }}>No results found</Text>
+                <Text style={{ marginTop: 6, color: "#6b7280", textAlign: "center" }}>
+                  Nothing matches "{searchText.trim()}". Try a group name or a date.
+                </Text>
+              </View>
+            }
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -575,128 +749,223 @@ export default function UserNotifications() {
                 colors={["#024e32"]}
               />
             }
-            renderItem={({ item }) => {
-              const isAuctionLive = () => {
-                if (!item.auctionEndDate || !item.auctionEndTime) {
-                  return false;
-                }
-
-                try {
-                  const dateParts = item.auctionEndDate.split("-");
-                  const timeParts = item.auctionEndTime.split(":");
-
-                  if (dateParts.length !== 3 || timeParts.length !== 2) {
-                    return false;
-                  }
-
-                  const day = parseInt(dateParts[0], 10);
-                  const month = parseInt(dateParts[1], 10) - 1;
-                  const year = parseInt(dateParts[2], 10);
-
-                  const hours = parseInt(timeParts[0], 10);
-                  const minutes = parseInt(timeParts[1], 10);
-
-                  const targetDate = new Date(
-                    year,
-                    month,
-                    day,
-                    hours,
-                    minutes,
-                    0,
-                    0
-                  );
-
-                  return targetDate.getTime() > Date.now();
-                } catch (error) {
-                  console.log("Auction date parsing error:", error);
-                  return false;
-                }
-              };
-
-              const isLive = isAuctionLive();
-
+            renderItem={({ item: group }) => {
+              const ended = group.items.length - group.live;
               return (
                 <View
-                  className="bg-white mb-4 rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+                  style={{
+                    marginHorizontal: 16,
+                    marginBottom: 22,
+                    borderRadius: 26,
+                    backgroundColor: "#ffffff",
+                    borderWidth: 1,
+                    borderColor: "#e9eeeb",
+                    overflow: "hidden",
+                    elevation: 4,
+                    shadowColor: group.color.main,
+                    shadowOpacity: 0.18,
+                    shadowRadius: 14,
+                    shadowOffset: { width: 0, height: 6 },
+                  }}
                 >
-                  {/* NOTIFICATION HEADER */}
-                  <View className="bg-gray-50 px-5 py-3 flex-row items-center justify-between border-b border-gray-100">
-                    <View className="flex-row items-center">
-                      <View className="w-10 h-10 rounded-full bg-[#024e32] items-center justify-center mr-3">
-                        <MaterialIcons name="gavel" size={20} color="white" />
+                  {/* GROUP HEADING */}
+                  <LinearGradient
+                    colors={[group.color.main, group.color.light]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ paddingHorizontal: 18, paddingVertical: 16 }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 16,
+                          backgroundColor: "rgba(255,255,255,0.22)",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginRight: 14,
+                        }}
+                      >
+                        <MaterialIcons name="groups" size={28} color="white" />
                       </View>
-                      <View>
-                        <Text className="font-bold text-gray-800 text-lg">
-                          Auction Notice
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }}>
+                          GROUP
                         </Text>
-                        <Text className="text-sm text-gray-500">
-                          Group: {item.groupId?.groupId || "N/A"}
+                        <Text style={{ color: "white", fontSize: 24, fontWeight: "900" }} numberOfLines={1}>
+                          {group.code}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          backgroundColor: "rgba(255,255,255,0.95)",
+                          borderRadius: 999,
+                          paddingHorizontal: 12,
+                          paddingVertical: 5,
+                        }}
+                      >
+                        <Text style={{ color: group.color.main, fontSize: 12, fontWeight: "800" }}>
+                          {group.items.length} {group.items.length === 1 ? "notice" : "notices"}
                         </Text>
                       </View>
                     </View>
-                    <View className={`px-3 py-1 rounded-full ${isLive ? 'bg-green-100' : 'bg-red-100'}`}>
-                      <Text className={`text-xs font-medium ${isLive ? 'text-green-700' : 'text-red-700'}`}>
-                        {isLive ? '● LIVE' : '● ENDED'}
-                      </Text>
-                    </View>
-                  </View>
 
-                  {/* NOTIFICATION BODY */}
-                  <View className="p-5">
-                    <View className="mb-4">
-                      <Text className="text-gray-700 mb-3">{item.message}</Text>
-                    </View>
-
-                    {/* AUCTION DETAILS WITH END TIME */}
-                    <View className="bg-gray-50 rounded-xl p-4">
-                      <View className="flex-row items-center mb-3">
-                        <MaterialIcons name="calendar-today" size={20} color="#024e32" />
-                        <Text className="ml-3 text-gray-700 font-medium">
-                          Auction Date
-                        </Text>
-                        <Text className="ml-auto text-gray-800 font-semibold">
-                          {item.auctionEndDate || "Not specified"}
-                        </Text>
-                      </View>
-
-                      <View className="flex-row items-center">
-                        <MaterialIcons name="access-time" size={20} color="#024e32" />
-                        <Text className="ml-3 text-gray-700 font-medium">
-                          End Time
-                        </Text>
-                        <Text className="ml-auto text-gray-800 font-semibold">
-                          {item.auctionEndTime || "Not specified"}
-                        </Text>
-                      </View>
-
-                      {/* CREATED AT - Auto timestamp */}
-                      {item.createdAt && (
-                        <View className="flex-row items-center mt-3 pt-3 border-t border-gray-200">
-                          <MaterialIcons name="schedule" size={18} color="#6b7280" />
-                          <Text className="ml-3 text-gray-500 text-xs">
-                            Created: {new Date(item.createdAt).toLocaleString()}
-                          </Text>
+                    <View style={{ flexDirection: "row", marginTop: 12 }}>
+                      {group.live > 0 && (
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            backgroundColor: "rgba(255,255,255,0.22)",
+                            borderRadius: 999,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            marginRight: 8,
+                          }}
+                        >
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#4ade80", marginRight: 6 }} />
+                          <Text style={{ color: "white", fontSize: 12, fontWeight: "800" }}>{group.live} Live</Text>
+                        </View>
+                      )}
+                      {ended > 0 && (
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            backgroundColor: "rgba(0,0,0,0.18)",
+                            borderRadius: 999,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                          }}
+                        >
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fca5a5", marginRight: 6 }} />
+                          <Text style={{ color: "white", fontSize: 12, fontWeight: "800" }}>{ended} Ended</Text>
                         </View>
                       )}
                     </View>
+                  </LinearGradient>
 
-                    {/* COUNTDOWN TIMER */}
-                    {item.auctionEndDate && item.auctionEndTime && (
-                      <CountdownTimer 
-                        auctionEndDate={item.auctionEndDate} 
-                        auctionEndTime={item.auctionEndTime} 
-                      />
-                    )}
+                  {/* NOTICES OF THIS GROUP */}
+                  <View style={{ padding: 12 }}>
+                    {group.items.map((item: any, idx: number) => {
+                      const isLive = isNoticeLive(item);
+                      return (
+                        <View
+                          key={item._id}
+                          style={{
+                            backgroundColor: isLive ? group.color.soft : "#f8faf9",
+                            borderRadius: 18,
+                            padding: 14,
+                            marginTop: idx === 0 ? 0 : 10,
+                            borderWidth: 1,
+                            borderColor: isLive ? group.color.main + "33" : "#eef1ef",
+                          }}
+                        >
+                          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                            <View
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 12,
+                                backgroundColor: isLive ? group.color.main : "#9ca3af",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginRight: 10,
+                              }}
+                            >
+                              <MaterialIcons name="gavel" size={18} color="white" />
+                            </View>
+                            <Text style={{ flex: 1, fontSize: 15, fontWeight: "800", color: "#1f2937" }}>
+                              Auction Notice
+                            </Text>
+                            <View
+                              style={{
+                                backgroundColor: isLive ? "#dcfce7" : "#fee2e2",
+                                borderRadius: 999,
+                                paddingHorizontal: 10,
+                                paddingVertical: 3,
+                              }}
+                            >
+                              <Text style={{ color: isLive ? "#15803d" : "#b91c1c", fontSize: 11, fontWeight: "800" }}>
+                                {isLive ? "● LIVE" : "● ENDED"}
+                              </Text>
+                            </View>
+                          </View>
 
-                    {/* BID BUTTON - Only show if auction is live */}
-                  
+                          <Text style={{ color: "#374151", fontSize: 14, lineHeight: 20 }}>{item.message}</Text>
+
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                backgroundColor: "#ffffff",
+                                borderRadius: 12,
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                marginRight: 8,
+                                marginBottom: 6,
+                                borderWidth: 1,
+                                borderColor: "#e5e7eb",
+                              }}
+                            >
+                              <MaterialIcons name="calendar-today" size={15} color={group.color.main} />
+                              <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: "700", color: "#1f2937" }}>
+                                {item.auctionEndDate || "Not specified"}
+                              </Text>
+                            </View>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                backgroundColor: "#ffffff",
+                                borderRadius: 12,
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                marginBottom: 6,
+                                borderWidth: 1,
+                                borderColor: "#e5e7eb",
+                              }}
+                            >
+                              <MaterialIcons name="access-time" size={15} color={group.color.main} />
+                              <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: "700", color: "#1f2937" }}>
+                                Ends {item.auctionEndTime || "Not specified"}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* COUNTDOWN TIMER */}
+                          {item.auctionEndDate && item.auctionEndTime && (
+                            <CountdownTimer
+                              auctionEndDate={item.auctionEndDate}
+                              auctionEndTime={item.auctionEndTime}
+                            />
+                          )}
+
+                          {item.createdAt && (
+                            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
+                              <MaterialIcons name="schedule" size={14} color="#9ca3af" />
+                              <Text style={{ marginLeft: 5, fontSize: 11, color: "#9ca3af" }}>
+                                Created: {new Date(item.createdAt).toLocaleString()}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
                   </View>
 
-                  {/* NOTIFICATION FOOTER */}
-                  <View className="bg-gray-50 px-5 py-3 border-t border-gray-100">
-                    <Text className="text-gray-500 text-xs">
-                      Sent to all group members
-                    </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      paddingBottom: 12,
+                    }}
+                  >
+                    <MaterialIcons name="group" size={13} color="#9ca3af" />
+                    <Text style={{ marginLeft: 5, fontSize: 11, color: "#9ca3af" }}>Sent to all group members</Text>
                   </View>
                 </View>
               );

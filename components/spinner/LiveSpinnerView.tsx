@@ -251,7 +251,9 @@ export default function LiveSpinnerView({
     phase === "idle"
       ? waitingText
       : phase === "countdown"
-      ? `Spin starts in ${countdown}`
+      ? countdown > 5
+        ? "Get ready…"
+        : `Spin starts in ${countdown}`
       : phase === "spinning"
       ? "Spinning…"
       : "We have a winner";
@@ -358,7 +360,7 @@ export default function LiveSpinnerView({
           phase={phase}
           pointerTilt={pointerTilt}
           centerOverlay={
-            phase === "countdown" && countdown > 0 ? (
+            phase === "countdown" && countdown > 0 && countdown <= 5 ? (
               <CountdownBadge value={countdown} size={size} />
             ) : null
           }
@@ -502,6 +504,7 @@ export default function LiveSpinnerView({
         winningBid={state?.winner?.bidAmount}
         chitValue={state?.chitValue}
         previousWinningBid={state?.previousWinningBid}
+        auctionNumber={state?.auctionNumber}
         modeText={state ? MODE_TEXT[state.mode] || "" : ""}
       />
     </LinearGradient>

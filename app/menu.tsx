@@ -1,7 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import Constants from "expo-constants";
-
+import PushPermissionPrompt from "../components/PushPermissionPrompt";
 import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
@@ -725,7 +725,7 @@ export default function HomeScreen() {
     } catch (error) {
       console.log("Mark seen error:", error);
     }
-    router.push("/auctionroom");
+    router.push("/notifications");
   };
 
   // =========================================================
@@ -806,6 +806,9 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      {/* ADDED: friendly "turn on notifications" pop-up (first login only) */}
+      <PushPermissionPrompt />
+
       {/* HEADER */}
       <View ref={headerRef} className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
         <View className="flex-row items-center">

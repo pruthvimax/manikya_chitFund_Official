@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import SpinSession from "../models/SpinSession.js";
-import { emitSpinStart } from "../realtime/socket.js";
+import { emitSpinStart, emitToAll } from "../realtime/socket.js";
+import { notifyGroupMembers } from "../realtime/spinAnnounce.js";
 import {
   buildCandidates,
   findSession,
@@ -39,11 +40,11 @@ export const requireSpinnerAdmin = (req, res, next) => {
   next();
 };
 
-const LEAD_TIME_MS = 2500; // time for the start message to reach every phone
+const LEAD_TIME_MS = 7000; // ~2s "Get ready" (time for every member's app to open the spin page) + the 5 second "Spin starts in 5..1" countdown
 const MIN_DURATION_MS = 6000;
 const MAX_DURATION_MS = 20000;
 const MIN_ROTATIONS = 4;
-const MAX_ROTATIONS = 12;
+const MAX_ROTATIONS = 20;
 
 const clamp = (value, min, max, fallback) => {
   const n = Number(value);
@@ -196,7 +197,7 @@ export const startSpin = async (req, res) => {
     );
     const seed = crypto.randomInt(0, 1000000) / 1000000;
 
-    const { chitValue, previousWinningBid } = await loadResultExtras(
+    const { chitValue, previousWinningBid, auctionNumber } = await loadResultExtras(
       notification,
       group
     );
@@ -218,6 +219,7 @@ export const startSpin = async (req, res) => {
         maxBidAmount: Number(notification.maxBidAmount) || 0,
         chitValue,
         previousWinningBid,
+        auctionNumber,
         usedFallback,
         candidates,
         winnerIndex,
@@ -257,6 +259,41 @@ export const startSpin = async (req, res) => {
 
     /* 7. tell everybody watching THIS auction */
     await emitSpinStart(notification._id, session);
+
+    /*
+      7b. wake up the members of THIS group wherever they are in the app:
+      a tiny "a live spin is starting" ping (no winner inside it) makes
+      their app open the spin page by itself, and a push reaches phones
+      where the app is closed. Failures here never stop the spin.
+    */
+    try {
+      emitToAll("spinner:live", {
+        topic: "spin-start",
+        notificationId: String(notification._id),
+        groupMongoId: String(group._id),
+        groupCode: String(group.groupId),
+        auctionEndDate: String(notification.auctionEndDate).trim(),
+        auctionEndTime: String(notification.auctionEndTime).trim(),
+        startsAt: new Date(session.startsAt).getTime(),
+      });
+
+      const q = new URLSearchParams({
+        groupId: String(group._id),
+        groupCode: String(group.groupId),
+        auctionEndDate: String(notification.auctionEndDate).trim(),
+        auctionEndTime: String(notification.auctionEndTime).trim(),
+      }).toString();
+      notifyGroupMembers(
+        group._id,
+        {
+          title: "Live spin is starting now!",
+          body: `Group ${group.groupId}: open the app to watch the spin.`,
+        },
+        `/spinnerLive?${q}`
+      ).catch((err) => console.error("SPIN START PUSH ERROR:", err?.message || err));
+    } catch (err) {
+      console.error("SPIN START PING ERROR:", err?.message || err);
+    }
 
     return res.status(201).json({
       success: true,

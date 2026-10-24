@@ -3,6 +3,7 @@ import Bid from "../models/Bid.js";
 import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import Notification from "../models/Notification.js";
+import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
 /* =========================================================
    RESOLVE GROUP
    Accepts:
@@ -518,6 +519,36 @@ const plan = (group.collectionPlans || []).find(
         installmentPending: true,
         message:
           "You have pending installment payment(s). Please clear your pending installment(s) to participate in bidding.",
+      });
+    }
+
+    /* =====================================================
+       PENDING PENALTY CHECK (same rule as installment)
+
+       Checked live on THIS request from the database, using
+       the single backend penalty rule (6%, waiver aware).
+       A member with any pending penalty cannot bid.
+    ===================================================== */
+
+    const penaltyCheck = computeMemberPenalty(
+      groupMember.collections || [],
+      group.collectionPlans || [],
+      new Date()
+    );
+
+    if (Number(penaltyCheck.totalPenaltyPending || 0) > 0) {
+      console.log(
+        "⛔ PENDING PENALTY BLOCK:",
+        memberId,
+        penaltyCheck.totalPenaltyPending
+      );
+
+      return res.status(403).json({
+        success: false,
+        penaltyPending: true,
+        pendingPenalty: penaltyCheck.totalPenaltyPending,
+        message:
+          "You have a pending penalty. Please clear your pending penalty to participate in bidding."
       });
     }
 

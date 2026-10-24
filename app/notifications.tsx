@@ -1,0 +1,1377 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StatusBar,
+  SafeAreaView,
+  RefreshControl,
+  ScrollView,
+  Animated,
+  Platform,
+  Alert,
+} from "react-native";
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
+import BACKEND_URL from "../config";
+import { useLiveBadges } from "../components/useLiveBadges";
+import { isPinned, pinSpin, syncPins, unpinSpin } from "../components/spinPin";
+
+// =========================================================
+// SCREENSHOT PREVENTION FOR ALL PLATFORMS
+// =========================================================
+
+let ScreenCapture: any = null;
+
+try {
+  const module = require("expo-screen-capture");
+  ScreenCapture = module.default || module;
+} catch (error) {
+  console.log("expo-screen-capture not available");
+}
+
+const preventScreenshot = async () => {
+  try {
+    // Admin exemption. While an admin session is active on this
+    // device the app leaves screen capture ENABLED, so only an
+    // admin can screenshot. Every other user stays blocked.
+    if ((await AsyncStorage.getItem("adminSession")) === "true") {
+      await allowScreenshot();
+      return;
+    }
+
+    if (ScreenCapture && typeof ScreenCapture.preventScreenCaptureAsync === 'function') {
+      await ScreenCapture.preventScreenCaptureAsync();
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(true);
+        }
+      } catch (error) {
+        // Silent fail
+      }
+    }
+  } catch (error) {
+    // Silent fail
+  }
+};
+
+const allowScreenshot = async () => {
+  try {
+    if (ScreenCapture && typeof ScreenCapture.allowScreenCaptureAsync === 'function') {
+      await ScreenCapture.allowScreenCaptureAsync();
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(false);
+        }
+      } catch (error) {
+        // Silent fail
+      }
+    }
+  } catch (error) {
+    // Silent fail
+  }
+};
+
+/* ================= SKELETON HELPERS ================= */
+function useSkeletonPulse() {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.4,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+  return opacity;
+}
+
+function SkeletonBox({ className = "", style = {} }: { className?: string; style?: object }) {
+  const opacity = useSkeletonPulse();
+  return (
+    <Animated.View
+      className={`bg-gray-200 rounded-lg ${className}`}
+      style={[{ opacity }, style]}
+    />
+  );
+}
+
+function NotificationCardSkeleton() {
+  return (
+    <View className="bg-white mb-4 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <View className="bg-gray-50 px-5 py-3 flex-row items-center justify-between border-b border-gray-100">
+        <View className="flex-row items-center">
+          <SkeletonBox className="w-10 h-10 rounded-full mr-3" />
+          <View>
+            <SkeletonBox className="h-3.5 rounded mb-2" style={{ width: 110 }} />
+            <SkeletonBox className="h-3 rounded" style={{ width: 80 }} />
+          </View>
+        </View>
+        <SkeletonBox className="h-5 rounded-full" style={{ width: 40 }} />
+      </View>
+
+      <View className="p-5">
+        <SkeletonBox className="h-3 rounded mb-2" style={{ width: "90%" }} />
+        <SkeletonBox className="h-3 rounded mb-4" style={{ width: "70%" }} />
+
+        <View className="bg-gray-50 rounded-xl p-4">
+          <View className="flex-row items-center mb-3">
+            <SkeletonBox className="w-5 h-5 rounded" />
+            <SkeletonBox className="h-3 rounded ml-3" style={{ width: 90 }} />
+            <SkeletonBox className="h-3 rounded ml-auto" style={{ width: 60 }} />
+          </View>
+          <View className="flex-row items-center">
+            <SkeletonBox className="w-5 h-5 rounded" />
+            <SkeletonBox className="h-3 rounded ml-3" style={{ width: 90 }} />
+            <SkeletonBox className="h-3 rounded ml-auto" style={{ width: 60 }} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/* =========================================================
+   COUNTDOWN TIMER COMPONENT
+========================================================= */
+function CountdownTimer({
+  auctionEndDate,
+  auctionEndTime
+}: {
+  auctionEndDate: string;
+  auctionEndTime: string;
+}) {
+  const [countdown, setCountdown] = useState("--:--:--");
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    const calculateCountdown = () => {
+     if (!auctionEndDate || !auctionEndTime) {
+        setCountdown("--:--:--");
+        return;
+      }
+
+      try {
+        // Parse date (DD-MM-YYYY)
+        const dateParts = auctionEndDate.split("-");
+        if (dateParts.length !== 3) {
+          setCountdown("Invalid Date");
+          return;
+        }
+
+        const day = parseInt(dateParts[0], 10);
+        const month = parseInt(dateParts[1], 10) - 1;
+        const year = parseInt(dateParts[2], 10);
+
+        // Parse time (HH:MM)
+        const timeParts = auctionEndTime.split(":");
+        if (timeParts.length !== 2) {
+          setCountdown("Invalid Time");
+          return;
+        }
+
+        const hours = parseInt(timeParts[0], 10);
+        const minutes = parseInt(timeParts[1], 10);
+
+        // Create target date
+        const targetDate = new Date(year, month, day, hours, minutes, 0, 0);
+        
+        if (isNaN(targetDate.getTime())) {
+          setCountdown("Invalid Date");
+          return;
+        }
+
+        const now = new Date();
+        const difference = targetDate.getTime() - now.getTime();
+
+        if (difference <= 0) {
+          setIsExpired(true);
+          setCountdown("00:00:00");
+          return;
+        }
+
+        setIsExpired(false);
+        const totalSeconds = Math.floor(difference / 1000);
+        const days = Math.floor(totalSeconds / 86400);
+        const hoursLeft = Math.floor((totalSeconds % 86400) / 3600);
+        const minutesLeft = Math.floor((totalSeconds % 3600) / 60);
+        const secondsLeft = totalSeconds % 60;
+
+        if (days > 0) {
+          setCountdown(`${days}d ${String(hoursLeft).padStart(2, "0")}h ${String(minutesLeft).padStart(2, "0")}m ${String(secondsLeft).padStart(2, "0")}s`);
+        } else {
+          setCountdown(
+            `${String(hoursLeft).padStart(2, "0")}:${String(minutesLeft).padStart(2, "0")}:${String(secondsLeft).padStart(2, "0")}`
+          );
+        }
+      } catch (error) {
+        setCountdown("Error");
+      }
+    };
+
+    calculateCountdown();
+    const timer = setInterval(calculateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [auctionEndDate, auctionEndTime]);
+
+  if (!auctionEndTime) {
+    return null;
+  }
+
+  return (
+    <View className={`mt-3 rounded-xl p-3 ${isExpired ? 'bg-red-50 border border-red-200' : 'bg-[#024e32]'}`}>
+      <View className="flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          <MaterialIcons 
+            name={isExpired ? "timer-off" : "timer"} 
+            size={20} 
+            color={isExpired ? "#dc2626" : "white"} 
+          />
+          <Text className={`ml-2 font-medium ${isExpired ? 'text-red-700' : 'text-white'}`}>
+            {isExpired ? "Auction Ended" : "Time Remaining"}
+          </Text>
+        </View>
+        <Text className={`font-mono font-bold text-lg ${isExpired ? 'text-red-700' : 'text-white'}`}>
+          {countdown}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/* =========================================================
+   NEW LOOK: one feed for auction notices, vacancies and
+   live-spin announcements. Each card opens the right page.
+========================================================= */
+type Kind = "auction" | "vacancy" | "spin";
+type Tone = "live" | "ended" | "open" | "soon";
+
+type FeedItem = {
+  key: string;
+  kind: Kind;
+  createdAt: number;
+  title: string;
+  message: string;
+  groupCode: string;
+  status: string;
+  tone: Tone;
+  chips: string[];
+  countdown?: { date: string; time: string };
+  spin?: { groupKey: string; groupCode: string; spinAt: number; dateText: string; timeText: string; route: string };
+  action: string;
+  isNew: boolean;
+  go: () => void;
+};
+
+const KIND_STYLE: Record<Kind, { icon: any; bg: string; fg: string }> = {
+  auction: { icon: "gavel", bg: "#DCFCE7", fg: "#15803D" },
+  vacancy: { icon: "event-seat", bg: "#DBEAFE", fg: "#1D4ED8" },
+  spin: { icon: "casino", bg: "#FEF3C7", fg: "#B45309" },
+};
+
+const TONE_STYLE: Record<Tone, { bg: string; fg: string }> = {
+  live: { bg: "#DCFCE7", fg: "#15803D" },
+  ended: { bg: "#FEE2E2", fg: "#B91C1C" },
+  open: { bg: "#DBEAFE", fg: "#1D4ED8" },
+  soon: { bg: "#FEF3C7", fg: "#B45309" },
+};
+
+// "DD-MM-YYYY" + "HH:MM" -> ms (device time, same way the rest of this page reads it)
+const parseEndMs = (date?: string, time?: string): number | null => {
+  if (!date || !time) return null;
+  const d = String(date).split("-").map((x) => parseInt(x, 10));
+  const t = String(time).split(":").map((x) => parseInt(x, 10));
+  if (d.length !== 3 || t.length !== 2 || [...d, ...t].some((x) => Number.isNaN(x))) return null;
+  const ms = new Date(d[2], d[1] - 1, d[0], t[0], t[1], 0, 0).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const timeAgo = (ms: number) => {
+  if (!ms) return "";
+  const diff = Date.now() - ms;
+  if (diff < 60 * 1000) return "Just now";
+  const min = Math.floor(diff / 60000);
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} h ago`;
+  const days = Math.floor(hr / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  return new Date(ms).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+};
+
+const bucketOf = (ms: number) => {
+  const startToday = new Date();
+  startToday.setHours(0, 0, 0, 0);
+  const t0 = startToday.getTime();
+  if (ms >= t0) return "Today";
+  if (ms >= t0 - 24 * 60 * 60 * 1000) return "Yesterday";
+  return "Earlier";
+};
+
+function PulseDot({ color }: { color: string }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(v, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(v, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return (
+    <View style={{ width: 10, height: 10, alignItems: "center", justifyContent: "center", marginRight: 5 }}>
+      <Animated.View
+        style={{
+          position: "absolute",
+          width: 10,
+          height: 10,
+          borderRadius: 5,
+          backgroundColor: color,
+          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] }) }],
+        }}
+      />
+      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color }} />
+    </View>
+  );
+}
+
+/* live spin countdown + "Pin to notification bar" (spin cards only) */
+function SpinPinRow({ spin }: { spin: NonNullable<FeedItem["spin"]> }) {
+  const [left, setLeft] = useState(() => spin.spinAt - Date.now());
+  const [pinned, setPinned] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    const tick = () => setLeft(spin.spinAt - Date.now());
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [spin.spinAt]);
+
+  useEffect(() => {
+    let alive = true;
+    isPinned(spin.groupKey).then((v) => alive && setPinned(v));
+    return () => {
+      alive = false;
+    };
+  }, [spin.groupKey, spin.spinAt]);
+
+  if (left <= 0) return null;
+
+  const total = Math.floor(left / 1000);
+  const days = Math.floor(total / 86400);
+  const hh = String(Math.floor((total % 86400) / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  const clock = days > 0 ? `${days}d ${hh}h ${mm}m ${ss}s` : `${hh}:${mm}:${ss}`;
+
+  const toggle = async () => {
+    setMsg("");
+    if (pinned) {
+      await unpinSpin(spin.groupKey);
+      setPinned(false);
+      return;
+    }
+    const r = await pinSpin({
+      groupKey: spin.groupKey,
+      spinAt: spin.spinAt,
+      spinDateText: spin.dateText,
+      spinTimeText: spin.timeText,
+      groupCode: spin.groupCode,
+      route: spin.route,
+    });
+    if (r.ok) setPinned(true);
+    else setMsg(r.reason || "Could not pin.");
+  };
+
+  return (
+    <View style={{ marginTop: 8, backgroundColor: "#F3E8FD", borderRadius: 14, padding: 10 }}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <MaterialIcons name="casino" size={16} color="#7E22CE" />
+        <Text style={{ marginLeft: 6, flex: 1, fontSize: 12, fontWeight: "700", color: "#581C87" }}>
+          Live spin starts in
+        </Text>
+        <Text style={{ fontSize: 16, fontWeight: "800", color: "#581C87" }}>{clock}</Text>
+      </View>
+      <TouchableOpacity
+        onPress={toggle}
+        activeOpacity={0.85}
+        style={{
+          alignSelf: "flex-start",
+          marginTop: 8,
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: pinned ? "#7E22CE" : "#FFFFFF",
+          borderWidth: 1,
+          borderColor: "#7E22CE",
+          borderRadius: 999,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+        }}
+      >
+        <MaterialIcons name="push-pin" size={14} color={pinned ? "#FFFFFF" : "#7E22CE"} />
+        <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: "800", color: pinned ? "#FFFFFF" : "#7E22CE" }}>
+          {pinned ? "Pinned to notification bar (tap to remove)" : "Pin to notification bar"}
+        </Text>
+      </TouchableOpacity>
+      {msg ? <Text style={{ marginTop: 6, fontSize: 11, color: "#B91C1C" }}>{msg}</Text> : null}
+    </View>
+  );
+}
+
+function FeedCard({ item, index }: { item: FeedItem; index: number }) {
+  const enter = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 380,
+      delay: Math.min(index, 8) * 55,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const kind = KIND_STYLE[item.kind];
+  const tone = TONE_STYLE[item.tone];
+
+  return (
+    <Animated.View
+      style={{
+        opacity: enter,
+        transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+        marginBottom: 12,
+      }}
+    >
+      <TouchableOpacity
+        onPress={item.go}
+        activeOpacity={0.88}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.title}. ${item.action}`}
+        style={{
+          backgroundColor: "#FFFFFF",
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: item.isNew ? "#A7F3D0" : "#EEF1EF",
+          overflow: "hidden",
+          shadowColor: "#0B3D2A",
+          shadowOpacity: item.isNew ? 0.12 : 0.06,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: item.isNew ? 4 : 2,
+        }}
+      >
+        {item.isNew ? (
+          <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, backgroundColor: "#024e32" }} />
+        ) : null}
+
+        <View style={{ flexDirection: "row", padding: 14, paddingLeft: item.isNew ? 19 : 14 }}>
+          <View
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 16,
+              backgroundColor: kind.bg,
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 12,
+            }}
+          >
+            <MaterialIcons name={kind.icon} size={24} color={kind.fg} />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+              <Text
+                numberOfLines={2}
+                maxFontSizeMultiplier={1.2}
+                style={{ flex: 1, fontSize: 15, fontWeight: "800", color: "#111827", lineHeight: 20 }}
+              >
+                {item.title}
+              </Text>
+              {item.isNew ? (
+                <View
+                  style={{
+                    backgroundColor: "#024e32",
+                    borderRadius: 8,
+                    paddingHorizontal: 7,
+                    paddingVertical: 2,
+                    marginLeft: 8,
+                    marginTop: 1,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.4 }}>NEW</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: tone.bg,
+                  borderRadius: 999,
+                  paddingHorizontal: 9,
+                  paddingVertical: 3,
+                }}
+              >
+                {item.tone === "live" ? <PulseDot color={tone.fg} /> : null}
+                <Text style={{ color: tone.fg, fontSize: 11, fontWeight: "800", letterSpacing: 0.3 }}>
+                  {item.status}
+                </Text>
+              </View>
+              <Text style={{ color: "#9CA3AF", fontSize: 12, marginLeft: 10 }} numberOfLines={1}>
+                {timeAgo(item.createdAt)}
+              </Text>
+            </View>
+
+            {item.message ? (
+              <Text
+                numberOfLines={3}
+                maxFontSizeMultiplier={1.2}
+                style={{ color: "#4B5563", fontSize: 13.5, lineHeight: 19, marginTop: 8 }}
+              >
+                {item.message}
+              </Text>
+            ) : null}
+
+            {item.chips.length > 0 ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8 }}>
+                {item.chips.map((c) => (
+                  <View
+                    key={c}
+                    style={{
+                      backgroundColor: "#F3F4F6",
+                      borderRadius: 10,
+                      paddingHorizontal: 9,
+                      paddingVertical: 4,
+                      marginRight: 6,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <Text style={{ color: "#374151", fontSize: 11.5, fontWeight: "600" }}>{c}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {item.countdown ? (
+              <CountdownTimer auctionEndDate={item.countdown.date} auctionEndTime={item.countdown.time} />
+            ) : null}
+
+            {item.spin ? <SpinPinRow spin={item.spin} /> : null}
+
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}>
+              <View
+                style={{
+                  backgroundColor: "#F0FDF4",
+                  borderRadius: 999,
+                  paddingHorizontal: 10,
+                  paddingVertical: 3,
+                  marginRight: 8,
+                }}
+              >
+                <Text style={{ color: "#166534", fontSize: 11.5, fontWeight: "800" }}>
+                  Group {item.groupCode || "-"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              <Text style={{ color: "#024e32", fontSize: 12.5, fontWeight: "800" }}>{item.action}</Text>
+              <MaterialIcons name="chevron-right" size={20} color="#024e32" />
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+/* =========================================================
+   MAIN COMPONENT
+========================================================= */
+export default function UserNotifications() {
+  const router = useRouter();
+
+  // =========================================================
+  // SCREENSHOT PREVENTION
+  // =========================================================
+
+  useEffect(() => {
+    preventScreenshot();
+    return () => {
+      allowScreenshot();
+    };
+  }, []);
+
+  // =========================================================
+  // WEB SCREENSHOT DETECTION
+  // =========================================================
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "PrintScreen") {
+          e.preventDefault();
+          Alert.alert(
+            "Screenshot Blocked",
+            "Screenshots are not allowed for security reasons."
+          );
+        }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        Alert.alert(
+          "Action Blocked",
+          "Right-click is disabled for security reasons."
+        );
+      };
+
+      const handleDevTools = (e: KeyboardEvent) => {
+        if (
+          (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i")) ||
+          (e.ctrlKey && e.shiftKey && (e.key === "J" || e.key === "j")) ||
+          (e.ctrlKey && e.key === "U") ||
+          (e.ctrlKey && e.key === "u")
+        ) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Developer tools are disabled for security reasons."
+          );
+        }
+      };
+
+      const handleSave = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Save is disabled for security reasons."
+          );
+        }
+      };
+
+      const handlePrint = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Print is disabled for security reasons."
+          );
+        }
+      };
+
+      const handleCopy = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Copy is disabled for security reasons."
+          );
+        }
+      };
+
+      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("contextmenu", handleContextMenu);
+      document.addEventListener("keydown", handleDevTools);
+      document.addEventListener("keydown", handleSave);
+      document.addEventListener("keydown", handlePrint);
+      document.addEventListener("keydown", handleCopy);
+
+      const style = document.createElement("style");
+      style.textContent = `
+        body {
+          user-select: none !important;
+          -webkit-user-select: none !important;
+          -moz-user-select: none !important;
+          -ms-user-select: none !important;
+        }
+        img {
+          -webkit-user-drag: none !important;
+          user-drag: none !important;
+        }
+        @media print {
+          body { display: none !important; }
+        }
+        * {
+          -webkit-touch-callout: none !important;
+          -webkit-user-select: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("contextmenu", handleContextMenu);
+        document.removeEventListener("keydown", handleDevTools);
+        document.removeEventListener("keydown", handleSave);
+        document.removeEventListener("keydown", handlePrint);
+        document.removeEventListener("keydown", handleCopy);
+        document.head.removeChild(style);
+      };
+    }
+  }, []);
+
+  const [userid, setUserid] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [vacancies, setVacancies] = useState<any[]>([]);
+  const [spins, setSpins] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<"all" | Kind>("all");
+  // when the member last opened / cleared this list (kept on this phone)
+  const [prevOpenedAt, setPrevOpenedAt] = useState<number>(0);
+  const [clearedAt, setClearedAt] = useState<number>(0);
+  const [, setTick] = useState(0);
+
+  /* ================= SESSION GUARD ================= */
+  useEffect(() => {
+    const checkSession = async () => {
+      const stored = await AsyncStorage.getItem("loggedUser");
+      if (!stored) {
+        router.replace("/");
+        return;
+      }
+
+      const parsed = JSON.parse(stored);
+      setUserid(parsed.userid);
+    };
+
+    checkSession();
+  }, []);
+
+  /* ================= LOAD EVERYTHING ================= */
+  const gotFreshRef = useRef(false);
+
+  const loadAll = async () => {
+    if (!userid) return;
+
+    const safeJson = async (url: string) => {
+      // give up on a slow request after 8 seconds so the page never hangs
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 8000) : null;
+      try {
+        const res = await fetch(url, controller ? { signal: controller.signal } : undefined);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      } catch (err) {
+        console.log("Notification fetch error:", err);
+        return null;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    // each list shows up the moment ITS request finishes (no waiting for the slowest one)
+    const pAuctions = safeJson(`${BACKEND_URL}/notifications/user/${userid}`).then((auctions) => {
+      // a failed request keeps what is already on screen
+      if (auctions) {
+        gotFreshRef.current = true;
+        setNotifications(auctions);
+        setLoading(false);
+      }
+      return auctions;
+    });
+    const pVac = safeJson(
+      `${BACKEND_URL}/vacancy/open?userid=${encodeURIComponent(userid)}`
+    ).then((vac) => {
+      if (vac) setVacancies(vac.filter((v: any) => !v.alreadyInGroup));
+      return vac;
+    });
+    const pSpin = safeJson(
+      `${BACKEND_URL}/spinner/announcements?userid=${encodeURIComponent(userid)}`
+    ).then((spin) => {
+      if (spin) {
+        setSpins(spin);
+        syncPins(spin);
+      }
+      return spin;
+    });
+
+    try {
+      const [auctions, vac, spin] = await Promise.all([pAuctions, pVac, pSpin]);
+      // keep a copy on this phone so the next visit opens instantly
+      if (auctions || vac || spin) {
+        try {
+          const prevRaw = await AsyncStorage.getItem(`notifListCache_${userid}`);
+          const prev = prevRaw ? JSON.parse(prevRaw) : {};
+          await AsyncStorage.setItem(
+            `notifListCache_${userid}`,
+            JSON.stringify({
+              notifications: auctions ?? prev.notifications ?? [],
+              vacancies: vac ? vac.filter((v: any) => !v.alreadyInGroup) : prev.vacancies ?? [],
+              spins: spin ?? prev.spins ?? [],
+            })
+          );
+        } catch {
+          // ignore
+        }
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!userid) return;
+
+    // start fetching straight away (do not wait for the phone storage)
+    gotFreshRef.current = false;
+    loadAll();
+
+    // remember when the list was last opened (for the NEW tags) and
+    // when it was last cleared; then mark it as opened now.
+    // Also show the last saved list instantly while fresh data loads.
+    (async () => {
+      try {
+        const [opened, cleared, cached] = await Promise.all([
+          AsyncStorage.getItem(`notifListOpenedAt_${userid}`),
+          AsyncStorage.getItem(`notifListClearedAt_${userid}`),
+          AsyncStorage.getItem(`notifListCache_${userid}`),
+        ]);
+        setPrevOpenedAt(opened ? Number(opened) || 0 : 0);
+        setClearedAt(cleared ? Number(cleared) || 0 : 0);
+        if (cached && !gotFreshRef.current) {
+          const c = JSON.parse(cached);
+          setNotifications(Array.isArray(c.notifications) ? c.notifications : []);
+          setVacancies(Array.isArray(c.vacancies) ? c.vacancies : []);
+          setSpins(Array.isArray(c.spins) ? c.spins : []);
+          setLoading(false);
+        }
+        AsyncStorage.setItem(`notifListOpenedAt_${userid}`, String(Date.now())).catch(() => {});
+      } catch {
+        // ignore
+      }
+    })();
+  }, [userid]);
+
+  // new notification / vacancy / spin time -> list refreshes by itself
+  useLiveBadges(Boolean(userid), loadAll);
+
+  // keeps LIVE / ENDED and "x min ago" fresh
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadAll();
+  };
+
+  /* ================= CLEAR ================= */
+  const doClear = async () => {
+    const now = Date.now();
+    setClearedAt(now);
+    try {
+      if (userid) await AsyncStorage.setItem(`notifListClearedAt_${userid}`, String(now));
+    } catch {
+      // ignore
+    }
+  };
+
+  const onClearPress = () => {
+    const title = "Clear all notifications?";
+    const message = "The list will be emptied. New notifications will still arrive.";
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      if (window.confirm(`${title}\n\n${message}`)) doClear();
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Clear all", style: "destructive", onPress: doClear },
+    ]);
+  };
+
+  /* ================= BUILD THE FEED ================= */
+  const feed: FeedItem[] = useMemo(() => {
+    const nowMs = Date.now();
+    // first time ever: only the last 24 hours count as new
+    const newAfter = Math.max(prevOpenedAt, nowMs - 24 * 60 * 60 * 1000);
+    const uid = String(userid || "");
+    const out: FeedItem[] = [];
+
+    notifications.forEach((n: any) => {
+      const created = n.createdAt ? new Date(n.createdAt).getTime() : 0;
+      const endMs = parseEndMs(n.auctionEndDate, n.auctionEndTime);
+      const live = endMs ? endMs > nowMs : false;
+      const code = n.groupId?.groupId || "N/A";
+      const min = Number(n.minBidAmount) || 0;
+      const max = Number(n.maxBidAmount) || 0;
+
+      const chips: string[] = [];
+      if (max > 0) {
+        chips.push(`Bid ₹${min.toLocaleString("en-IN")} - ₹${max.toLocaleString("en-IN")}`);
+      }
+      if (n.auctionEndDate) {
+        chips.push(`Ends ${n.auctionEndDate}${n.auctionEndTime ? ` · ${n.auctionEndTime}` : ""}`);
+      }
+
+      out.push({
+        key: `a-${n._id}`,
+        kind: "auction",
+        createdAt: created,
+        title: `Auction notice · Group ${code}`,
+        message: n.message || "",
+        groupCode: code,
+        status: live ? "LIVE" : "ENDED",
+        tone: live ? "live" : "ended",
+        chips,
+        countdown:
+          live && n.auctionEndDate && n.auctionEndTime
+            ? { date: n.auctionEndDate, time: n.auctionEndTime }
+            : undefined,
+        action: live ? "Open Bid Room" : "View result",
+        isNew: created > newAfter,
+        go: () => {
+          if (live) {
+            router.push("/bidroom" as any);
+          } else {
+            router.push({
+              pathname: "/spinnerLive",
+              params: {
+                groupId: String(n.groupId?._id || ""),
+                groupCode: String(code),
+                auctionEndDate: String(n.auctionEndDate || ""),
+                auctionEndTime: String(n.auctionEndTime || ""),
+                userid: uid,
+              },
+            } as any);
+          }
+        },
+      });
+    });
+
+    vacancies.forEach((v: any) => {
+      const created = v.createdAt ? new Date(v.createdAt).getTime() : 0;
+      const seats = Number(v.availableSeats) || 0;
+      const chit = Number(v.chitAmount) || 0;
+      const sub = Number(v.subscriptionAmount) || 0;
+
+      const chips: string[] = [];
+      if (v.frequency) chips.push(String(v.frequency));
+      if (sub > 0) chips.push(`₹${sub.toLocaleString("en-IN")} / ${String(v.frequency || "month").toLowerCase()}`);
+
+      out.push({
+        key: `v-${v._id}`,
+        kind: "vacancy",
+        createdAt: created,
+        title: `New vacancy · Group ${v.groupId}`,
+        message: `${seats} seat${seats === 1 ? "" : "s"} open in a ₹${chit.toLocaleString("en-IN")} chit.${
+          v.details ? ` ${v.details}` : ""
+        }`,
+        groupCode: String(v.groupId || ""),
+        status: "OPEN",
+        tone: "open",
+        chips,
+        action: "View vacancy",
+        isNew: created > newAfter,
+        go: () => router.push("/vacancy" as any),
+      });
+    });
+
+    spins.forEach((s: any) => {
+      const created = s.createdAt ? new Date(s.createdAt).getTime() : 0;
+      const upcoming = Number(s.spinAt) > nowMs;
+
+      out.push({
+        key: `s-${s.id}`,
+        kind: "spin",
+        createdAt: created,
+        title: `Live spin scheduled · Group ${s.groupCode}`,
+        message: `The live spin will start on ${s.spinDateText} at ${s.spinTimeText}. Be ready!`,
+        groupCode: String(s.groupCode || ""),
+        status: upcoming ? "UPCOMING" : "DONE",
+        tone: upcoming ? "soon" : "ended",
+        chips: [`${s.spinDateText} · ${s.spinTimeText}`],
+        spin: upcoming
+          ? {
+              groupKey: String(s.groupMongoId || s.groupCode || ""),
+              groupCode: String(s.groupCode || ""),
+              spinAt: Number(s.spinAt),
+              dateText: String(s.spinDateText || ""),
+              timeText: String(s.spinTimeText || ""),
+              route: `/spinnerLive?groupId=${encodeURIComponent(String(s.groupMongoId || ""))}&groupCode=${encodeURIComponent(String(s.groupCode || ""))}&auctionEndDate=${encodeURIComponent(String(s.auctionEndDate || ""))}&auctionEndTime=${encodeURIComponent(String(s.auctionEndTime || ""))}&userid=${encodeURIComponent(uid)}`,
+            }
+          : undefined,
+        action: upcoming ? "Watch live spin" : "View spin",
+        isNew: created > newAfter,
+        go: () =>
+          router.push({
+            pathname: "/spinnerLive",
+            params: {
+              groupId: String(s.groupMongoId || ""),
+              groupCode: String(s.groupCode || ""),
+              auctionEndDate: String(s.auctionEndDate || ""),
+              auctionEndTime: String(s.auctionEndTime || ""),
+              userid: uid,
+            },
+          } as any),
+      });
+    });
+
+    return out
+      .filter((it) => it.createdAt > clearedAt)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }, [notifications, vacancies, spins, prevOpenedAt, clearedAt, userid, router]);
+
+  const counts = {
+    all: feed.length,
+    auction: feed.filter((f) => f.kind === "auction").length,
+    vacancy: feed.filter((f) => f.kind === "vacancy").length,
+    spin: feed.filter((f) => f.kind === "spin").length,
+  };
+  const newCount = feed.filter((f) => f.isNew).length;
+  const shown = filter === "all" ? feed : feed.filter((f) => f.kind === filter);
+
+  const sections: { label: string; items: FeedItem[] }[] = [];
+  shown.forEach((it) => {
+    const label = bucketOf(it.createdAt);
+    const last = sections[sections.length - 1];
+    if (last && last.label === label) last.items.push(it);
+    else sections.push({ label, items: [it] });
+  });
+
+  /* =========================================================
+     RENDER FOOTER COMPONENT
+  ========================================================= */
+  const renderFooter = () => (
+    <View className="mt-4 mb-6 px-5">
+      <View className="border-t border-gray-200 pt-4 items-center">
+        <Text className="text-[#024e32] font-bold text-base">
+          MANIKYA CHITS PVT LTD
+        </Text>
+        <Text className="text-gray-500 text-xs mt-1 text-center">
+          Member Notifications 
+        </Text>
+        <Text className="text-gray-400 text-xs mt-1 text-center">
+          © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+        </Text>
+      </View>
+    </View>
+  );
+
+  const FILTERS: { key: "all" | Kind; label: string; icon: any }[] = [
+    { key: "all", label: "All", icon: "notifications" },
+    { key: "auction", label: "Auctions", icon: "gavel" },
+    { key: "vacancy", label: "Vacancies", icon: "event-seat" },
+    { key: "spin", label: "Live spin", icon: "casino" },
+  ];
+
+  /* ================= UI ================= */
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      <StatusBar backgroundColor="#024e32" barStyle="light-content" />
+
+      {/* HEADER */}
+      <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={() => router.back()}
+            className="mt-1"
+            activeOpacity={0.8}
+          >
+            <MaterialIcons name="arrow-back" size={26} color="white" />
+          </TouchableOpacity>
+
+          <Text className="text-white text-2xl font-bold ml-4 mt-1 flex-1">
+            Notifications
+          </Text>
+
+          <View className="mt-1">
+            <MaterialIcons name="notifications" size={24} color="white" />
+          </View>
+        </View>
+      </View>
+
+      {/* CONTENT */}
+      <ScrollView
+        style={{ flex: 1, backgroundColor: "#F5F7F6" }}
+        contentContainerStyle={{ paddingTop: 110, paddingBottom: 8 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#024e32"]}
+            tintColor="#024e32"
+          />
+        }
+      >
+        <View style={{ width: "100%", maxWidth: 720, alignSelf: "center", paddingHorizontal: 16, paddingTop: 16 }}>
+          {/* ---------- summary ---------- */}
+          <LinearGradient
+            colors={["#024e32", "#0a8f5a"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ borderRadius: 24, padding: 18, overflow: "hidden" }}
+          >
+            <View
+              style={{
+                position: "absolute",
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                backgroundColor: "rgba(255,255,255,0.10)",
+                top: -55,
+                right: -35,
+              }}
+            />
+            <View
+              style={{
+                position: "absolute",
+                width: 90,
+                height: 90,
+                borderRadius: 45,
+                backgroundColor: "rgba(255,255,255,0.08)",
+                bottom: -35,
+                left: -20,
+              }}
+            />
+
+            {loading ? (
+              <View>
+                <SkeletonBox className="h-5 rounded" style={{ width: 170, backgroundColor: "rgba(255,255,255,0.35)" }} />
+                <SkeletonBox className="h-3 rounded mt-3" style={{ width: 110, backgroundColor: "rgba(255,255,255,0.25)" }} />
+              </View>
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 18,
+                    backgroundColor: "rgba(255,255,255,0.18)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 14,
+                  }}
+                >
+                  <MaterialIcons
+                    name={newCount > 0 ? "notifications-active" : "notifications-none"}
+                    size={28}
+                    color="#fff"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 20, fontWeight: "800" }} maxFontSizeMultiplier={1.2}>
+                    {counts.all === 0
+                      ? "No notifications"
+                      : newCount > 0
+                      ? `${newCount} new ${newCount === 1 ? "update" : "updates"}`
+                      : "You're all caught up"}
+                  </Text>
+                  <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 12.5, marginTop: 3 }} maxFontSizeMultiplier={1.2}>
+                    {counts.all === 0
+                      ? "Auctions, vacancies and live spins will show here"
+                      : `${counts.all} total · ${counts.auction} auction · ${counts.vacancy} vacancy · ${counts.spin} spin`}
+                  </Text>
+                </View>
+
+                {counts.all > 0 ? (
+                  <TouchableOpacity
+                    onPress={onClearPress}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear all notifications"
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: "#DC2626",
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.55)",
+                      borderRadius: 999,
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                      marginLeft: 8,
+                    }}
+                  >
+                    <MaterialIcons name="delete-sweep" size={18} color="#fff" />
+                    <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "800", marginLeft: 5 }}>
+                      Clear
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
+          </LinearGradient>
+
+          {/* ---------- filter chips ---------- */}
+          {!loading && counts.all > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: 14, marginHorizontal: -16 }}
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+            >
+              {FILTERS.map((f) => {
+                const active = filter === f.key;
+                const n = counts[f.key];
+                return (
+                  <TouchableOpacity
+                    key={f.key}
+                    onPress={() => setFilter(f.key)}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: active ? "#024e32" : "#FFFFFF",
+                      borderColor: active ? "#024e32" : "#E5E7EB",
+                      borderWidth: 1,
+                      borderRadius: 999,
+                      paddingHorizontal: 14,
+                      paddingVertical: 9,
+                      marginRight: 8,
+                    }}
+                  >
+                    <MaterialIcons name={f.icon} size={16} color={active ? "#fff" : "#374151"} />
+                    <Text
+                      style={{ color: active ? "#fff" : "#374151", fontWeight: "700", fontSize: 13, marginLeft: 6 }}
+                    >
+                      {f.label}
+                    </Text>
+                    <View
+                      style={{
+                        backgroundColor: active ? "rgba(255,255,255,0.25)" : "#F3F4F6",
+                        borderRadius: 999,
+                        minWidth: 20,
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        marginLeft: 7,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ color: active ? "#fff" : "#6B7280", fontSize: 11.5, fontWeight: "800" }}>
+                        {n}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
+          {/* ---------- list ---------- */}
+          <View style={{ marginTop: 16 }}>
+            {loading ? (
+              <View>
+                <NotificationCardSkeleton />
+                <NotificationCardSkeleton />
+                <NotificationCardSkeleton />
+              </View>
+            ) : shown.length === 0 ? (
+              <View
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  borderColor: "#EEF1EF",
+                  paddingVertical: 40,
+                  paddingHorizontal: 24,
+                  alignItems: "center",
+                  marginTop: 6,
+                }}
+              >
+                <View
+                  style={{
+                    width: 84,
+                    height: 84,
+                    borderRadius: 42,
+                    backgroundColor: "#F0FDF4",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 16,
+                  }}
+                >
+                  <MaterialIcons name="notifications-none" size={42} color="#024e32" />
+                </View>
+                <Text style={{ fontSize: 20, fontWeight: "800", color: "#111827" }}>
+                  No notifications
+                </Text>
+                <Text style={{ color: "#6B7280", textAlign: "center", marginTop: 6, lineHeight: 20 }}>
+                  {counts.all === 0
+                    ? "You don't have any notifications right now. New auctions, vacancies and live spin times will appear here."
+                    : "Nothing in this section right now."}
+                </Text>
+                {filter !== "all" && counts.all > 0 ? (
+                  <TouchableOpacity
+                    onPress={() => setFilter("all")}
+                    activeOpacity={0.85}
+                    style={{
+                      marginTop: 16,
+                      backgroundColor: "#024e32",
+                      borderRadius: 999,
+                      paddingHorizontal: 20,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "800" }}>Show all</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : (
+              sections.map((sec) => (
+                <View key={sec.label}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, marginTop: 4 }}>
+                    <Text style={{ color: "#6B7280", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 }}>
+                      {sec.label.toUpperCase()}
+                    </Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: "#E5E7EB", marginLeft: 10 }} />
+                  </View>
+                  {sec.items.map((item, i) => (
+                    <FeedCard key={item.key} item={item} index={i} />
+                  ))}
+                </View>
+              ))
+            )}
+
+            {!loading && counts.all > 0 ? (
+              <View style={{ alignItems: "center", paddingVertical: 10 }}>
+                <Text style={{ color: "#9CA3AF", fontSize: 12.5 }}>Pull down to refresh</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {/* FOOTER */}
+        {renderFooter()}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}

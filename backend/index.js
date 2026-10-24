@@ -31,6 +31,7 @@ import { initSocket } from "./realtime/socket.js";
 import spinnerRoutes from "./routes/spinnerRoutes.js";
 import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
 import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
+import { startSpinReminders } from "./realtime/spinReminders.js";
 import pushRoutes from "./routes/pushRoutes.js";
 import dailyFollowUpRoutes from "./routes/dailyFollowUpRoutes.js";
 
@@ -131,6 +132,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 const httpServer = http.createServer(app);
 initSocket(httpServer);
+startSpinReminders();
 httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on http://${HOST}:${PORT}`);
   console.log(

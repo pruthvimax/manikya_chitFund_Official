@@ -159,12 +159,14 @@ export default function SpinnerLive() {
       >
         <View style={{ width: "100%", maxWidth: 520 }}>
           {loading && !state ? (
-            <View style={{ paddingVertical: 80, alignItems: "center" }}>
-              <ActivityIndicator size="large" color="#024E32" />
-              <Text style={{ color: "#6B7280", marginTop: 12 }}>
-                Connecting to the draw…
-              </Text>
-            </View>
+            // the page is already open, so show the wheel straight away
+            // instead of a "Connecting to the draw..." screen
+            <LiveSpinnerView
+              state={null}
+              serverNow={serverNow}
+              size={wheelSize}
+              waitingText="Get ready…"
+            />
           ) : error && !state ? (
             <View
               style={{

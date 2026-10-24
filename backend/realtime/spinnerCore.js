@@ -115,6 +115,7 @@ export const loadAuction = async (src = {}) => {
 export const loadResultExtras = async (notification, group) => {
   let chitValue = 0;
   let previousWinningBid = 0;
+  let auctionNumber = 0;
 
   try {
     const scheme = await ChitScheme.findOne({
@@ -141,7 +142,49 @@ export const loadResultExtras = async (notification, group) => {
     console.error("SPINNER previous bid lookup failed:", err?.message);
   }
 
-  return { chitValue, previousWinningBid };
+  /*
+    auctionNumber : which month / auction this is (1, 2, 3 ...).
+    It is the group's month (collection plan) that the auction end date
+    falls in. If the plans do not tell, it is the count of this group's
+    auctions up to this one.
+  */
+  try {
+    const [dd, mm, yyyy] = String(notification.auctionEndDate || "")
+      .trim()
+      .split("-")
+      .map(Number);
+    const auctionDay = new Date(yyyy, (mm || 1) - 1, dd || 1, 12, 0, 0, 0).getTime();
+
+    const plans = [...(group?.collectionPlans || [])]
+      .filter((p) => Number(p.monthIndex) > 0)
+      .sort((a, b) => Number(a.monthIndex) - Number(b.monthIndex));
+
+    const inside = plans.find((p) => {
+      if (!p.startDate || !p.endDate) return false;
+      const start = new Date(p.startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(p.endDate);
+      end.setHours(23, 59, 59, 999);
+      return auctionDay >= start.getTime() && auctionDay <= end.getTime();
+    });
+
+    if (inside) {
+      auctionNumber = Number(inside.monthIndex) || 0;
+    } else if (Number.isFinite(auctionDay)) {
+      const next = plans.find((p) => p.endDate && new Date(p.endDate).getTime() >= auctionDay);
+      if (next) auctionNumber = Number(next.monthIndex) || 0;
+    }
+
+    if (!auctionNumber) {
+      const countFilter = { groupId: notification.groupId };
+      if (notification.createdAt) countFilter.createdAt = { $lte: notification.createdAt };
+      auctionNumber = await Notification.countDocuments(countFilter);
+    }
+  } catch (err) {
+    console.error("SPINNER auction number lookup failed:", err?.message);
+  }
+
+  return { chitValue, previousWinningBid, auctionNumber };
 };
 
 /* ---------- who may watch ---------- */
@@ -316,6 +359,7 @@ export const toPublicState = (session, viewer = {}) => {
     },
     chitValue: session.chitValue || 0,
     previousWinningBid: session.previousWinningBid || 0,
+    auctionNumber: session.auctionNumber || 0,
     rotations: session.rotations,
     durationMs: session.durationMs,
     seed: session.seed,

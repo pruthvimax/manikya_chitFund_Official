@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import BACKEND_URL from "../config";
+import { askPushPermission } from "./PushPermissionPrompt";
 
 /**
  * Push notifications for the member app.
@@ -68,8 +69,13 @@ export function usePushNotifications(userid: string, badgeTotal: number) {
           });
         }
 
-        let { status } = await Notifications.getPermissionsAsync();
+        let { status, canAskAgain } = await Notifications.getPermissionsAsync();
         if (status !== "granted") {
+          // ADDED: friendly pop-up first (Allow / Not now). Only "Allow"
+          // continues to the phone's own permission box.
+          const allow = await askPushPermission({ canAskAgain });
+          if (!allow || cancelled) return;
+
           const asked = await Notifications.requestPermissionsAsync();
           status = asked.status;
         }

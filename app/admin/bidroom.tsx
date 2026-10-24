@@ -16,6 +16,36 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 
 import BACKEND_URL from "../../config";
+import { Alert as RNAlert, Platform } from "react-native";
+
+/* =========================================================
+   WEB (desktop browser) ALERT
+   React Native's Alert.alert() shows nothing on web, so the
+   Delete button did nothing on desktop. This small helper
+   uses the browser's own confirm()/alert() instead. It is
+   used ONLY by deleteBid below; iOS and Android keep using
+   the normal Alert exactly as before.
+========================================================= */
+const webAlert = {
+  alert: (title?: string, message?: string, buttons?: any[]) => {
+    const text = [title, message].filter(Boolean).join("\n\n");
+
+    if (!buttons || buttons.length <= 1) {
+      window.alert(text);
+      buttons?.[0]?.onPress?.();
+      return;
+    }
+
+    const cancel = buttons.find((x) => x?.style === "cancel");
+    const action = buttons.find((x) => x?.style !== "cancel");
+
+    if (window.confirm(text)) {
+      action?.onPress?.();
+    } else {
+      cancel?.onPress?.();
+    }
+  },
+};
 
 /* =========================================================
    TYPES
@@ -284,6 +314,9 @@ export default function AdminBidRoom() {
   ========================================================= */
 
   const deleteBid = (bid: Bid) => {
+    // desktop browser: use the browser confirm; iOS/Android: normal Alert
+    const Alert: any = Platform.OS === "web" ? webAlert : RNAlert;
+
     Alert.alert(
       "Delete Bid",
       `Are you sure you want to delete the bid from ${
@@ -858,29 +891,45 @@ export default function AdminBidRoom() {
     </Text>
   </View>
 
-  {/* DELETE BID */}
-  <TouchableOpacity
-    onPress={(event) => {
-      event.stopPropagation();
-      deleteBid(bid);
-    }}
-    disabled={deletingBidId === String(bid._id)}
-    activeOpacity={0.8}
-    className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 items-center justify-center"
-  >
-    {deletingBidId === String(bid._id) ? (
-      <ActivityIndicator
-        size="small"
-        color="#DC2626"
-      />
-    ) : (
-      <MaterialIcons
-        name="delete-outline"
-        size={21}
-        color="#DC2626"
-      />
-    )}
-  </TouchableOpacity>
+
+{/* DELETE BID */}
+<TouchableOpacity
+  onPress={(event: any) => {
+    event?.stopPropagation?.();
+    deleteBid(bid);
+  }}
+  onClick={(event: any) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+  }}
+  disabled={deletingBidId === String(bid._id)}
+  activeOpacity={0.8}
+  accessibilityRole="button"
+  accessibilityLabel={`Delete bid from ${bid.customerName || bid.memberId || "member"}`}
+  style={{
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    zIndex: 10,
+  } as any}
+>
+  {deletingBidId === String(bid._id) ? (
+    <ActivityIndicator size="small" color="#DC2626" />
+  ) : (
+    <MaterialIcons
+      name="delete-outline"
+      size={21}
+      color="#DC2626"
+    />
+  )}
+</TouchableOpacity>
+
 </View>                
 </TouchableOpacity>
               );

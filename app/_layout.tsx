@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import "./global.css";
 import React from "react";
 import { ScrollView, Text, TouchableOpacity } from "react-native";
+import GlobalSpinAutoOpen from "../components/spinner/GlobalSpinAutoOpen";
 
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -57,6 +58,8 @@ export default function RootLayout() {
   return (
     <RootErrorBoundary>
       <Stack screenOptions={{ headerShown: false }}></Stack>
+      {/* opens the live spin by itself for members when the admin starts it */}
+      <GlobalSpinAutoOpen />
     </RootErrorBoundary>
   );
 }

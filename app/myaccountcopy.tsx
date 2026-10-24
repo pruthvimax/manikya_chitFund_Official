@@ -1012,6 +1012,10 @@ export default function MyAccountCopy() {
       const installmentOnlyPaid = getInstallmentPaidAmount(row?.payments || []);
       const balanceDue = Math.max(gross - (installmentOnlyPaid + dividend), 0);
 
+      // ADDED: month whose amount isn't set yet (installment 0, nothing
+      // paid, no dividend) - not really "PAID", so show "NOT SET".
+      if (gross <= 0 && installmentOnlyPaid <= 0) return "NOT SET";
+
       if (balanceDue <= 0) return "PAID";
       return row?.status === "OVERDUE" ? "OVERDUE" : "PENDING";
     },
@@ -1724,7 +1728,11 @@ export default function MyAccountCopy() {
                               numberOfLines={1}
                               maxFontSizeMultiplier={1.15}
                             >
-                              {installmentOnlyPaid + dividend >= grossInstallment ? "Fully paid" : "Partial"}
+                              {effectiveStatus === "NOT SET"
+                                ? "Not set"
+                                : installmentOnlyPaid + dividend >= grossInstallment
+                                ? "Fully paid"
+                                : "Partial"}
                             </Text>
                           </View>
 
@@ -1805,6 +1813,8 @@ export default function MyAccountCopy() {
                                   ? "bg-green-100"
                                   : effectiveStatus === "OVERDUE"
                                   ? "bg-red-100"
+                                  : effectiveStatus === "NOT SET"
+                                  ? "bg-gray-100"
                                   : "bg-yellow-100"
                               }`}
                             >
@@ -1814,6 +1824,8 @@ export default function MyAccountCopy() {
                                     ? "text-green-700"
                                     : effectiveStatus === "OVERDUE"
                                     ? "text-red-700"
+                                    : effectiveStatus === "NOT SET"
+                                    ? "text-gray-500"
                                     : "text-yellow-700"
                                 }`}
                                 numberOfLines={1}
@@ -1907,7 +1919,7 @@ export default function MyAccountCopy() {
                   <View className="flex-row justify-between">
                     <Text className="text-gray-600">Pending Months:</Text>
                     <Text className="font-medium text-red-600">
-                      {ledger.filter((row: any) => getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0) !== "PAID").length}
+                      {ledger.filter((row: any) => { const st = getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0); return st !== "PAID" && st !== "NOT SET"; }).length}
                     </Text>
                   </View>
 
@@ -2084,6 +2096,8 @@ export default function MyAccountCopy() {
                         ? "Fully Paid"
                         : selectedHistoryStatus === "OVERDUE"
                         ? "Overdue"
+                        : selectedHistoryStatus === "NOT SET"
+                        ? "Not Set"
                         : "Pending"}
                     </Text>
                   </View>

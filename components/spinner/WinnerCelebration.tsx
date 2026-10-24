@@ -49,6 +49,7 @@ type Props = {
   winningBid?: number;
   chitValue?: number;
   previousWinningBid?: number;
+  auctionNumber?: number;
   modeText?: string;
 };
 
@@ -477,6 +478,7 @@ export default function WinnerCelebration({
   winningBid,
   chitValue,
   previousWinningBid,
+  auctionNumber,
   modeText,
 }: Props) {
   const { width, height } = useWindowDimensions();
@@ -525,19 +527,19 @@ export default function WinnerCelebration({
         Animated.spring(idPop, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
       ]),
       Animated.sequence([
-        Animated.delay(fast ? 0 : 800),
+        Animated.delay(fast ? 0 : 250),
         Animated.timing(reveal, {
           toValue: 1,
-          duration: fast ? 1 : 900,
+          duration: fast ? 1 : 400,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
       ]),
       Animated.sequence([
-        Animated.delay(fast ? 0 : 950),
+        Animated.delay(fast ? 0 : 300),
         Animated.timing(count, {
           toValue: 1,
-          duration: fast ? 1 : 1300,
+          duration: fast ? 1 : 550,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: false,
         }),
@@ -586,6 +588,11 @@ export default function WinnerCelebration({
 
   const hasPrev = Number(previousWinningBid) > 0;
   const hasChit = chitTarget > 0;
+  const hasAuctionNo = Number(auctionNumber) > 0;
+  // winning amount = chit amount - bid amount (counts up with the other numbers)
+  const hasWinAmount = hasChit && bidTarget > 0;
+  const winAmountTarget = Math.max(0, chitTarget - bidTarget);
+  const winAmountShown = Math.max(0, shown.chit - shown.bid);
   const showName = Boolean(isWinner) && Boolean(memberName);
 
   return (
@@ -876,8 +883,29 @@ export default function WinnerCelebration({
                       </View>
                     </Reveal>
 
-                    {hasPrev ? (
+                    {hasAuctionNo || hasWinAmount ? (
                       <Reveal reveal={reveal} order={1} style={{ flexDirection: "row", marginTop: 10 }}>
+                        {hasAuctionNo ? (
+                          <>
+                            <Tile icon="event" label="Auction No." value={`Month ${Math.round(Number(auctionNumber))}`} />
+                            {hasWinAmount ? <View style={{ width: 10 }} /> : null}
+                          </>
+                        ) : null}
+                        {hasWinAmount ? (
+                          <View style={{ flex: hasAuctionNo ? 1.1 : 1, flexDirection: "row" }}>
+                            <Tile
+                              icon="emoji-events"
+                              label="Winning Amount"
+                              value={rupees(winAmountTarget > 0 ? winAmountShown : 0)}
+                              gold
+                            />
+                          </View>
+                        ) : null}
+                      </Reveal>
+                    ) : null}
+
+                    {hasPrev ? (
+                      <Reveal reveal={reveal} order={2} style={{ flexDirection: "row", marginTop: 10 }}>
                         <Tile icon="history" label="Previous Winning Bid" value={rupees(previousWinningBid)} compact />
                       </Reveal>
                     ) : null}

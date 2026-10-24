@@ -1,4 +1,5 @@
 import Group from "../models/Group.js";
+import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
 
 /**
  * GET /api/member/my-outstanding/:memberId
@@ -65,11 +66,38 @@ export const getMyOutstanding = async (req, res) => {
       }
     }
 
+    /* PENDING PENALTY per ticket (used by the Bid Now page to block bidding) */
+    const penaltyByTicket = [];
+    let pendingPenalty = 0;
+
+    for (const group of groups) {
+      const tickets = (group.members || []).filter(
+        (m) => m.memberId === memberId
+      );
+
+      for (const m of tickets) {
+        const r = computeMemberPenalty(
+          m.collections || [],
+          group.collectionPlans || [],
+          today
+        );
+        const p = Number(r.totalPenaltyPending || 0);
+        pendingPenalty += p;
+        penaltyByTicket.push({
+          groupId: group.groupId,
+          groupMemberId: m.groupMemberId,
+          pendingPenalty: p,
+        });
+      }
+    }
+
     res.json({
       totalOutstanding,
       dueThisMonth,
       overdueAmount,
       chitGroups,
+      pendingPenalty,
+      penaltyByTicket,
     });
   } catch (err) {
     console.error(err);
