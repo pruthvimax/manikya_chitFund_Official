@@ -635,6 +635,27 @@ export default function AdminBidRoom() {
             </View>
           ) : null}
 
+          {/* LIVE SPINNER */}
+          <TouchableOpacity
+            onPress={() =>
+              router.push({
+                pathname: "/admin/spinner",
+                params: {
+                  notificationId: String((params as any).notificationId || ""),
+                  groupId,
+                  groupCode,
+                  auctionEndDate: passedAuctionDate,
+                  auctionEndTime: passedAuctionTime,
+                },
+              })
+            }
+            activeOpacity={0.85}
+            className="mt-4 bg-[#024E32] rounded-2xl py-3 flex-row items-center justify-center"
+          >
+            <MaterialIcons name="casino" size={20} color="#F6E7A8" />
+            <Text className="text-white font-bold ml-2">Open Live Spinner</Text>
+          </TouchableOpacity>
+
           {/* ===================================================
               SUMMARY
           =================================================== */}

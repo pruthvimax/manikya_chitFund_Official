@@ -205,11 +205,28 @@ joiningPayNowAmount: instalment.joiningPayNowAmount,
 };
 
 /** Load chits + groups once and index them for fast joining. */
-const loadLookups = async () => {
+const loadLookups = async (pairs) => {
+  /* `pairs` (optional): [{ chitId, groupId }] - when given, only those chits
+     and groups are loaded instead of every group in the system. Callers that
+     pass nothing behave exactly as before. */
+  let chitQuery = {};
+  let groupQuery = {};
+
+  if (Array.isArray(pairs)) {
+    if (pairs.length === 0) return { chitMap: {}, groupMap: {} };
+
+    chitQuery = {
+      chitId: { $in: [...new Set(pairs.map((p) => String(p.chitId)))] },
+    };
+    groupQuery = {
+      $or: pairs.map((p) => ({ chitId: p.chitId, groupId: p.groupId })),
+    };
+  }
+
   const [chits, groups] = await Promise.all([
-    ChitScheme.find().lean(),
+    ChitScheme.find(chitQuery).lean(),
     Group.find(
-      {},
+      groupQuery,
       {
         groupId: 1,
         chitId: 1,
@@ -330,7 +347,9 @@ export const createVacancy = async (req, res) => {
 export const getVacancies = async (req, res) => {
   try {
     const vacancies = await Vacancy.find().sort({ createdAt: -1 }).lean();
-    const { chitMap, groupMap } = await loadLookups();
+    const { chitMap, groupMap } = await loadLookups(
+      vacancies.map((v) => ({ chitId: v.chitId, groupId: v.groupId }))
+    );
 
     const result = vacancies.map((v) =>
       buildVacancyView(
@@ -652,7 +671,9 @@ export const getVacancyRequests = async (req, res) => {
       return res.json({ pendingCount: 0, unseenCount: 0, requests: [] });
     }
 
-    const { chitMap, groupMap } = await loadLookups();
+    const { chitMap, groupMap } = await loadLookups(
+      requests.map((r) => ({ chitId: r.chitId, groupId: r.groupId }))
+    );
 
     const memberIds = [...new Set(requests.map((r) => String(r.memberId)))];
 

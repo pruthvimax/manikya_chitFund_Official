@@ -50,10 +50,15 @@ let currentPrintMethod = 'none';
    by the renderers now) only in case something else reads
    getReceiptFlags later.
 ========================================================= */
+// Pending penalty is no longer printed as its own line -- it is added
+// into the Pending Installment figure and shown there only.
+const getPendingInstallmentTotal = (receipt: any) =>
+  Number(receipt?.pendingInstallment || 0) + Number(receipt?.pendingPenalty || 0);
+
 const getReceiptFlags = (receipt: any) => ({
-  hasDividend: Number(receipt?.dividendAmount) > 0,
+  hasDividend: false, // dividend line removed from receipt
   hasTodayInstallment: Number(receipt?.todayInstallmentPaid) > 0,
-  hasPendingInstallment: Number(receipt?.pendingInstallment) > 0,
+  hasPendingInstallment: getPendingInstallmentTotal(receipt) > 0,
   hasTodayPenalty: Number(receipt?.todayPenaltyPaid) > 0,
   hasPendingPenalty: Number(receipt?.pendingPenalty) > 0,
   // hasPenaltyActivity controls whether the whole Penalty section
@@ -62,13 +67,11 @@ const getReceiptFlags = (receipt: any) => ({
   // they're 0 (to keep the receipt short), this only needs to check
   // those same two things -- a section with nothing left to show
   // inside it shouldn't render an empty divider either.
-  hasPenaltyActivity:
-    Number(receipt?.todayPenaltyPaid) > 0 ||
-    Number(receipt?.pendingPenalty) > 0,
+  hasPenaltyActivity: Number(receipt?.todayPenaltyPaid) > 0,
 });
 
 const generateReceiptHTML = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
   return `
     <!DOCTYPE html>
@@ -210,7 +213,7 @@ const generateReceiptHTML = (receipt: any) => {
       ${hasPendingInstallment ? `
       <div class="row highlight">
         <span>Pending Installment:</span>
-        <span>Rs. ${receipt.pendingInstallment || 0}</span>
+        <span>Rs. ${getPendingInstallmentTotal(receipt)}</span>
       </div>
       ` : ''}
 
@@ -221,12 +224,6 @@ const generateReceiptHTML = (receipt: any) => {
       <div class="row">
         <span>Paid Today (Penalty):</span>
         <span>Rs. ${receipt.todayPenaltyPaid || 0}</span>
-      </div>
-      ` : ''}
-      ${hasPendingPenalty ? `
-      <div class="row highlight">
-        <span>Pending Penalty:</span>
-        <span>Rs. ${receipt.pendingPenalty || 0}</span>
       </div>
       ` : ''}
       ` : ''}
@@ -265,7 +262,7 @@ const generateReceiptHTML = (receipt: any) => {
 };
 
 const formatReceiptText = (receipt: any) => {
-  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
+  const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
   return `
 ================================
@@ -285,8 +282,8 @@ Due Date:      ${receipt.dueDate || 'N/A'}
 Installment:   Rs. ${receipt.installmentAmount || '0'}
 ${hasDividend ? `Dividend:      Rs. ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
-${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}${hasPendingPenalty ? `PENDING PENALTY:     Rs. ${receipt.pendingPenalty || '0'}\n` : ''}` : ''}================================
+${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${getPendingInstallmentTotal(receipt)}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}` : ''}================================
 TOTAL DUE:     Rs. ${receipt.totalDue || '0'}
 ================================
 Payment Mode:  ${receipt.paymentMode || '-'}
@@ -333,7 +330,7 @@ const printViaBluetooth = async (receipt: any, device: any) => {
   try {
     console.log('🖨️ Trying Bluetooth Print...');
 
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
     // FIXED: this plain-text block is sent straight to the thermal
     // printer's own ESC/POS chip, not drawn by a font on screen --
@@ -363,8 +360,8 @@ Due Date:      ${receipt.dueDate || 'N/A'}
 Installment:   Rs. ${receipt.installmentAmount || '0'}
 ${hasDividend ? `Dividend:      Rs. ${receipt.dividendAmount}\n` : ''}
 --------------------------------
-${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${receipt.pendingInstallment || '0'}\n` : ''}${hasPenaltyActivity ? `--------------------------------
-${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}${hasPendingPenalty ? `PENDING PENALTY:     Rs. ${receipt.pendingPenalty || '0'}\n` : ''}` : ''}================================
+${hasTodayInstallment ? `Paid Today:    Rs. ${receipt.todayInstallmentPaid}\n` : ''}${hasPendingInstallment ? `PENDING INSTALLMENT: Rs. ${getPendingInstallmentTotal(receipt)}\n` : ''}${hasPenaltyActivity ? `--------------------------------
+${hasTodayPenalty ? `Penalty Today: Rs. ${receipt.todayPenaltyPaid || '0'}\n` : ''}` : ''}================================
 TOTAL DUE:     Rs. ${receipt.totalDue || '0'}
 ================================
 Payment Mode:  ${receipt.paymentMode || '-'}
@@ -733,7 +730,7 @@ export default function ReceiptScreen() {
 
   /* ================= RENDER RECEIPT CONTENT ================= */
   const renderReceiptContent = () => {
-    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment, hasPendingPenalty } = getReceiptFlags(receipt);
+    const { hasDividend, hasTodayInstallment, hasPenaltyActivity, hasTodayPenalty, hasPendingInstallment } = getReceiptFlags(receipt);
 
     return (
     <ViewShot
@@ -792,7 +789,7 @@ export default function ReceiptScreen() {
         {hasPendingInstallment && (
           <Row
             label="Pending Installment"
-            value={`Rs. ${receipt.pendingInstallment || 0}`}
+            value={`Rs. ${getPendingInstallmentTotal(receipt)}`}
             bold
           />
         )}
@@ -811,14 +808,6 @@ export default function ReceiptScreen() {
               />
             )}
 
-            {/* PENDING PENALTY - BOLD */}
-            {hasPendingPenalty && (
-              <Row
-                label="Pending Penalty"
-                value={`Rs. ${receipt.pendingPenalty || 0}`}
-                bold
-              />
-            )}
           </>
         )}
 

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Manikya Chits",
     "slug": "manikya-chits",
-    "version": "1.2.0",
+    "version": "1.2.2",
     "orientation": "portrait",
     "icon": "./assets/images/maxxxxx.png",
     "scheme": "manikya-chits",
@@ -21,6 +21,7 @@
     "android": {
       "versionCode": 11,
       "package": "com.manikya.chitfund",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/maxxxxx.png",
         "backgroundColor": "#ffffff"
@@ -75,7 +76,14 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "color": "#024e32",
+          "defaultChannel": "default"
+        }
+      ]
     ],
     "extra": {
       "router": {},

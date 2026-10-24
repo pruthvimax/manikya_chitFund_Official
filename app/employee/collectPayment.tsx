@@ -19,6 +19,7 @@ import {
 } from "react-native";
 
 import BACKEND_URL from "../../config";
+import { logPenaltyMismatch } from "../../components/penaltyCheck";
 
 const PENALTY_PERCENT = 6;
 
@@ -484,6 +485,17 @@ export default function CollectPayment() {
         const base = thisMonthUnpaid + carriedUnpaid;
         penaltyIncrement = Math.round((base * PENALTY_PERCENT) / 100);
       }
+
+      // PENALTY WAIVER: admin switched the penalty OFF for this month.
+      // Already-paid penalty stays; nothing more is due.
+      if (c.penaltyWaived) penaltyIncrement = penaltyPaid;
+
+      logPenaltyMismatch(
+        "employee-collectPayment",
+        `M${c.index}`,
+        penaltyIncrement,
+        c.backendPenaltyDue
+      );
 
       perMonth[c.index] = {
         isAfterDueDate: overdue,

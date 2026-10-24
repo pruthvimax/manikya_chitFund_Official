@@ -1,10 +1,12 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useCallback, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   RefreshControl,
   ScrollView,
@@ -21,6 +23,74 @@ import BACKEND_URL from "../../config";
 /* Reads the real app version straight from app.json (expo.version),
    matching the same pattern used on EmployeeDetail.tsx's footer. */
 const APP_VERSION = Constants.expoConfig?.version || "1.0.0";
+
+/* The last loaded list is kept (in memory while the app is open, and saved
+   on the phone) so this page opens instantly and refreshes quietly behind. */
+const SUMMARY_CACHE_KEY = "adminDailyLeadsSummaryCache";
+let summaryMemory: any[] | null = null;
+
+/* Grey placeholder cards (same shape as the real ones) while loading */
+function useSkeletonPulse() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return pulse;
+}
+
+const skelBar = (w: number | string, h: number, mt = 0, round = 6) => (
+  <View
+    style={{
+      width: w as any,
+      height: h,
+      marginTop: mt,
+      borderRadius: round,
+      backgroundColor: "#E5E7EB",
+    }}
+  />
+);
+
+function SummarySkeleton() {
+  const pulse = useSkeletonPulse();
+  return (
+    <Animated.View style={{ opacity: pulse }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm"
+        >
+          <View className="flex-row items-center">
+            <View
+              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "#E5E7EB" }}
+            />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              {skelBar("60%", 15)}
+              {skelBar("35%", 11, 8)}
+            </View>
+            <View style={{ alignItems: "flex-end" }}>
+              {skelBar(28, 18)}
+              {skelBar(36, 9, 6)}
+            </View>
+          </View>
+          <View className="flex-row mt-4">
+            {skelBar(64, 22, 0, 999)}
+            <View style={{ width: 8 }} />
+            {skelBar(70, 22, 0, 999)}
+            <View style={{ width: 8 }} />
+            {skelBar(66, 22, 0, 999)}
+          </View>
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
 
 /* =========================================================
    ADMIN - DAILY LEADS (employee list)
@@ -142,8 +212,8 @@ export default function DailyDatabaseEmployees() {
   const insets = useSafeAreaInsets();
   const headerPaddingTop = Platform.OS === "ios" ? insets.top + 12 : 48;
 
-  const [summary, setSummary] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<any[]>(summaryMemory ?? []);
+  const [loading, setLoading] = useState(summaryMemory === null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -168,16 +238,36 @@ export default function DailyDatabaseEmployees() {
     });
   }, [summary, search]);
 
+  // first open after the app was closed: show the last saved list at once
+  useEffect(() => {
+    if (summaryMemory !== null) return;
+    AsyncStorage.getItem(SUMMARY_CACHE_KEY)
+      .then((saved) => {
+        if (!saved || summaryMemory !== null) return;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setSummary(parsed);
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const loadSummary = async () => {
     try {
       setError("");
       const res = await fetch(`${BACKEND_URL}/daily-database/employees-summary`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setSummary(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      summaryMemory = list;
+      setSummary(list);
+      AsyncStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify(list)).catch(() => {});
     } catch (err) {
       console.log("Load daily leads summary error:", err);
-      setError("Could not connect to server");
+      // keep showing the list we already have; only show the error when
+      // there is nothing to show
+      if (summaryMemory === null) setError("Could not connect to server");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -265,7 +355,7 @@ export default function DailyDatabaseEmployees() {
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
-          <ActivityIndicator color="#024e32" style={{ marginTop: 40 }} />
+          <SummarySkeleton />
         ) : error ? (
           <View className="py-20 items-center">
             <MaterialIcons name="error-outline" size={50} color="#dc2626" />

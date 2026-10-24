@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import BACKEND_URL from "../../config";
+import { useLiveBadges } from "../../components/useLiveBadges";
 
 import {
   ActivityIndicator,
@@ -21,6 +22,13 @@ import {
 const { width: SCREEN_W } = Dimensions.get("window");
 const CARD_W = 132;
 const CARD_GAP = 14;
+
+/* Group Capacity is kept here (in memory while the app is open, and saved on
+   the phone) so coming back to this page shows the gauges instantly. They
+   are then refreshed quietly in the background - no loading flash. */
+const CAPACITY_CACHE_KEY = "adminGroupCapacityCache";
+let groupCapacityMemory: any[] | null = null;
+let capacityInFlight = false;
 
 /* =========================================================
    CAPACITY CAPSULE — glass-tube battery gauge that fills from
@@ -222,12 +230,33 @@ export default function AdminIndex() {
       filled: number;
       vacancy: number;
     }[]
-  >([]);
-  const [groupCapacityLoading, setGroupCapacityLoading] = useState(true);
+  >(groupCapacityMemory ?? []);
+  const [groupCapacityLoading, setGroupCapacityLoading] = useState(
+    groupCapacityMemory === null
+  );
+
+  // first open after the app was closed: show the last saved gauges at once
+  useEffect(() => {
+    if (groupCapacityMemory !== null) return;
+    AsyncStorage.getItem(CAPACITY_CACHE_KEY)
+      .then((saved) => {
+        if (!saved || groupCapacityMemory !== null) return;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setGroupCapacity(parsed);
+          setGroupCapacityLoading(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const loadGroupCapacity = useCallback(async () => {
+    if (capacityInFlight) return;
+    capacityInFlight = true;
     try {
-      setGroupCapacityLoading(true);
+      // only show the loading state the very first time; after that the
+      // old gauges stay on screen while the new numbers load behind them
+      if (groupCapacityMemory === null) setGroupCapacityLoading(true);
       const chitRes = await fetch(`${BACKEND_URL}/chitscheme`);
       const chitData = chitRes.ok ? await chitRes.json() : [];
       const chits = Array.isArray(chitData) ? chitData : [];
@@ -260,11 +289,21 @@ export default function AdminIndex() {
         })
       );
 
-      setGroupCapacity(perChit.flat());
+      const nextCapacity = perChit.flat();
+      // a failed / empty reply never wipes numbers we already have
+      if (nextCapacity.length > 0 || groupCapacityMemory === null) {
+        groupCapacityMemory = nextCapacity;
+        setGroupCapacity(nextCapacity);
+        AsyncStorage.setItem(
+          CAPACITY_CACHE_KEY,
+          JSON.stringify(nextCapacity)
+        ).catch(() => {});
+      }
     } catch (error) {
       console.log("Group capacity load error:", error);
-      setGroupCapacity([]);
+      if (groupCapacityMemory === null) setGroupCapacity([]);
     } finally {
+      capacityInFlight = false;
       setGroupCapacityLoading(false);
     }
   }, []);
@@ -279,6 +318,22 @@ export default function AdminIndex() {
       loadContactRequestCount();
       loadGroupCapacity();
     }, [loadRequestCount, loadContactRequestCount, loadGroupCapacity])
+  );
+
+  // LIVE BADGES: re-run the SAME count functions above the moment the server
+  // says a vacancy request / contact request changed (no manual refresh).
+  useLiveBadges(true, () => {
+    loadRequestCount();
+    loadContactRequestCount();
+    loadGroupCapacity(); // vacancies / seats may have changed
+  });
+
+  // keep Group Capacity up to date while this page is open (quiet, no spinner)
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setInterval(loadGroupCapacity, 60000);
+      return () => clearInterval(timer);
+    }, [loadGroupCapacity])
   );
 
   // ✅ FINAL LOGOUT FUNCTION (ALL DEVICES)
@@ -494,6 +549,13 @@ export default function AdminIndex() {
             icon="support-agent"
             route="/admin/contactRequests"
             badgeCount={contactRequestCount}
+          />
+
+          <MenuCard
+            title="Waived Penalties"
+            subtitle="Penalty OFF list for audit"
+            icon="gavel"
+            route="/admin/penaltyWaivers"
           />
 
           <MenuCard title="Profile" icon="person" route="/admin/profile" />

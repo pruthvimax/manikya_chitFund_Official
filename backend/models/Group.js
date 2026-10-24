@@ -53,10 +53,29 @@ const collectionSchema = new mongoose.Schema(
 
     amount: { type: Number, default: null },
     payments: { type: [paymentSchema], default: [] },
+    
 
     penalty: {
       percentage: { type: Number, default: 6 },
       amount: { type: Number, default: 0 },
+    },
+
+    // PENALTY WAIVER (admin switches the penalty OFF for this member + month).
+    // Penalty already paid stays in payments; only the unpaid part is waived.
+    penaltyWaived: { type: Boolean, default: false },
+    penaltyWaivedBy: { type: String, default: "" },
+    penaltyWaivedAt: { type: Date, default: null },
+    penaltyWaiverLog: {
+      type: [
+        {
+          action: { type: String }, // "WAIVED" | "RESTORED"
+          by: { type: String, default: "" },
+          at: { type: Date, default: Date.now },
+          penaltyPaidAtThatTime: { type: Number, default: 0 },
+          _id: false,
+        },
+      ],
+      default: [],
     },
   },
   { _id: false }

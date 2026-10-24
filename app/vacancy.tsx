@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Modal,
+  Platform,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -15,6 +16,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import BACKEND_URL from "../config";
+import { cacheGet, cacheSet } from "../memberCache";
 
 /* =========================================================
    MEMBER - VACANCIES
@@ -377,6 +379,8 @@ export default function MemberVacancy() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /* small loading symbol while the saved list is refreshed in background */
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
 
   const [confirmTarget, setConfirmTarget] = useState<any>(null);
@@ -385,6 +389,10 @@ export default function MemberVacancy() {
 
   const [banner, setBanner] = useState("");
   const [bannerType, setBannerType] = useState<"success" | "error">("success");
+
+  /* true while the list on screen came from the saved copy, so a
+     slow/failed background refresh never replaces it with an error */
+  const shownFromCacheRef = React.useRef(false);
 
   const flash = (text: string, type: "success" | "error" = "success") => {
     setBanner(text);
@@ -408,6 +416,7 @@ export default function MemberVacancy() {
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
       setVacancies(list);
+      if (uid) cacheSet(uid, "vacancies:open", list);
 
       /* Opening this page marks every vacancy published so far
          as seen, so the red badge on the Menu card clears and
@@ -420,7 +429,7 @@ export default function MemberVacancy() {
       return list;
     } catch (err) {
       console.log("Load vacancies error:", err);
-      setError("Could not connect to server");
+      if (!shownFromCacheRef.current) setError("Could not connect to server");
       return null;
     } finally {
       setLoading(false);
@@ -430,14 +439,16 @@ export default function MemberVacancy() {
 
   /* Reuses the existing, unmodified GET /notifications endpoint
      purely to know which group has a currently-running auction. */
-  const loadNotifications = async () => {
+  const loadNotifications = async (uid?: string | null) => {
     try {
       const res = await fetch(`${BACKEND_URL}/notifications`);
       const data = await res.json();
-      setNotifications(Array.isArray(data) ? data : []);
+      const nList = Array.isArray(data) ? data : [];
+      setNotifications(nList);
+      if (uid) cacheSet(uid, "notifications", nList);
     } catch (err) {
       console.log("Load notifications error:", err);
-      setNotifications([]);
+      if (!shownFromCacheRef.current) setNotifications([]);
     }
   };
 
@@ -458,10 +469,26 @@ export default function MemberVacancy() {
         if (!active) return;
 
         setUserid(parsed?.userid || null);
+
+        /* Show the last saved list instantly, then refresh quietly
+           in the background so seats/amounts stay up to date. */
+        const cachedVac = parsed?.userid
+          ? cacheGet(parsed.userid, "vacancies:open")
+          : null;
+        if (cachedVac) {
+          const cachedNotif = cacheGet(parsed.userid, "notifications");
+          shownFromCacheRef.current = true;
+          setVacancies(cachedVac);
+          if (cachedNotif) setNotifications(cachedNotif);
+          setLoading(false);
+          setSyncing(true);
+        }
+
         await Promise.all([
           loadVacancies(parsed?.userid || null),
-          loadNotifications(),
+          loadNotifications(parsed?.userid || null),
         ]);
+        if (active) setSyncing(false);
       };
 
       boot();
@@ -474,7 +501,8 @@ export default function MemberVacancy() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    Promise.all([loadVacancies(userid), loadNotifications()]);
+    shownFromCacheRef.current = false;
+    Promise.all([loadVacancies(userid), loadNotifications(userid)]);
   };
 
   /* Refreshes this one vacancy's numbers from the server the moment
@@ -599,6 +627,12 @@ export default function MemberVacancy() {
               >
                 {banner}
               </Text>
+            </View>
+          ) : null}
+
+          {syncing || (refreshing && Platform.OS === "web") ? (
+            <View className="items-center py-2 mb-2">
+              <ActivityIndicator size="small" color="#024e32" />
             </View>
           ) : null}
 

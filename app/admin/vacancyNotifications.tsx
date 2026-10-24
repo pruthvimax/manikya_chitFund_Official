@@ -1,4 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalSearchParams } from "expo-router";
@@ -16,6 +17,13 @@ import {
   View,
 } from "react-native";
 import BACKEND_URL from "../../config";
+import { useLiveBadges } from "../../components/useLiveBadges";
+
+/* Each filter's last loaded list is kept (in memory while the app is open,
+   and saved on the phone) so the page and the filter tabs open instantly and
+   refresh quietly in the background. */
+const REQ_CACHE_KEY = "adminVacancyRequestsCache";
+const requestsMemory: Record<string, { requests: any[]; pendingCount: number }> = {};
 
 /* =========================================================
    ADMIN - VACANCY NOTIFICATIONS
@@ -273,12 +281,16 @@ const { from } = useLocalSearchParams<{
   from?: string;
 }>();
 
-  const [requests, setRequests] = useState<any[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [requests, setRequests] = useState<any[]>(
+    requestsMemory["Pending"]?.requests ?? []
+  );
+  const [pendingCount, setPendingCount] = useState(
+    requestsMemory["Pending"]?.pendingCount ?? 0
+  );
 
   const [filter, setFilter] = useState<string>("Pending");
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!requestsMemory["Pending"]);
   const [refreshing, setRefreshing] = useState(false);
 
   const [openRequest, setOpenRequest] = useState<any>(null);
@@ -326,8 +338,14 @@ const { from } = useLocalSearchParams<{
       const res = await fetch(`${BACKEND_URL}/vacancy/requests${query}`);
       const data = await res.json();
 
-      setRequests(Array.isArray(data?.requests) ? data.requests : []);
-      setPendingCount(Number(data?.pendingCount || 0));
+      const list = Array.isArray(data?.requests) ? data.requests : [];
+      const pending = Number(data?.pendingCount || 0);
+      requestsMemory[activeFilter] = { requests: list, pendingCount: pending };
+      setRequests(list);
+      setPendingCount(pending);
+      AsyncStorage.setItem(REQ_CACHE_KEY, JSON.stringify(requestsMemory)).catch(
+        () => {}
+      );
     } catch (err) {
       console.log("Load requests error:", err);
       flash("Could not reach the server", "error");
@@ -357,6 +375,31 @@ const { from } = useLocalSearchParams<{
     setRefreshing(true);
     load();
   };
+
+  // first open after the app was closed: show the last saved lists at once
+  useEffect(() => {
+    if (Object.keys(requestsMemory).length > 0) return;
+    AsyncStorage.getItem(REQ_CACHE_KEY)
+      .then((saved) => {
+        if (!saved || Object.keys(requestsMemory).length > 0) return;
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          Object.assign(requestsMemory, parsed);
+          const first = requestsMemory[filter];
+          if (first) {
+            setRequests(first.requests || []);
+            setPendingCount(first.pendingCount || 0);
+            setLoading(false);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // a new / changed request shows up here by itself (no pull-to-refresh)
+  useLiveBadges(true, () => {
+    load();
+  });
 
   /* ================= OPEN / CLOSE REQUEST ================= */
   const openDetail = (request: any) => {
@@ -628,7 +671,14 @@ const leavePage = () => {
                   key={f}
                   onPress={() => {
                     setFilter(f);
-                    setLoading(true);
+                    // show this tab's last list right away if we have one
+                    if (requestsMemory[f]) {
+                      setRequests(requestsMemory[f].requests);
+                      setPendingCount(requestsMemory[f].pendingCount);
+                      setLoading(false);
+                    } else {
+                      setLoading(true);
+                    }
                   }}
                   activeOpacity={0.85}
                   className={`flex-1 py-2.5 rounded-xl mr-2 border ${

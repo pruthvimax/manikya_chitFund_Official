@@ -26,6 +26,13 @@ import workSheetRoutes from "./routes/workSheetRoutes.js";
 import bidRoutes from "./routes/bidRoutes.js";
 import vacancyRoutes from "./routes/vacancyRoutes.js";
 import dailyDatabaseRoutes from "./routes/dailyDatabaseRoutes.js";
+import http from "http";
+import { initSocket } from "./realtime/socket.js";
+import spinnerRoutes from "./routes/spinnerRoutes.js";
+import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
+import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
+import pushRoutes from "./routes/pushRoutes.js";
+import dailyFollowUpRoutes from "./routes/dailyFollowUpRoutes.js";
 
 
 const app = express();
@@ -71,6 +78,10 @@ app.use("/api/members", memberRoutes);
 
 app.use("/api/member-interest", memberInterestRoutes);
 app.use("/api/member-history", memberHistoryRoutes);
+// live badges: ping phones after notification / vacancy changes (no logic change)
+app.use("/api/notifications", liveBadgeMiddleware("notifications"));
+app.use("/api/vacancy", liveBadgeMiddleware("vacancy"));
+app.use("/api/contact-requests", liveBadgeMiddleware("contact"));
 app.use("/api/groups", groupRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/contact-requests", contactRequestRoutes);
@@ -83,7 +94,15 @@ app.use("/api/enrollment", enrollmentRoutes);
 app.use("/api/target", targetRoutes);
 app.use("/api/bids", bidRoutes);
 app.use("/api/vacancy", vacancyRoutes);
+// follow-up reminders (Daily Leads): ping phones on any lead change so the
+// employee's red badge updates instantly; follow-ups router goes first
+app.use("/api/daily-database", liveBadgeMiddleware("followups"));
+app.use("/api/daily-database/follow-ups", dailyFollowUpRoutes);
 app.use("/api/daily-database", dailyDatabaseRoutes);
+app.use("/api/spinner", spinnerRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/groups", penaltyWaiverRoutes);
+app.use("/api/penalty-waivers", penaltyWaiverReportRouter);
 
 // ----------------- TEST ROUTE -----------------
 
@@ -110,7 +129,9 @@ app.get("/api/check-leave", (req, res) => {
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || "0.0.0.0";
 
-app.listen(PORT, HOST, () => {
+const httpServer = http.createServer(app);
+initSocket(httpServer);
+httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on http://${HOST}:${PORT}`);
   console.log(
     `🌐 Access from LAN using your laptop IP: http://<YOUR_LAN_IP>:${PORT}`

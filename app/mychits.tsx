@@ -18,6 +18,13 @@ import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import BACKEND_URL from "../config";
+import {
+  cacheGet,
+  cacheSet,
+  groupsKey,
+  ledgerKey,
+  dividendsKey,
+} from "../memberCache";
 
 /* =========================================================================
    OPTIONAL BACKEND FIELDS
@@ -707,13 +714,24 @@ export default function MyChits() {
   const fetchLedgerForChit = async (
     uid: string,
     groupId: string,
-    groupMemberId: string
+    groupMemberId: string,
+    forceRefresh = false
   ) => {
     try {
+      // CACHE: a ledger already loaded (here or on My Account Copy /
+      // My Outstanding) is reused; a manual refresh fetches it again.
+      const cached = forceRefresh
+        ? undefined
+        : cacheGet(uid, ledgerKey(groupId, groupMemberId));
+      if (cached && Array.isArray(cached.ledger)) return cached.ledger;
+
       const res = await fetch(
         `${BACKEND_URL}/groups/account-copy/${uid}/${groupId}?groupMemberId=${groupMemberId}`
       );
       const data = await res.json();
+      if (Array.isArray(data.ledger)) {
+        cacheSet(uid, ledgerKey(groupId, groupMemberId), data);
+      }
       return Array.isArray(data.ledger) ? data.ledger : [];
     } catch (err) {
       console.log("❌ Ledger fetch error for group", groupId, err);
@@ -758,7 +776,25 @@ export default function MyChits() {
   // groupDetail.collectionPlans. Keeping both pages on the exact same
   // dividend source is what keeps their totals in agreement for the
   // same member.
-  const fetchDividendMapForLedger = async (groupId: string, ledgerRows: any[]) => {
+  const fetchDividendMapForLedger = async (
+    groupId: string,
+    ledgerRows: any[],
+    uid?: string,
+    groupMemberId?: string,
+    forceRefresh = false
+  ) => {
+    // CACHE: dividends already loaded (here or on My Account Copy) are
+    // reused, but only if they cover every month of this ledger.
+    if (uid && !forceRefresh) {
+      const cachedMap = cacheGet(uid, dividendsKey(groupId, groupMemberId || ""));
+      if (
+        cachedMap &&
+        (ledgerRows || []).every((row: any) => cachedMap[row.monthIndex] !== undefined)
+      ) {
+        return cachedMap as Record<string, number>;
+      }
+    }
+
     const map: Record<string, number> = {};
     await Promise.all(
       (ledgerRows || []).map(async (row: any) => {
@@ -774,6 +810,7 @@ export default function MyChits() {
         }
       })
     );
+    if (uid) cacheSet(uid, dividendsKey(groupId, groupMemberId || ""), map);
     return map;
   };
 
@@ -823,7 +860,7 @@ export default function MyChits() {
     }
   };
 
-  const loadMyChits = async () => {
+  const loadMyChits = async (forceRefresh = false) => {
     try {
       const storedUser = await AsyncStorage.getItem("loggedUser");
 
@@ -835,24 +872,48 @@ export default function MyChits() {
       const { userid: uid } = JSON.parse(storedUser);
       setUserid(uid);
 
-      const response = await fetch(`${BACKEND_URL}/groups/my-chits/${uid}`);
-      const text = await response.text();
-      const data = JSON.parse(text);
+      // CACHE: the finished screen from the last visit is shown straight
+      // away with no network request. Only a manual refresh
+      // (forceRefresh) loads everything from the server again.
+      if (!forceRefresh) {
+        const cachedChits = cacheGet(uid, "mychits");
+        if (cachedChits) {
+          setChits(cachedChits);
+          return;
+        }
+      }
+
+      // SPEED: notifications and chit schemes don't depend on the group
+      // list, so they are requested NOW, at the same time as the group
+      // list, instead of one after the other.
+      const notificationsPromise = (async () => {
+        try {
+          const nRes = await fetch(`${BACKEND_URL}/notifications`);
+          const nData = await nRes.json();
+          return Array.isArray(nData) ? nData : [];
+        } catch {
+          return [];
+        }
+      })();
+
+      const schemesPromise = fetchChitSchemes();
+
+      let data: any = forceRefresh ? undefined : cacheGet(uid, groupsKey());
+
+      if (!data) {
+        const response = await fetch(`${BACKEND_URL}/groups/my-chits/${uid}`);
+        const text = await response.text();
+        data = JSON.parse(text);
+        if (Array.isArray(data)) cacheSet(uid, groupsKey(), data);
+      }
 
       let chitsData: any[] = [];
       if (Array.isArray(data)) chitsData = data;
       else if (Array.isArray(data.chits)) chitsData = data.chits;
 
-      let notifications: any[] = [];
-      try {
-        const nRes = await fetch(`${BACKEND_URL}/notifications`);
-        const nData = await nRes.json();
-        notifications = Array.isArray(nData) ? nData : [];
-      } catch {
-        notifications = [];
-      }
+      const notifications: any[] = await notificationsPromise;
 
-      const schemes = await fetchChitSchemes();
+      const schemes = await schemesPromise;
 
       const schemeAmountFor = (chitId: any) => {
         if (!chitId) return null;
@@ -872,8 +933,17 @@ export default function MyChits() {
           const groupId = chit.groupId;
           const groupMemberId = chit.groupMemberId || "";
 
+          // SPEED: the live bids only need the auction (known from the
+          // notifications above), so that request starts NOW, while the
+          // ledger and dividends are still loading, instead of after
+          // them. The auction is worked out exactly the same way as
+          // further down.
+          const liveBidsPromise = fetchBidsForAuction(
+            auctionsForGroup(notifications, groupId)[0] || null
+          );
+
           const [rawLedger, groupDetail] = await Promise.all([
-            fetchLedgerForChit(uid, groupId, groupMemberId),
+            fetchLedgerForChit(uid, groupId, groupMemberId, forceRefresh),
             fetchGroupDetail(groupId),
           ]);
 
@@ -901,7 +971,13 @@ export default function MyChits() {
             })
           );
 
-          const monthDividendMap = await fetchDividendMapForLedger(groupId, ledger);
+          const monthDividendMap = await fetchDividendMapForLedger(
+            groupId,
+            ledger,
+            uid,
+            groupMemberId,
+            forceRefresh
+          );
           const dividendFor = (monthIndex: any) =>
             Number(monthDividendMap[monthIndex] || 0);
 
@@ -909,7 +985,7 @@ export default function MyChits() {
 
           const auction = groupAuctions[0] || null;
 
-          const liveBids = await fetchBidsForAuction(auction);
+          const liveBids = await liveBidsPromise;
 
           const currentBid = liveBids.reduce(
             (best: number, b: any) => Math.max(best, Number(b.bidAmount || 0)),
@@ -1085,6 +1161,7 @@ export default function MyChits() {
         })
       );
 
+      cacheSet(uid, "mychits", processedChits);
       setChits(processedChits);
     } catch (error) {
       console.log("❌ My Chits Error:", error);
@@ -1096,7 +1173,7 @@ export default function MyChits() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadMyChits();
+    loadMyChits(true);
   };
 
   const openAccountCopy = () => {
@@ -1124,6 +1201,49 @@ export default function MyChits() {
     });
   };
 
+  /* ================= LIVE-DRAW WINNER (until admin enters the winner) ================= */
+  /*
+    After the live spin has finished, the winner of the spin is shown in
+    History together with every bid. This row is used ONLY while the admin
+    has not yet entered the winner details for that auction. As soon as the
+    admin saves the winner (auction.winnerName), the normal result row takes
+    over and this one is no longer added.
+    Everybody sees the group member ID; the name is sent by the server only
+    to the winner himself.
+  */
+  const fetchSpinWinnerRow = async (auction: any) => {
+    try {
+      const gid = auction.groupId?._id || auction.groupId || "";
+
+      const res = await fetch(
+        `${BACKEND_URL}/spinner/state?userid=${encodeURIComponent(userid || "")}` +
+          `&groupId=${encodeURIComponent(gid)}` +
+          `&auctionEndDate=${encodeURIComponent(auction.auctionEndDate || "")}` +
+          `&auctionEndTime=${encodeURIComponent(auction.auctionEndTime || "")}`
+      );
+      const data = await res.json();
+
+      if (!data?.success || !data.exists || data.status !== "completed") {
+        return null;
+      }
+
+      const bids = await fetchBidsForAuction(auction);
+
+      return {
+        auction: {
+          ...auction,
+          spinWinner: true,
+          winnerName: data.winner?.memberName || "",
+          winnerGroupId: data.winner?.groupMemberId || "",
+          winnerBidAmount: Number(data.winner?.bidAmount || 0),
+        },
+        bids,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   /* ================= HISTORY -> winner + that auction's bids ================= */
   const openResultHistory = async (chit: any) => {
     setHistoryChit(chit);
@@ -1139,7 +1259,13 @@ export default function MyChits() {
         })
       );
 
-      setHistoryRows(rows);
+      // live-draw winner of the newest auction, only until the admin
+      // has entered the winner details for it
+      const newest = chit.auction;
+      const spinRow =
+        newest && !newest.winnerName ? await fetchSpinWinnerRow(newest) : null;
+
+      setHistoryRows(spinRow ? [spinRow, ...rows] : rows);
     } catch {
       setHistoryRows([]);
     } finally {
@@ -1735,8 +1861,17 @@ export default function MyChits() {
                   </Text>
                   <Text className={`text-green-100 ${T.sm} mt-0.5`}>
                     Group {historyChit?.groupId} ·{" "}
-                    {historyChit?.resultHistory?.length || 0} result
-                    {historyChit?.resultHistory?.length === 1 ? "" : "s"}
+                    {Math.max(
+                      historyRows.length,
+                      historyChit?.resultHistory?.length || 0
+                    )}{" "}
+                    result
+                    {Math.max(
+                      historyRows.length,
+                      historyChit?.resultHistory?.length || 0
+                    ) === 1
+                      ? ""
+                      : "s"}
                   </Text>
                 </View>
 
@@ -1813,7 +1948,8 @@ export default function MyChits() {
                             <Text
                               className={`text-amber-800 font-bold ${T.base} ml-1.5 flex-1`}
                             >
-                              {r.winnerName}
+                              {r.winnerName ||
+                                (r.spinWinner ? "Live Draw Winner" : "")}
                             </Text>
 
                             <Text className={`text-gray-500 ${T.xs}`}>

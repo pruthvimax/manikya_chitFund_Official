@@ -38,6 +38,14 @@ const dailyDatabaseSchema = new mongoose.Schema(
       enum: ["Hot", "Warm", "Cold"],
       default: "Warm",
     },
+
+    // FOLLOW-UP: the date (date only, "YYYY-MM-DD") the lead asked to be
+    // contacted again. Kept as a plain string so there is no time-zone
+    // shift. followUpDone is set by the employee ("Mark done"); when the
+    // admin changes the date it is reset to pending again.
+    followUpDate: { type: String, trim: true, default: "" },
+    followUpDone: { type: Boolean, default: false },
+    followUpDoneAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -20,6 +20,7 @@ import {
   View
 } from "react-native";
 import BACKEND_URL from "../../config";
+import { logPenaltyMismatch } from "../../components/penaltyCheck";
 
 // ============ HELPER FUNCTION TO EXTRACT NUMERIC VALUE FROM ID ============
 const extractNumberFromId = (id: string) => {
@@ -338,6 +339,7 @@ export default function GroupMembers() {
       penaltyIncrement: number;
       penaltyPaid: number;
       pendingPenalty: number;
+      penaltyWaived: boolean;
       cumulativeAssessed: number;
       // Breakdown of penaltyIncrement, for display: penaltyIncrement ≈
       // carriedPenaltyPart + ownPenaltyPart (may differ by ≤ ₹1 from
@@ -393,6 +395,23 @@ export default function GroupMembers() {
         );
       }
 
+      // PENALTY WAIVER: admin switched the penalty OFF for this member +
+      // month. Whatever the member already paid stays; nothing more is due.
+      if (c.penaltyWaived) {
+        totalPenaltyAssessed += penaltyPaid - penaltyIncrement;
+        penaltyIncrement = penaltyPaid;
+        carriedFromMonths.length = 0;
+        carriedPenaltyPart = 0;
+        ownPenaltyPart = 0;
+      }
+
+      logPenaltyMismatch(
+        "admin-groupMembers",
+        `M${c.index}`,
+        penaltyIncrement,
+        c.backendPenaltyDue,
+      );
+
       const pendingPenalty = Math.max(penaltyIncrement - penaltyPaid, 0);
       totalPenaltyPending += pendingPenalty;
 
@@ -402,6 +421,7 @@ export default function GroupMembers() {
         penaltyIncrement,
         penaltyPaid,
         pendingPenalty,
+        penaltyWaived: Boolean(c.penaltyWaived),
         cumulativeAssessed: totalPenaltyAssessed,
         carriedFromMonths,
         carriedPenaltyPart,
@@ -973,6 +993,57 @@ export default function GroupMembers() {
     }
   };
 
+  // PENALTY WAIVER: admin switches the penalty OFF / ON for one month.
+  const applyPenaltyWaiver = async (monthIndex: number, waived: boolean) => {
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/groups/${groupId}/members/${historyMember.groupMemberId}/penalty-waiver/${monthIndex}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ waived, by: "Admin" }),
+        },
+      );
+
+      if (!res.ok) {
+        Alert.alert("Error", "Could not change the penalty. Please try again.");
+        return;
+      }
+
+      setHistoryMember((prev: any) => ({
+        ...prev,
+        collections: (prev?.collections || []).map((col: any) =>
+          col.index === monthIndex ? { ...col, penaltyWaived: waived } : col,
+        ),
+      }));
+
+      setTimeout(() => {
+        fetchMembers();
+      }, 300);
+    } catch {
+      Alert.alert("Error", "Could not change the penalty. Please try again.");
+    }
+  };
+
+  const togglePenaltyWaiver = (monthIndex: number, waived: boolean) => {
+    const message = waived
+      ? `Switch OFF the penalty for Month ${monthIndex}? Any penalty already paid stays as it is.`
+      : `Switch the penalty back ON for Month ${monthIndex}?`;
+
+    if (Platform.OS === "web") {
+      if (window.confirm(message)) applyPenaltyWaiver(monthIndex, waived);
+      return;
+    }
+
+    Alert.alert(waived ? "Penalty OFF" : "Penalty ON", message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: waived ? "Switch OFF" : "Switch ON",
+        onPress: () => applyPenaltyWaiver(monthIndex, waived),
+      },
+    ]);
+  };
+
   // Delete payment
   const deleteNow = async (monthIndex: number, paymentIndex: number) => {
     try {
@@ -1261,6 +1332,7 @@ export default function GroupMembers() {
           <div class="month-summary">
             Paid ₹${displayPaid} / ₹${installmentAmount}
             ${penaltyIncrement > 0 ? `&nbsp;•&nbsp;<span class="penalty-text">Penalty (6%) ₹${pendingPenalty}${pendingPenalty !== penaltyIncrement ? ` of ₹${penaltyIncrement}` : ""}</span>` : ""}
+            ${c.penaltyWaived ? `&nbsp;•&nbsp;<span class="penalty-text">Penalty waived by admin</span>` : ""}
             ${
               penaltyRow && penaltyRow.carriedFromMonths.length > 0
                 ? `<div class="carry-text">M${penaltyRow.carriedFromMonths.join("+M")} ₹${penaltyRow.carriedPenaltyPart} previous + M${c.index} ₹${penaltyRow.ownPenaltyPart} current = ₹${penaltyRow.carriedPenaltyPart + penaltyRow.ownPenaltyPart} total</div>`
@@ -2600,6 +2672,47 @@ export default function GroupMembers() {
                                 {`M${penaltyRow.carriedFromMonths.join("+M")} ₹${penaltyRow.carriedPenaltyPart} previous + M${c.index} ₹${penaltyRow.ownPenaltyPart} current = ₹${penaltyRow.carriedPenaltyPart + penaltyRow.ownPenaltyPart} total`}
                               </Text>
                             )}
+                        </View>
+                      )}
+
+                      {/* PENALTY WAIVER (admin ON / OFF) */}
+                      {(c.penaltyWaived || penaltyIncrement > 0 || isOverdue) && (
+                        <View
+                          className="mx-4 mt-3 flex-row items-center justify-between rounded-xl px-3 py-2.5 border"
+                          style={{
+                            backgroundColor: c.penaltyWaived ? "#eff6ff" : "#f9fafb",
+                            borderColor: c.penaltyWaived ? "#bfdbfe" : "#e5e7eb",
+                          }}
+                        >
+                          <View style={{ flex: 1, paddingRight: 8 }}>
+                            <Text
+                              className="text-sm font-semibold"
+                              style={{ color: c.penaltyWaived ? "#1d4ed8" : "#374151" }}
+                            >
+                              {c.penaltyWaived ? "Penalty OFF (waived)" : "Penalty ON"}
+                            </Text>
+                            {c.penaltyWaived && (penaltyRow?.penaltyPaid ?? 0) > 0 && (
+                              <Text className="text-xs mt-0.5" style={{ color: "#1d4ed8" }}>
+                                Already paid ₹{penaltyRow?.penaltyPaid} is kept
+                              </Text>
+                            )}
+                          </View>
+                          <TouchableOpacity
+                            onPress={() =>
+                              togglePenaltyWaiver(c.index, !c.penaltyWaived)
+                            }
+                            activeOpacity={0.8}
+                            style={{
+                              paddingVertical: 7,
+                              paddingHorizontal: 12,
+                              borderRadius: 999,
+                              backgroundColor: c.penaltyWaived ? "#024e32" : "#dc2626",
+                            }}
+                          >
+                            <Text className="text-white text-xs font-bold">
+                              {c.penaltyWaived ? "Turn ON" : "Turn OFF"}
+                            </Text>
+                          </TouchableOpacity>
                         </View>
                       )}
 

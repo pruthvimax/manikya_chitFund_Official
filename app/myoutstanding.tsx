@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
   Animated,
   Alert,
   Modal,
@@ -16,6 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
+import { logPenaltyMismatch } from "../components/penaltyCheck";
+import { cacheGet, cacheSet, groupsKey, ledgerKey } from "../memberCache";
 import { useRouter } from "expo-router";
 
 // =========================================================
@@ -368,6 +371,14 @@ export default function MyOutstanding() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [pendingMonths, setPendingMonths] = useState<any[]>([]);
+
+  /*
+    ADDED: one small record for EVERY month of every group -- including
+    months that are already fully paid and so are not in pendingMonths.
+    Only the Total Paid and Dividend cards read this, so those two
+    cards cover ALL months instead of just the pending ones.
+  */
+  const [allMonthTotals, setAllMonthTotals] = useState<any[]>([]);
   const [filteredMonths, setFilteredMonths] = useState<any[]>([]);
 
   const [totalOutstanding, setTotalOutstanding] = useState(0);
@@ -528,25 +539,38 @@ export default function MyOutstanding() {
 
   /* ================= LOAD FUNCTION ================= */
 
-  const loadOutstanding = async (currentUser: any) => {
+  const loadOutstanding = async (currentUser: any, forceRefresh = false) => {
     if (!currentUser) return;
 
     try {
       setLoading(true);
       setError(null);
 
-      const groupsRes = await fetch(
-        `${BACKEND_URL}/groups/my-chits/${currentUser.userid}`
-      );
+      // CACHE: the group list from the last visit is reused with no
+      // network request; only a manual refresh (forceRefresh) fetches it
+      // again.
+      let groupsData: any = forceRefresh
+        ? undefined
+        : cacheGet(currentUser.userid, groupsKey());
 
-      if (!groupsRes.ok) {
-        throw new Error("Failed to fetch groups");
+      if (!groupsData) {
+        const groupsRes = await fetch(
+          `${BACKEND_URL}/groups/my-chits/${currentUser.userid}`
+        );
+
+        if (!groupsRes.ok) {
+          throw new Error("Failed to fetch groups");
+        }
+
+        groupsData = await groupsRes.json();
+        if (Array.isArray(groupsData)) {
+          cacheSet(currentUser.userid, groupsKey(), groupsData);
+        }
       }
-
-      const groupsData = await groupsRes.json();
 
       if (!Array.isArray(groupsData)) {
         setPendingMonths([]);
+        setAllMonthTotals([]);
         setFilteredMonths([]);
         setTotalOutstanding(0);
         setDueThisMonth(0);
@@ -638,6 +662,9 @@ export default function MyOutstanding() {
 
       const allMonths: any[] = [];
 
+      // ADDED: per-month paid/dividend for ALL months (see allMonthTotals)
+      const monthTotals: any[] = [];
+
       const today = new Date();
 
       /*
@@ -668,22 +695,60 @@ export default function MyOutstanding() {
       */
       const processedLedgerKeys = new Set<string>();
 
+      /*
+        SPEED: every group's ledger request is started HERE, all at
+        once, instead of one request after the other inside the loop
+        below. With 3 groups the page used to wait for 3 requests in
+        a row; now it waits only for the slowest one. The loop below
+        is unchanged -- it still goes through the groups in the same
+        order and does the same calculations; it just picks up each
+        already-running request instead of starting it.
+      */
+      const ledgerRequests = new Map<any, Promise<any>>();
+
+      for (const group of uniqueGroups) {
+        // CACHE: a ledger loaded earlier (here or on My Account Copy)
+        // is reused with no request; a manual refresh fetches it again.
+        const cachedLedger = forceRefresh
+          ? undefined
+          : cacheGet(
+              currentUser.userid,
+              ledgerKey(group.groupId, group.groupMemberId || "")
+            );
+
+        if (cachedLedger) {
+          ledgerRequests.set(group, Promise.resolve(cachedLedger));
+          continue;
+        }
+
+        const request = fetch(
+          `${BACKEND_URL}/groups/account-copy/${currentUser.userid}/${group.groupId}?groupMemberId=${group.groupMemberId || ""}`
+        ).then(async (res) => {
+          if (!res.ok) return null;
+          const json = await res.json();
+          if (json?.ledger) {
+            cacheSet(
+              currentUser.userid,
+              ledgerKey(group.groupId, group.groupMemberId || ""),
+              json
+            );
+          }
+          return json;
+        });
+        // Marks a failed request as "handled" right away; the real
+        // error is still thrown (and caught) where it is awaited below.
+        request.catch(() => {});
+        ledgerRequests.set(group, request);
+      }
+
       for (const group of uniqueGroups) {
         const groupId = group.groupId;
         const groupMemberId = group.groupMemberId || "";
 
         try {
-          const ledgerRes = await fetch(
-            `${BACKEND_URL}/groups/account-copy/${currentUser.userid}/${groupId}?groupMemberId=${groupMemberId}`
-          );
+          const ledgerData = await ledgerRequests.get(group)!;
 
-          if (!ledgerRes.ok) {
-            continue;
-          }
-
-          const ledgerData = await ledgerRes.json();
-
-          if (!ledgerData.ledger) {
+          if (!ledgerData || !ledgerData.ledger) {
             continue;
           }
 
@@ -742,6 +807,26 @@ export default function MyOutstanding() {
             normalizedRowsForPenalty
           );
 
+          // PENALTY WAIVER: admin switched the penalty OFF for these
+          // months. Penalty already paid stays; nothing more is due.
+          (ledgerData.ledger || []).forEach((m: any) => {
+            if (!m?.penaltyWaived) return;
+            penaltyByMonth[m.monthIndex || 0] = (
+              Array.isArray(m.payments) ? m.payments : []
+            )
+              .filter((p: any) => p.paymentType === "PENALTY")
+              .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+          });
+
+          (ledgerData.ledger || []).forEach((m: any) => {
+            logPenaltyMismatch(
+              "member-myOutstanding",
+              `M${m?.monthIndex || 0}`,
+              penaltyByMonth[m?.monthIndex || 0] || 0,
+              m?.backendPenaltyDue
+            );
+          });
+
           for (const month of ledgerData.ledger) {
             const monthIndex = month.monthIndex || 0;
 
@@ -789,6 +874,14 @@ export default function MyOutstanding() {
                   s + Number(p.amount || 0),
                 0
               );
+
+            // ADDED: remember this month for the Total Paid /
+            // Dividend cards, whether or not it is still pending.
+            monthTotals.push({
+              groupId,
+              installmentPaid,
+              dividend,
+            });
 
             const totalPaid =
               dividend + installmentPaid;
@@ -1047,6 +1140,7 @@ export default function MyOutstanding() {
       */
 
       setPendingMonths(allMonths);
+      setAllMonthTotals(monthTotals);
     } catch (error) {
       console.error(
         "Error loading outstanding:",
@@ -1120,9 +1214,9 @@ export default function MyOutstanding() {
         (dividend + installmentPaid), so subtracting the dividend
         leaves just the real paid-in amount.
       */
-      paid += (m.paid || 0) - (m.dividend || 0);
-
-      dividendSum += m.dividend || 0;
+      // CHANGED: Total Paid and Dividend are no longer added up here
+      // (this loop only sees the PENDING months). They are summed over
+      // ALL months just after this loop.
 
       if (m.isOverdue) {
         overdue +=
@@ -1188,6 +1282,20 @@ export default function MyOutstanding() {
         ) || null;
     }
 
+    /*
+      CHANGED: Total Paid (installment payments, no dividend) and
+      Dividend now cover ALL months of the selected group -- paid
+      months included -- not only the months still pending.
+    */
+    const monthsForTotals = selectedGroupId
+      ? allMonthTotals.filter((t) => t.groupId === selectedGroupId)
+      : allMonthTotals;
+
+    for (const t of monthsForTotals) {
+      paid += t.installmentPaid || 0;
+      dividendSum += t.dividend || 0;
+    }
+
     setTotalOutstanding(total);
     setDueThisMonth(dueThis);
     setOverdueAmount(overdue);
@@ -1197,13 +1305,14 @@ export default function MyOutstanding() {
   }, [
     selectedGroupId,
     pendingMonths,
+    allMonthTotals,
   ]);
 
   /* ================= REFRESH ================= */
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadOutstanding(user);
+    loadOutstanding(user, true);
   };
 
   /* ================= SELECTED GROUP NAME ================= */
@@ -1713,7 +1822,11 @@ export default function MyOutstanding() {
             disabled={refreshing}
             className="w-9 h-9 rounded-full bg-white/15 items-center justify-center"
           >
-            <MaterialIcons name="refresh" size={22} color="white" />
+            {refreshing || loading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <MaterialIcons name="refresh" size={22} color="white" />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -1739,7 +1852,12 @@ export default function MyOutstanding() {
         }
       >
         {loading || !user ? (
-          <OutstandingSkeleton />
+          <>
+            <View className="items-center pt-4">
+              <ActivityIndicator size="small" color="#024e32" />
+            </View>
+            <OutstandingSkeleton />
+          </>
         ) : error ? (
           <View className="mt-10 bg-red-50 rounded-2xl p-8 items-center border border-red-200">
             <MaterialIcons
@@ -1759,7 +1877,7 @@ export default function MyOutstanding() {
             <TouchableOpacity
               className="mt-4 bg-[#024e32] px-6 py-3 rounded-xl"
               onPress={() =>
-                loadOutstanding(user)
+                loadOutstanding(user, true)
               }
             >
               <Text className="text-white font-semibold">

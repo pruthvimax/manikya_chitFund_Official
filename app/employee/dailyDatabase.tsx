@@ -20,6 +20,14 @@ import {
 } from "react-native";
 import Constants from "expo-constants";
 import BACKEND_URL from "../../config";
+import {
+  FollowUpChip,
+  FollowUpDateField,
+  followUpState,
+  formatFollowUp,
+  daysBetween,
+  todayStr,
+} from "../../components/followUp";
 
 /* Reads the real app version straight from app.json (expo.version),
    matching the same pattern used on the admin side's footers. */
@@ -330,6 +338,102 @@ function EntryCard({ entry }: { entry: any }) {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Follow-up date status (only when this lead has one) */}
+      {!!entry.followUpDate && (
+        <View className="flex-row mt-2">
+          <FollowUpChip entry={entry} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/* ================= FOLLOW-UP DUE CARD =================
+   Shown in the "Follow-ups due" list at the top: the lead's follow-up
+   date is today or already passed and it is not marked done yet. The
+   employee can only mark it done -- changing the date is admin-only. */
+function DueFollowUpCard({
+  entry,
+  onDone,
+  marking,
+}: {
+  entry: any;
+  onDone: () => void;
+  marking: boolean;
+}) {
+  const today = todayStr();
+  const overdueDays = daysBetween(entry.followUpDate, today);
+  const isToday = overdueDays <= 0;
+
+  return (
+    <View
+      className="bg-white rounded-2xl p-4 mb-3 border"
+      style={{ borderColor: isToday ? "#fdba74" : "#fca5a5" }}
+    >
+      <View className="flex-row items-center justify-between">
+        <Text className="text-gray-900 font-bold text-base flex-1" numberOfLines={1}>
+          {entry.name}
+        </Text>
+        <View
+          className="px-2 py-1 rounded-full"
+          style={{ backgroundColor: isToday ? "#ffedd5" : "#fee2e2" }}
+        >
+          <Text
+            style={{
+              color: isToday ? "#c2410c" : "#b91c1c",
+              fontSize: 10,
+              fontWeight: "800",
+            }}
+          >
+            {isToday
+              ? "TODAY"
+              : `OVERDUE ${overdueDays} DAY${overdueDays === 1 ? "" : "S"}`}
+          </Text>
+        </View>
+      </View>
+
+      <Text className="text-gray-500 text-xs mt-1">
+        Follow-up date: {formatFollowUp(entry.followUpDate)}
+      </Text>
+
+      <View className="flex-row items-center mt-2">
+        <TouchableOpacity
+          onPress={() => handleCallPress(entry.phone)}
+          disabled={!entry.phone}
+          activeOpacity={0.6}
+          hitSlop={8}
+          className="flex-row items-center bg-green-50 px-2 py-1 rounded-lg"
+        >
+          <MaterialIcons name="call" size={14} color="#024e32" />
+          <Text className="text-[#024e32] text-xs ml-1 font-semibold">
+            {entry.phone}
+          </Text>
+        </TouchableOpacity>
+        {!!entry.occupation && (
+          <>
+            <Text className="text-gray-300 mx-2">•</Text>
+            <Text className="text-gray-500 text-xs">{entry.occupation}</Text>
+          </>
+        )}
+      </View>
+
+      <TouchableOpacity
+        onPress={onDone}
+        disabled={marking}
+        activeOpacity={0.85}
+        className="flex-row items-center justify-center bg-[#024e32] rounded-xl py-3 mt-3"
+        style={{ opacity: marking ? 0.6 : 1 }}
+      >
+        {marking ? (
+          <ActivityIndicator size="small" color="white" />
+        ) : (
+          <>
+            <MaterialIcons name="check-circle" size={18} color="white" />
+            <Text className="text-white font-bold text-sm ml-2">Mark done</Text>
+          </>
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -352,6 +456,8 @@ export default function DailyDatabase() {
   const [workAddress, setWorkAddress] = useState("");
   const [permanentAddress, setPermanentAddress] = useState("");
   const [action, setAction] = useState<ActionType>("Warm");
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState("");
@@ -441,7 +547,60 @@ export default function DailyDatabase() {
     setWorkAddress("");
     setPermanentAddress("");
     setAction("Warm");
+    setFollowUpDate("");
   };
+
+  /* Mark one due follow-up as done (employee can only do this; the date
+     itself can only be changed by the admin). Asks first. */
+  const markFollowUpDone = (entry: any) => {
+    if (!empId) return;
+
+    const run = async () => {
+      setMarkingId(entry._id);
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/daily-database/follow-ups/${entry._id}/done`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ empId }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          flash(data?.message || "Could not mark as done", "error");
+          return;
+        }
+        flash("✓ Follow-up marked as done");
+        loadEntries(empId);
+      } catch (err) {
+        console.log("Mark follow-up done error:", err);
+        flash("Could not reach the server", "error");
+      } finally {
+        setMarkingId(null);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      // @ts-ignore - window only exists on web
+      if (window.confirm(`Mark follow-up with ${entry.name} as done?`)) run();
+      return;
+    }
+    Alert.alert("Mark as done?", `Follow-up with ${entry.name}`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Mark done", onPress: run },
+    ]);
+  };
+
+  // follow-ups whose date is today or already passed, not done yet
+  const dueFollowUps = entries
+    .filter((e) => {
+      const s = followUpState(e);
+      return s === "today" || s === "overdue";
+    })
+    .sort((a, b) =>
+      String(a.followUpDate).localeCompare(String(b.followUpDate))
+    );
 
   const submitEntry = async () => {
     if (!empId || !employeeName) return;
@@ -466,6 +625,7 @@ export default function DailyDatabase() {
           workAddress: workAddress.trim(),
           permanentAddress: permanentAddress.trim(),
           action,
+          followUpDate,
         }),
       });
 
@@ -547,6 +707,31 @@ export default function DailyDatabase() {
               </View>
             ) : null}
 
+            {/* FOLLOW-UPS DUE (today / overdue, not done) */}
+            {dueFollowUps.length > 0 && (
+              <View className="mb-6">
+                <View className="flex-row items-center mb-3">
+                  <MaterialIcons name="notifications-active" size={20} color="#dc2626" />
+                  <Text className="text-red-600 font-bold text-base ml-2 flex-1">
+                    Follow-ups due
+                  </Text>
+                  <View className="bg-red-600 rounded-full px-2.5 py-0.5">
+                    <Text className="text-white text-xs font-bold">
+                      {dueFollowUps.length}
+                    </Text>
+                  </View>
+                </View>
+                {dueFollowUps.map((entry) => (
+                  <DueFollowUpCard
+                    key={entry._id}
+                    entry={entry}
+                    marking={markingId === entry._id}
+                    onDone={() => markFollowUpDone(entry)}
+                  />
+                ))}
+              </View>
+            )}
+
             {/* FORM CARD */}
             <View className="bg-white rounded-3xl shadow-lg p-5 mb-6 border border-gray-100">
               <Text className="text-gray-900 font-bold text-lg mb-1">
@@ -608,6 +793,14 @@ export default function DailyDatabase() {
                 onChangeText={setPermanentAddress}
                 placeholder="Enter permanent address"
                 multiline
+              />
+
+              <FollowUpDateField
+                label="Follow-up Date (optional)"
+                value={followUpDate}
+                onChange={setFollowUpDate}
+                minToday
+                hint="If the customer asked you to call back on a date, pick it here. You will get a reminder on that day."
               />
 
               <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1 mt-1">

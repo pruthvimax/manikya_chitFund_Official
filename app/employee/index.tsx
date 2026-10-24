@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Platform } from "react-native";
 import BACKEND_URL from "../../config";
+import { useFollowUpCount } from "../../components/useFollowUpCount";
 
 import {
     Alert,
@@ -252,6 +253,9 @@ export default function EmployeeDashboard() {
     const [accessModalVisible, setAccessModalVisible] = useState(false);
     const [logoutModalVisible, setLogoutModalVisible] = useState(false);
     const [modalMessage, setModalMessage] = useState("");
+
+    // red badge on "Daily Leads": follow-ups due today / overdue
+    const { count: followUpDueCount } = useFollowUpCount();
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -520,6 +524,7 @@ export default function EmployeeDashboard() {
                         featureAccess={featureAccess}
                         loadingAccess={loadingAccess}
                         showModal={showAccessDeniedModal}
+                        badge={followUpDueCount}
                     />
 
                     {/* NEW - independent of featureAccess. Hidden entirely
@@ -676,6 +681,7 @@ function MenuCard({
     featureAccess,
     loadingAccess,
     showModal,
+    badge,
 }: {
     title: string;
     icon: any;
@@ -683,6 +689,7 @@ function MenuCard({
     featureAccess: boolean;
     loadingAccess: boolean;
     showModal: () => void;
+    badge?: number;
 }) {
     const router = useRouter();
 
@@ -709,6 +716,29 @@ function MenuCard({
             className="bg-white w-[47%] py-8 mb-6 rounded-3xl items-center shadow-md border border-[#e8f0eb]"
             activeOpacity={0.9}
         >
+            {!!badge && badge > 0 && (
+                <View
+                    style={{
+                        position: "absolute",
+                        top: 10,
+                        right: 12,
+                        minWidth: 24,
+                        height: 24,
+                        paddingHorizontal: 6,
+                        borderRadius: 12,
+                        backgroundColor: "#dc2626",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderWidth: 2,
+                        borderColor: "white",
+                        zIndex: 10,
+                    }}
+                >
+                    <Text style={{ color: "white", fontSize: 12, fontWeight: "800" }}>
+                        {badge > 99 ? "99+" : badge}
+                    </Text>
+                </View>
+            )}
             <View className="w-16 h-16 rounded-2xl items-center justify-center mb-3">
                 <MaterialIcons
                     name={icon}

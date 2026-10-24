@@ -17,6 +17,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
 import BACKEND_URL from "../../config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function AdminNotification() {
   const router = useRouter();
@@ -684,6 +685,55 @@ const openWinnerModal = async (item: any) => {
             )
           );
         }
+      }
+
+      /*
+        AUTO-FILL FROM THE LIVE SPIN (only when no winner is saved yet).
+        Fills Member ID and Group Member ID. Both fields stay editable.
+      */
+      try {
+        if (!item.winnerId && !item.winnerGroupId) {
+          const spinKey = await AsyncStorage.getItem("spinnerAdminKey");
+
+          if (spinKey) {
+            const spinRes = await fetch(
+              `${BACKEND_URL}/spinner/state?notificationId=${encodeURIComponent(
+                String(item._id || "")
+              )}`,
+              { headers: { "x-spinner-key": spinKey } }
+            );
+
+            const spinData = await spinRes.json();
+
+            if (
+              spinData?.success &&
+              spinData?.exists &&
+              spinData?.status === "completed" &&
+              spinData?.winner?.groupMemberId
+            ) {
+              const spinGroupMemberId = String(
+                spinData.winner.groupMemberId
+              );
+
+              setModalWinnerGroupId((prev) => prev || spinGroupMemberId);
+
+              if (spinData.winner.memberName) {
+                setModalWinnerName((prev) => prev || String(spinData.winner.memberName));
+              }
+
+              const spinBid = bids.find(
+                (bid: any) =>
+                  String(bid.groupMemberId) === spinGroupMemberId
+              );
+
+              if (spinBid?.memberId) {
+                setModalWinnerId((prev) => prev || String(spinBid.memberId));
+              }
+            }
+          }
+        }
+      } catch (spinErr) {
+        console.log("Spin auto-fill skipped:", spinErr);
       }
     } catch (error) {
       console.log(

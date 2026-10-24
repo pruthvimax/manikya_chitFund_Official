@@ -1,9 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -43,6 +45,89 @@ const FREQUENCIES = ["Daily", "Weekly", "Monthly"] as const;
 const formatAmount = (amount: any) =>
   `₹${parseInt(String(amount || 0), 10).toLocaleString("en-IN")}`;
 
+/* The last loaded data is kept (in memory while the app is open, and saved on
+   the phone) so this page opens instantly and refreshes quietly behind. */
+const VAC_CACHE_KEY = "adminVacanciesCache";
+let vacCache: {
+  chits: any[];
+  vacancies: any[];
+  pendingCount: number;
+  unseenCount: number;
+} | null = null;
+
+/* Grey placeholder shapes (same layout as the real page) while loading */
+function VacanciesSkeleton() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const bar = (w: number | string, h: number, mt = 0, round = 6) => (
+    <View
+      style={{
+        width: w as any,
+        height: h,
+        marginTop: mt,
+        borderRadius: round,
+        backgroundColor: "#E5E7EB",
+      }}
+    />
+  );
+
+  return (
+    <Animated.View className="px-5 pb-10" style={{ opacity: pulse }}>
+      {/* notification card */}
+      <View className="bg-white rounded-2xl border border-[#e8f0eb] p-5 mb-6 flex-row items-center">
+        <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: "#E5E7EB" }} />
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          {bar("55%", 16)}
+          {bar("75%", 11, 8)}
+        </View>
+      </View>
+
+      {/* create vacancy button */}
+      {bar("100%", 52, 0, 16)}
+      <View style={{ height: 24 }} />
+
+      {bar("50%", 18)}
+      <View style={{ height: 12 }} />
+
+      {[0, 1, 2].map((i) => (
+        <View
+          key={i}
+          className="bg-white border border-gray-200 rounded-2xl p-5 mb-4"
+        >
+          <View className="flex-row justify-between items-start">
+            <View style={{ flex: 1 }}>
+              {bar("40%", 24)}
+              {bar("60%", 11, 8)}
+            </View>
+            {bar(62, 24, 0, 999)}
+          </View>
+          <View style={{ marginTop: 16 }}>
+            {bar("90%", 12)}
+            {bar("80%", 12, 8)}
+            {bar("70%", 12, 8)}
+          </View>
+          <View className="flex-row" style={{ marginTop: 16 }}>
+            {bar(80, 34, 0, 10)}
+            <View style={{ width: 8 }} />
+            {bar(80, 34, 0, 10)}
+          </View>
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
+
 export default function AdminVacancies() {
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -52,15 +137,15 @@ export default function AdminVacancies() {
   }>();
 
   /* existing data (read only) */
-  const [chits, setChits] = useState<any[]>([]);
+  const [chits, setChits] = useState<any[]>(vacCache?.chits ?? []);
   const [groupsOfChit, setGroupsOfChit] = useState<any[]>([]);
 
   /* vacancies */
-  const [vacancies, setVacancies] = useState<any[]>([]);
+  const [vacancies, setVacancies] = useState<any[]>(vacCache?.vacancies ?? []);
 
   /* request badge */
-  const [pendingCount, setPendingCount] = useState(0);
-  const [unseenCount, setUnseenCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(vacCache?.pendingCount ?? 0);
+  const [unseenCount, setUnseenCount] = useState(vacCache?.unseenCount ?? 0);
 
   /* form */
   const [selectedChitId, setSelectedChitId] = useState<string | null>(null);
@@ -71,7 +156,7 @@ export default function AdminVacancies() {
   const [status, setStatus] = useState<"Open" | "Closed">("Open");
 
   /* ui */
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(vacCache === null);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -107,7 +192,9 @@ export default function AdminVacancies() {
     try {
       const res = await fetch(`${BACKEND_URL}/chitscheme`);
       const data = await res.json();
-      setChits(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      vacCache = { pendingCount: 0, unseenCount: 0, vacancies: [], ...vacCache, chits: list };
+      setChits(list);
     } catch (err) {
       console.log("Load chits error:", err);
     }
@@ -130,7 +217,9 @@ export default function AdminVacancies() {
     try {
       const res = await fetch(`${BACKEND_URL}/vacancy`);
       const data = await res.json();
-      setVacancies(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      vacCache = { pendingCount: 0, unseenCount: 0, chits: [], ...vacCache, vacancies: list };
+      setVacancies(list);
     } catch (err) {
       console.log("Load vacancies error:", err);
     }
@@ -141,8 +230,11 @@ export default function AdminVacancies() {
     try {
       const res = await fetch(`${BACKEND_URL}/vacancy/requests/count`);
       const data = await res.json();
-      setPendingCount(Number(data?.pendingCount || 0));
-      setUnseenCount(Number(data?.unseenCount || 0));
+      const pending = Number(data?.pendingCount || 0);
+      const unseen = Number(data?.unseenCount || 0);
+      vacCache = { chits: [], vacancies: [], ...vacCache, pendingCount: pending, unseenCount: unseen };
+      setPendingCount(pending);
+      setUnseenCount(unseen);
     } catch (err) {
       console.log("Load badge error:", err);
     }
@@ -152,7 +244,28 @@ export default function AdminVacancies() {
     await Promise.all([loadChits(), loadVacancies(), loadBadge()]);
     setLoading(false);
     setRefreshing(false);
+    if (vacCache) {
+      AsyncStorage.setItem(VAC_CACHE_KEY, JSON.stringify(vacCache)).catch(() => {});
+    }
   };
+
+  // first open after the app was closed: show the last saved page at once
+  useEffect(() => {
+    if (vacCache !== null) return;
+    AsyncStorage.getItem(VAC_CACHE_KEY)
+      .then((saved) => {
+        if (!saved || vacCache !== null) return;
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.vacancies)) {
+          setChits(Array.isArray(parsed.chits) ? parsed.chits : []);
+          setVacancies(parsed.vacancies);
+          setPendingCount(Number(parsed.pendingCount || 0));
+          setUnseenCount(Number(parsed.unseenCount || 0));
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   /* Reload every time the screen is focused so the seat counts
      reflect any member added or removed elsewhere. */
@@ -455,10 +568,7 @@ export default function AdminVacancies() {
         keyboardShouldPersistTaps="handled"
       >
         {loading ? (
-          <View className="py-20 items-center">
-            <ActivityIndicator size="large" color="#024e32" />
-            <Text className="text-gray-500 mt-3">Loading vacancies...</Text>
-          </View>
+          <VacanciesSkeleton />
         ) : (
           <View className="px-5 pb-10">
             {/* ===============================================

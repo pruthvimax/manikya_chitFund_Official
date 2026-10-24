@@ -256,8 +256,13 @@ export default function AdminEnrollmentsView() {
     }
   };
 
+  // FIXED: toISOString() converts to UTC, so a picked date could come out
+  // one day early in India. Build YYYY-MM-DD from the LOCAL year/month/day.
   const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   };
 
   const filteredEnrollments = enrollments.filter(enrollment =>

@@ -1,4 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Print from "expo-print";
@@ -24,10 +25,76 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Constants from "expo-constants";
 import BACKEND_URL from "../../config";
+import { FollowUpChip, FollowUpDateField } from "../../components/followUp";
 
 /* Reads the real app version straight from app.json (expo.version),
    matching the same pattern used on EmployeeDetail.tsx's footer. */
 const APP_VERSION = Constants.expoConfig?.version || "1.0.0";
+
+/* Each employee's last loaded leads are kept (in memory while the app is
+   open, and saved on the phone) so the page opens instantly and refreshes
+   quietly behind. */
+const LEADS_CACHE_PREFIX = "adminDailyLeadsCache_";
+const leadsMemory: Record<string, any[]> = {};
+
+/* Grey placeholder cards (same shape as the real ones) while loading */
+function useSkeletonPulse() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return pulse;
+}
+
+const skelBar = (w: number | string, h: number, mt = 0, round = 6) => (
+  <View
+    style={{
+      width: w as any,
+      height: h,
+      marginTop: mt,
+      borderRadius: round,
+      backgroundColor: "#E5E7EB",
+    }}
+  />
+);
+
+function LeadsSkeleton() {
+  const pulse = useSkeletonPulse();
+  return (
+    <Animated.View style={{ opacity: pulse }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          className="bg-white rounded-2xl p-4 mb-3 border border-gray-100 shadow-sm"
+        >
+          <View className="flex-row items-center justify-between">
+            <View style={{ flex: 1 }}>{skelBar("55%", 16)}</View>
+            {skelBar(58, 22, 0, 999)}
+          </View>
+          <View className="flex-row items-center" style={{ marginTop: 10 }}>
+            {skelBar(110, 22, 0, 8)}
+            <View style={{ width: 10 }} />
+            {skelBar(80, 12)}
+          </View>
+          {skelBar("85%", 12, 12)}
+          {skelBar("70%", 12, 8)}
+          <View className="flex-row" style={{ marginTop: 14 }}>
+            {skelBar(70, 30, 0, 8)}
+            <View style={{ width: 8 }} />
+            {skelBar(80, 30, 0, 8)}
+          </View>
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
 
 /* =========================================================
    HOT / WARM / COLD selector (self-contained in this file —
@@ -363,6 +430,13 @@ function EntryCard({
         </View>
       )}
 
+      {/* Follow-up date + status (employee marks it done, admin can change the date) */}
+      {!!entry.followUpDate && (
+        <View className="flex-row mt-2">
+          <FollowUpChip entry={entry} />
+        </View>
+      )}
+
       {!!entry.createdAt && (
         <View className="flex-row items-center mt-2 bg-gray-50 self-start px-2 py-1 rounded-lg">
           <MaterialIcons name="schedule" size={12} color="#9ca3af" />
@@ -407,8 +481,10 @@ export default function DailyDatabaseDetail() {
   const insets = useSafeAreaInsets();
   const headerPaddingTop = Platform.OS === "ios" ? insets.top + 12 : 48;
 
-  const [entries, setEntries] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState<any[]>(
+    (empId && leadsMemory[String(empId)]) || []
+  );
+  const [loading, setLoading] = useState(!(empId && leadsMemory[String(empId)]));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -421,6 +497,7 @@ export default function DailyDatabaseDetail() {
   const [editWorkAddress, setEditWorkAddress] = useState("");
   const [editPermanentAddress, setEditPermanentAddress] = useState("");
   const [editAction, setEditAction] = useState<ActionType>("Warm");
+  const [editFollowUpDate, setEditFollowUpDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -447,6 +524,21 @@ export default function DailyDatabaseDetail() {
     });
   }, [entries, search]);
 
+  // first open after the app was closed: show the last saved leads at once
+  useEffect(() => {
+    if (!empId || leadsMemory[String(empId)]) return;
+    AsyncStorage.getItem(LEADS_CACHE_PREFIX + empId)
+      .then((saved) => {
+        if (!saved || leadsMemory[String(empId)]) return;
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setEntries(parsed);
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+  }, [empId]);
+
   const loadEntries = async () => {
     if (!empId) return;
     try {
@@ -456,10 +548,16 @@ export default function DailyDatabaseDetail() {
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setEntries(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      leadsMemory[String(empId)] = list;
+      setEntries(list);
+      AsyncStorage.setItem(LEADS_CACHE_PREFIX + empId, JSON.stringify(list)).catch(
+        () => {}
+      );
     } catch (err) {
       console.log("Load entries error:", err);
-      setError("Could not connect to server");
+      // keep showing the leads we already have; error only when nothing to show
+      if (!leadsMemory[String(empId)]) setError("Could not connect to server");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -487,6 +585,7 @@ export default function DailyDatabaseDetail() {
     setEditWorkAddress(entry.workAddress || "");
     setEditPermanentAddress(entry.permanentAddress || "");
     setEditAction((entry.action as ActionType) || "Warm");
+    setEditFollowUpDate(entry.followUpDate || "");
   };
 
   // FIXED: Phone Number field on this edit modal used to accept plain
@@ -524,6 +623,7 @@ export default function DailyDatabaseDetail() {
           workAddress: editWorkAddress.trim(),
           permanentAddress: editPermanentAddress.trim(),
           action: editAction,
+          followUpDate: editFollowUpDate,
         }),
       });
 
@@ -856,7 +956,7 @@ export default function DailyDatabaseDetail() {
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
-          <ActivityIndicator color="#024e32" style={{ marginTop: 40 }} />
+          <LeadsSkeleton />
         ) : error ? (
           <View className="py-20 items-center">
             <MaterialIcons name="error-outline" size={50} color="#dc2626" />
@@ -966,6 +1066,13 @@ export default function DailyDatabaseDetail() {
                 onChangeText={setEditPermanentAddress}
                 placeholder="Permanent address"
                 multiline
+              />
+
+              <FollowUpDateField
+                label="Follow-up Date (optional)"
+                value={editFollowUpDate}
+                onChange={setEditFollowUpDate}
+                hint="Changing the date puts this follow-up back to pending for the employee."
               />
 
               <View className="bg-gray-50 rounded-2xl p-4 border border-gray-100 mt-1">

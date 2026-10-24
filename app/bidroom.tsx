@@ -432,6 +432,8 @@ import { useEffect, useRef, useState } from "react";
     const [endedPopupData, setEndedPopupData] = useState<any>(null);
     const [endedPopupBids, setEndedPopupBids] = useState<any[]>([]);
     const [endedPopupLoading, setEndedPopupLoading] = useState(false);
+    // live-draw winner, shown until the admin enters the winner details
+    const [endedPopupSpin, setEndedPopupSpin] = useState<any>(null);
 
     /* ================= SESSION GUARD ================= */
     useEffect(() => {
@@ -621,6 +623,7 @@ import { useEffect, useRef, useState } from "react";
         wrong history was being stored.
       */
       setEndedPopupBids([]);
+      setEndedPopupSpin(null);
 
       const groupId = notification.groupId?._id || notification.groupId || "";
       const groupCode = notification.groupId?.groupId || "";
@@ -665,6 +668,38 @@ import { useEffect, useRef, useState } from "react";
         );
 
         setEndedPopupBids(receivedBids);
+
+        /*
+          LIVE-DRAW WINNER
+          Until the admin enters the winner details for this auction,
+          show the winner of the live spin (if the spin has finished).
+          Once the admin saves the winner, notification.winnerName is
+          set and the normal winner box below is used instead.
+          Own try/catch so a problem here never clears the bids.
+        */
+        if (!notification.winnerName && userid) {
+          try {
+            const spinRes = await fetch(
+              `${BACKEND_URL}/spinner/state` +
+                `?userid=${encodeURIComponent(String(userid))}` +
+                `&groupId=${encodeURIComponent(groupId || groupCode)}` +
+                `&auctionEndDate=${encodeURIComponent(auctionDate)}` +
+                `&auctionEndTime=${encodeURIComponent(auctionTime)}`
+            );
+            const spin = await spinRes.json();
+
+            if (
+              spin?.success &&
+              spin.exists &&
+              spin.status === "completed" &&
+              String(spin.notificationId) === String(notification._id)
+            ) {
+              setEndedPopupSpin(spin);
+            }
+          } catch {
+            // no live draw for this auction
+          }
+        }
       } catch (err) {
         console.log("Ended popup bids error:", err);
         setEndedPopupBids([]);
@@ -1251,6 +1286,85 @@ import { useEffect, useRef, useState } from "react";
                     ) : null}
                   </View>
                 )}
+
+                {/* LIVE DRAW WINNER (until the admin enters the winner details) */}
+                {!endedPopupData?.winnerName && endedPopupSpin ? (
+                  <View className="bg-[#024e32] rounded-2xl p-4 mb-4 border border-[#d4af37]">
+                    <View className="flex-row items-center">
+                      <MaterialIcons name="emoji-events" size={20} color="#F6E7A8" />
+                      <Text className="text-[#F6E7A8] font-bold text-base ml-2">
+                        Live Draw Winner
+                      </Text>
+                    </View>
+
+                    <View className="items-center py-3">
+                      <Text className="text-white font-extrabold" style={{ fontSize: 42 }}>
+                        {endedPopupSpin.winner?.groupMemberId || "-"}
+                      </Text>
+                      {endedPopupSpin.winner?.memberName ? (
+                        <Text className="text-[#F6E7A8] font-semibold text-sm mt-1">
+                          {endedPopupSpin.winner.memberName}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    {Number(endedPopupSpin.winner?.bidAmount) > 0 ? (
+                      <View className="flex-row justify-between mt-1">
+                        <Text className="text-green-100 text-xs">Winning Bid</Text>
+                        <Text className="text-white font-bold text-xs">
+                          {formatAmount(endedPopupSpin.winner.bidAmount)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {Number(endedPopupSpin.chitValue) > 0 ? (
+                      <View className="flex-row justify-between mt-1">
+                        <Text className="text-green-100 text-xs">Chit Value</Text>
+                        <Text className="text-white font-bold text-xs">
+                          {formatAmount(endedPopupSpin.chitValue)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {Number(endedPopupSpin.previousWinningBid) > 0 ? (
+                      <View className="flex-row justify-between mt-1">
+                        <Text className="text-green-100 text-xs">Previous Winning Bid</Text>
+                        <Text className="text-white font-bold text-xs">
+                          {formatAmount(endedPopupSpin.previousWinningBid)}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    <Text className="text-green-100/80 text-[10px] mt-3 text-center">
+                      Official winner details will appear here once the admin confirms.
+                    </Text>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEndedPopupVisible(false);
+                        router.push({
+                          pathname: "/spinnerLive",
+                          params: {
+                            groupId: String(
+                              endedPopupData?.groupId?._id || endedPopupData?.groupId || ""
+                            ),
+                            groupCode: String(endedPopupData?.groupId?.groupId || ""),
+                            auctionEndDate: String(endedPopupData?.auctionEndDate || ""),
+                            auctionEndTime: String(endedPopupData?.auctionEndTime || ""),
+                            userid: String(userid || ""),
+                          },
+                        });
+                      }}
+                      activeOpacity={0.85}
+                      className="mt-3 bg-[#F6E7A8] rounded-xl py-2.5 flex-row items-center justify-center"
+                    >
+                      <MaterialIcons name="casino" size={16} color="#024e32" />
+                      <Text className="text-[#024e32] font-bold text-xs ml-1.5">
+                        View draw result
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
 
                 {/* WHICH AUCTION THIS HISTORY BELONGS TO */}
                 <View className="bg-[#EAF5EF] rounded-xl px-3 py-2.5 mb-3 border border-[#024e32]/15">

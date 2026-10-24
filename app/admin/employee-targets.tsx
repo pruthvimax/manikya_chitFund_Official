@@ -1252,6 +1252,148 @@ const recalcEditHistoryForLogEdit = (
   return { editHistory: history, collectionAmount: finalCollectionAmount };
 };
 
+/* =========================================================
+   DELETE A COLLECTION LOG ENTRY
+========================================================= */
+
+// Removes ONE row of the Collection Log and re-balances everything that
+// depends on it, using the exact same row grouping as buildPaymentLog /
+// recalcEditHistoryForLogEdit (so the row the admin sees is the row that
+// is removed):
+//  - the collection line (and the payment-method line saved with it) of
+//    that row are removed; any OTHER field logged in the same save
+//    (name, phone, ...) is kept untouched
+//  - every LATER collection line has its old/new running total shifted
+//    by the removed amount, so the "Total after this" column stays right
+//  - the new live collectionAmount = old total - removed amount
+// Deleting the synthetic "created-..." row (the original Set-Target
+// amount) shifts every collection line down by that original amount; the
+// row then disappears on its own because nothing is left to rebuild it.
+// Returns null if the row can't be found.
+const recalcEditHistoryForLogDelete = (
+  target: Target,
+  deletedStamp: string
+): { editHistory: any[]; collectionAmount: number; paymentMethod?: string } | null => {
+  const history = Array.isArray(target.editHistory)
+    ? target.editHistory.map((item) => ({ ...item }))
+    : [];
+
+  const isCollection = (item: any) =>
+    String(item?.field ?? "").toLowerCase().includes("collection");
+  const isPayment = (item: any) =>
+    String(item?.field ?? "").toLowerCase().includes("payment");
+
+  if (deletedStamp.startsWith("created-")) {
+    const originalAmount = getOriginalCollectionAmount(target, history);
+    if (!(originalAmount > 0)) return null;
+
+    const shifted = history.map((item) =>
+      isCollection(item)
+        ? {
+            ...item,
+            oldValue: toNumber(item.oldValue) - originalAmount,
+            newValue: toNumber(item.newValue) - originalAmount,
+          }
+        : item
+    );
+
+    return {
+      editHistory: shifted,
+      collectionAmount: toNumber(target.collectionAmount) - originalAmount,
+    };
+  }
+
+  const stampOf = (item: any, idx: number) =>
+    item?.editedAt ? new Date(item.editedAt).toISOString().slice(0, 19) : `unknown-${idx}`;
+
+  const baseGroups = new Map<string, { editedAt: string | null; indices: number[] }>();
+  history.forEach((item, idx) => {
+    const stamp = stampOf(item, idx);
+    if (!baseGroups.has(stamp)) baseGroups.set(stamp, { editedAt: item?.editedAt ?? null, indices: [] });
+    baseGroups.get(stamp)!.indices.push(idx);
+  });
+
+  const groupMap = new Map<string, { editedAt: string | null; indices: number[] }>();
+  baseGroups.forEach((group, baseStamp) => {
+    const collectionIdxs = group.indices.filter((idx) => isCollection(history[idx]));
+    if (collectionIdxs.length <= 1) {
+      groupMap.set(baseStamp, group);
+      return;
+    }
+    const paymentIdxs = group.indices.filter((idx) => isPayment(history[idx]));
+    const otherIdxs = group.indices.filter(
+      (idx) => !collectionIdxs.includes(idx) && !paymentIdxs.includes(idx)
+    );
+    collectionIdxs.forEach((collectionIdx, i) => {
+      const indices = [collectionIdx];
+      if (paymentIdxs[i] !== undefined) indices.push(paymentIdxs[i]);
+      else if (i === 0 && paymentIdxs[0] !== undefined) indices.push(paymentIdxs[0]);
+      if (i === 0) indices.push(...otherIdxs);
+      groupMap.set(`${baseStamp}#${i}`, { editedAt: group.editedAt, indices });
+    });
+  });
+
+  const deletedGroup = groupMap.get(deletedStamp);
+  if (!deletedGroup) return null;
+
+  const deletedCollectionIdx = deletedGroup.indices.find((idx) => isCollection(history[idx]));
+  if (deletedCollectionIdx === undefined) return null;
+  const deletedPaymentIdx = deletedGroup.indices.find((idx) => isPayment(history[idx]));
+
+  const removedAmount =
+    toNumber(history[deletedCollectionIdx].newValue) -
+    toNumber(history[deletedCollectionIdx].oldValue);
+
+  // Shift every LATER (by date) collection line by the removed amount.
+  const orderedStamps = Array.from(groupMap.keys()).sort((a, b) => {
+    const ta = groupMap.get(a)!.editedAt ? new Date(groupMap.get(a)!.editedAt as string).getTime() : 0;
+    const tb = groupMap.get(b)!.editedAt ? new Date(groupMap.get(b)!.editedAt as string).getTime() : 0;
+    return ta - tb;
+  });
+  const deletedPos = orderedStamps.indexOf(deletedStamp);
+
+  orderedStamps.forEach((stamp, pos) => {
+    if (pos <= deletedPos) return;
+    const idx = groupMap.get(stamp)!.indices.find((i) => isCollection(history[i]));
+    if (idx === undefined) return;
+    history[idx] = {
+      ...history[idx],
+      oldValue: toNumber(history[idx].oldValue) - removedAmount,
+      newValue: toNumber(history[idx].newValue) - removedAmount,
+    };
+  });
+
+  // Payment-method chain: if the removed row changed the payment method
+  // (A -> B), the next payment-method change (B -> C) now starts from A.
+  let paymentMethod: string | undefined;
+  if (deletedPaymentIdx !== undefined) {
+    const removedPayment = history[deletedPaymentIdx];
+    const nextPaymentIdx = history.findIndex(
+      (item, idx) => idx > deletedPaymentIdx && isPayment(item)
+    );
+    if (nextPaymentIdx !== -1) {
+      history[nextPaymentIdx] = { ...history[nextPaymentIdx], oldValue: removedPayment.oldValue };
+    }
+
+    const remainingPayments = history.filter(
+      (item, idx) => idx !== deletedPaymentIdx && idx !== deletedCollectionIdx && isPayment(item)
+    );
+    paymentMethod = remainingPayments.length
+      ? String(remainingPayments[remainingPayments.length - 1].newValue ?? "")
+      : String(removedPayment.oldValue ?? target.paymentMethod ?? "");
+  }
+
+  const remainingHistory = history.filter(
+    (_item, idx) => idx !== deletedCollectionIdx && idx !== deletedPaymentIdx
+  );
+
+  return {
+    editHistory: remainingHistory,
+    collectionAmount: toNumber(target.collectionAmount) - removedAmount,
+    paymentMethod,
+  };
+};
+
 export default function AdminTargetsView() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -1328,6 +1470,7 @@ export default function AdminTargetsView() {
   const [showEditLogDatePicker, setShowEditLogDatePicker] = useState(false);
 
   const [savingLog, setSavingLog] = useState(false);
+  const [deletingLog, setDeletingLog] = useState(false);
 
   // Memoized values
   const months = useMemo(() => MONTH_NAMES, []);
@@ -2349,6 +2492,127 @@ export default function AdminTargetsView() {
     } finally {
       setSavingLog(false);
     }
+  };
+
+  // =========================================================
+  // DELETE A COLLECTION LOG ENTRY
+  // =========================================================
+  const deletePaymentLogEntry = (entry: PaymentLogEntry, target: Target) => {
+    if (deletingLog || savingLog) return;
+
+    const result = recalcEditHistoryForLogDelete(target, entry.stamp);
+    if (!result) {
+      Alert.alert("Error", "Could not find this log entry to delete.");
+      return;
+    }
+
+    const targetId = target._id;
+    const previousTotal = Number(target.collectionAmount || 0);
+    const removedLabel = formatMoneyValue(entry.amount ?? 0);
+    const confirmMessage =
+      `Delete the ${removedLabel} entry of ${formatLogDate(entry.editedAt)}?\n\n` +
+      `Total collected will change from ${formatMoneyValue(previousTotal)} to ` +
+      `${formatMoneyValue(result.collectionAmount)}. This cannot be undone.`;
+
+    const reopenHistory = () => {
+      if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
+      swapTimerRef.current = setTimeout(() => {
+        setHistoryModalVisible(true);
+      }, MODAL_SWAP_DELAY);
+    };
+
+    const performDeleteLog = async (reopenAfter: boolean) => {
+      const cleanHistory = sanitizeEditHistory(result.editHistory);
+
+      const optimisticTarget: Target = {
+        ...target,
+        editHistory: cleanHistory,
+        collectionAmount: result.collectionAmount,
+        ...(result.paymentMethod !== undefined ? { paymentMethod: result.paymentMethod } : {}),
+      };
+
+      const payload: Record<string, any> = {
+        editHistory: cleanHistory,
+        collectionAmount: result.collectionAmount,
+        isEdited: true,
+      };
+      if (result.paymentMethod !== undefined) payload.paymentMethod = result.paymentMethod;
+
+      try {
+        setDeletingLog(true);
+
+        await putTarget(targetId, payload);
+
+        setAllTargets((prev) =>
+          prev.map((t) => (t._id === targetId ? { ...t, ...optimisticTarget } : t))
+        );
+        setHistoryTarget((prev) => (prev && prev._id === targetId ? optimisticTarget : prev));
+
+        if (reopenAfter) reopenHistory();
+
+        const data = await fetchTargetsList();
+
+        if (!data) {
+          showAlertSafely(
+            "Deleted",
+            `Collection entry deleted — new total ${formatMoneyValue(result.collectionAmount)}.`
+          );
+          return;
+        }
+
+        applyServerData(data, targetId);
+
+        const fresh = data.find((t) => t._id === targetId);
+        const serverCount = Array.isArray(fresh?.editHistory) ? fresh!.editHistory.length : 0;
+        const savedTotal = Number(fresh?.collectionAmount ?? result.collectionAmount);
+
+        if (serverCount > cleanHistory.length) {
+          showAlertSafely(
+            "Saved — log not rewritten",
+            `The total was saved (new total ${formatMoneyValue(
+              savedTotal
+            )}), but the server kept or added a collection log line instead of removing it. The backend updateTarget needs to replace the edit history.`
+          );
+        } else {
+          showAlertSafely(
+            "Deleted",
+            `Collection entry deleted — new total ${formatMoneyValue(savedTotal)}.`
+          );
+        }
+      } catch (error: any) {
+        console.error("Error deleting collection log entry:", error);
+        if (reopenAfter) reopenHistory();
+        showAlertSafely("Error", error?.message || "Failed to delete collection entry");
+      } finally {
+        setDeletingLog(false);
+      }
+    };
+
+    // Same confirm pattern as handleDelete above: window.confirm on web
+    // (Alert.alert's Cancel/Delete buttons are unreliable there); on
+    // iOS/Android the history modal is closed first so the native alert
+    // can show on top of it, and re-opened afterwards.
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm(confirmMessage)) {
+        performDeleteLog(false);
+      }
+      return;
+    }
+
+    setHistoryModalVisible(false);
+    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    alertTimerRef.current = setTimeout(() => {
+      Alert.alert("Delete Entry", confirmMessage, [
+        { text: "Cancel", style: "cancel", onPress: reopenHistory },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            performDeleteLog(true);
+          },
+        },
+      ]);
+    }, ALERT_DELAY);
   };
 
   const openEditModal = (target: Target) => {
@@ -3407,6 +3671,7 @@ export default function AdminTargetsView() {
                           </View>
 
                           {entry.amount !== null && (
+                            <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 0 }}>
                             <TouchableOpacity
                               onPress={() => {
                                 if (!historyTarget) return;
@@ -3426,6 +3691,32 @@ export default function AdminTargetsView() {
                               <MaterialIcons name="edit" size={16} color="#2563eb" />
                               <Text className="text-blue-600 text-xs font-semibold ml-1">Edit</Text>
                             </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  if (!historyTarget) return;
+                                  deletePaymentLogEntry(entry, historyTarget);
+                                }}
+                                disabled={deletingLog || savingLog}
+                                className="bg-red-100 rounded-full flex-row items-center"
+                                activeOpacity={0.6}
+                                hitSlop={ICON_HIT_SLOP}
+                                accessibilityLabel="Delete this collection entry"
+                                style={{
+                                  marginLeft: 8,
+                                  paddingHorizontal: isDesktopOrLaptop ? 14 : 0,
+                                  paddingVertical: 9,
+                                  minHeight: 38,
+                                  minWidth: isDesktopOrLaptop ? 74 : 38,
+                                  justifyContent: "center",
+                                  opacity: deletingLog || savingLog ? 0.5 : 1,
+                                }}
+                              >
+                                <MaterialIcons name="delete-outline" size={18} color="#dc2626" />
+                                {isDesktopOrLaptop && (
+                                  <Text className="text-red-600 text-xs font-semibold ml-1">Delete</Text>
+                                )}
+                              </TouchableOpacity>
+                            </View>
                           )}
                         </View>
 

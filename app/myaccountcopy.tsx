@@ -17,6 +17,14 @@ import {
   Alert,
 } from "react-native";
 import BACKEND_URL from "../config";
+import { logPenaltyMismatch } from "../components/penaltyCheck";
+import {
+  cacheGet,
+  cacheSet,
+  groupsKey,
+  ledgerKey,
+  dividendsKey,
+} from "../memberCache";
 
 // =========================================================
 // SCREENSHOT PREVENTION FOR ALL PLATFORMS
@@ -409,6 +417,34 @@ const getCumulativePenaltyForRows = (rows: any[]) => {
   return penaltyByMonth;
 };
 
+/* =========================================================
+   BACKGROUND PRELOAD HELPER
+
+   Same dividend lookup loadDividends does, as a plain function, so
+   the other groups can be loaded quietly in the background while the
+   member looks at the first one.
+========================================================= */
+const fetchDividendMap = async (
+  groupId: string,
+  ledgerRows: any[]
+): Promise<Record<number, number>> => {
+  const map: Record<number, number> = {};
+  await Promise.all(
+    ledgerRows.map(async (row) => {
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
+        );
+        const plan = await res.json();
+        map[row.monthIndex] = plan?.dividend || 0;
+      } catch (err) {
+        map[row.monthIndex] = 0;
+      }
+    })
+  );
+  return map;
+};
+
 export default function MyAccountCopy() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -587,7 +623,7 @@ export default function MyAccountCopy() {
 
   /* ================= LOAD USER GROUPS ================= */
   // ✅ PERF: useCallback so this stable reference isn't recreated every render
-  const loadGroups = useCallback(async (preserveSelection = false) => {
+  const loadGroups = useCallback(async (preserveSelection = false, forceRefresh = false) => {
     if (isLoadingGroups) return;
 
     try {
@@ -603,8 +639,15 @@ export default function MyAccountCopy() {
 
       const { userid } = JSON.parse(storedUser);
 
-      const res = await fetch(`${BACKEND_URL}/groups/my-chits/${userid}`);
-      const data = await res.json();
+      // CACHE: reuse the group list from the last visit; only a manual
+      // refresh (forceRefresh) goes to the server again.
+      let data: any = forceRefresh ? undefined : cacheGet(userid, groupsKey());
+
+      if (!data) {
+        const res = await fetch(`${BACKEND_URL}/groups/my-chits/${userid}`);
+        data = await res.json();
+        if (Array.isArray(data)) cacheSet(userid, groupsKey(), data);
+      }
 
       if (Array.isArray(data) && data.length > 0) {
         setGroups(data);
@@ -661,15 +704,39 @@ export default function MyAccountCopy() {
 
       const { userid } = JSON.parse(storedUser);
 
-      const res = await fetch(
-        `${BACKEND_URL}/groups/account-copy/${userid}/${groupId}?groupMemberId=${groupMemberId}`
-      );
+      // CACHE: ledger + dividends from the last visit (this page or My
+      // Outstanding) are reused with no network request. A manual
+      // refresh (forceRefresh) skips this and fetches fresh data.
+      const cachedLedgerData = forceRefresh
+        ? undefined
+        : cacheGet(userid, ledgerKey(groupId, groupMemberId));
+      const cachedDividends = forceRefresh
+        ? undefined
+        : cacheGet(userid, dividendsKey(groupId, groupMemberId));
 
-      const data = await res.json();
+      let data: any = cachedLedgerData;
+
+      if (!data) {
+        const res = await fetch(
+          `${BACKEND_URL}/groups/account-copy/${userid}/${groupId}?groupMemberId=${groupMemberId}`
+        );
+
+        data = await res.json();
+        if (Array.isArray(data?.ledger)) {
+          cacheSet(userid, ledgerKey(groupId, groupMemberId), data);
+        }
+      }
+
       if (Array.isArray(data.ledger)) {
         setLedger(data.ledger);
         setLedgerCache((prev) => ({ ...prev, [cacheKey]: data.ledger }));
-        await loadDividends(groupId, data.ledger, cacheKey);
+
+        if (cachedLedgerData && cachedDividends) {
+          setDividendMap(cachedDividends);
+          setDividendCache((prev) => ({ ...prev, [cacheKey]: cachedDividends }));
+        } else {
+          await loadDividends(groupId, data.ledger, cacheKey, userid, groupMemberId);
+        }
       } else {
         setLedger([]);
       }
@@ -686,7 +753,7 @@ export default function MyAccountCopy() {
     }
   }, [ledgerCache, dividendCache, groups, selectedGroupKey]);
 
-  const loadDividends = useCallback(async (groupId: string, ledgerData: any[], cacheKey: string) => {
+  const loadDividends = useCallback(async (groupId: string, ledgerData: any[], cacheKey: string, userId?: string, groupMemberId?: string) => {
     try {
       const map: Record<number, number> = {};
       await Promise.all(
@@ -705,14 +772,97 @@ export default function MyAccountCopy() {
       );
       setDividendMap(map);
       setDividendCache((prev) => ({ ...prev, [cacheKey]: map }));
+
+      // CACHE: remember these dividends for the next visit.
+      if (userId) {
+        cacheSet(userId, dividendsKey(groupId, groupMemberId || ""), map);
+      }
     } catch (err) {
       console.log("❌ Dividend load error:", err);
       setDividendMap({});
     }
   }, []);
 
+  /* ================= PRELOAD OTHER GROUPS ================= */
+  // Once the selected group has finished loading, the member's OTHER
+  // groups are loaded quietly in the background (one after the other,
+  // so they never slow down what is on screen). When the member then
+  // picks one in the dropdown, its data is already here and it opens
+  // instantly. A manual refresh re-loads them from the server too.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const refreshVersionRef = useRef(0);
+  const forcePreloadRef = useRef(false);
+  const preloadTokenRef = useRef("");
+
+  useEffect(() => {
+    if (loading || groups.length < 2 || !selectedGroupKey || ledger.length === 0) return;
+
+    const token = `${refreshVersionRef.current}|${groups.map((g: any) => g.uniqueKey).join(",")}`;
+    if (preloadTokenRef.current === token) return;
+    preloadTokenRef.current = token;
+
+    const force = forcePreloadRef.current;
+    forcePreloadRef.current = false;
+
+    const preloadOtherGroups = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("loggedUser");
+        if (!stored) return;
+        const { userid } = JSON.parse(stored);
+
+        for (const g of groups as any[]) {
+          if (!mountedRef.current) return;
+          if (g.uniqueKey === selectedGroupKey) continue;
+
+          const gid = g.groupId;
+          const mid = g.groupMemberId || "";
+          const localKey = `${gid}_${mid}`;
+
+          try {
+            let data: any = force ? undefined : cacheGet(userid, ledgerKey(gid, mid));
+
+            if (!data) {
+              const res = await fetch(
+                `${BACKEND_URL}/groups/account-copy/${userid}/${gid}?groupMemberId=${mid}`
+              );
+              const json = await res.json();
+              if (!Array.isArray(json?.ledger)) continue;
+              cacheSet(userid, ledgerKey(gid, mid), json);
+              data = json;
+            }
+
+            let divMap: any = force && data ? undefined : cacheGet(userid, dividendsKey(gid, mid));
+            if (!divMap) {
+              divMap = await fetchDividendMap(gid, data.ledger);
+              cacheSet(userid, dividendsKey(gid, mid), divMap);
+            }
+
+            if (!mountedRef.current) return;
+            setLedgerCache((prev) => ({ ...prev, [localKey]: data.ledger }));
+            setDividendCache((prev) => ({ ...prev, [localKey]: divMap }));
+          } catch (err) {
+            console.log("Preload error for group", gid);
+          }
+        }
+      } catch (err) {
+        console.log("Preload error:", err);
+      }
+    };
+
+    preloadOtherGroups();
+  }, [loading, groups, selectedGroupKey, ledger]);
+
   /* ================= HANDLE REFRESH ================= */
   const handleRefresh = useCallback(() => {
+    refreshVersionRef.current += 1;
+    forcePreloadRef.current = true;
     setRefreshing(true);
     const cacheKey = `${selectedGroupId}_${selectedGroupMemberId}`;
     setLedgerCache((prev) => {
@@ -725,7 +875,7 @@ export default function MyAccountCopy() {
       delete copy[cacheKey];
       return copy;
     });
-    loadGroups(true);
+    loadGroups(true, true);
   }, [selectedGroupId, selectedGroupMemberId, loadGroups]);
 
   /* ================= HANDLE GROUP CHANGE ================= */
@@ -797,7 +947,27 @@ export default function MyAccountCopy() {
       };
     });
 
-    return getCumulativePenaltyForRows(normalizedRows);
+    const computedPenalty = getCumulativePenaltyForRows(normalizedRows);
+
+    // PENALTY WAIVER: admin switched the penalty OFF for these months.
+    // Penalty already paid stays; nothing more is due.
+    ledger.forEach((row: any) => {
+      if (!row.penaltyWaived) return;
+      computedPenalty[row.monthIndex] = (Array.isArray(row.payments) ? row.payments : [])
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+    });
+
+    ledger.forEach((row: any) => {
+      logPenaltyMismatch(
+        "member-accountCopy",
+        `M${row.monthIndex}`,
+        computedPenalty[row.monthIndex] || 0,
+        row.backendPenaltyDue
+      );
+    });
+
+    return computedPenalty;
   }, [ledger, dividendMap]);
 
   /* =========================================================
@@ -1622,7 +1792,7 @@ export default function MyAccountCopy() {
                                   ₹0
                                 </Text>
                                 <Text className="text-green-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
-                                  No penalty
+                                  {row.penaltyWaived ? "Penalty waived" : "No penalty"}
                                 </Text>
                               </>
                             )}

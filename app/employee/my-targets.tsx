@@ -1,6 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -178,6 +177,48 @@ const buildPaymentLog = (target: any): PaymentLogEntry[] => {
   const log: PaymentLogEntry[] = [];
 
   groups.forEach((group, stamp) => {
+    // FIXED: when two or more collection amounts were saved on the exact
+    // same second (or an admin moved two entries onto the same date),
+    // they landed in ONE group here and only the first amount was shown
+    // -- the rest were hidden (even listed as "Collection Amount" under
+    // "Also updated"), while the total still counted all of them. Give
+    // every collection amount its own row instead. A group with a single
+    // collection amount still goes through the original code below,
+    // unchanged.
+    const collectionItems = group.items.filter((i) =>
+      String(i?.field ?? "").toLowerCase().includes("collection")
+    );
+
+    if (collectionItems.length > 1) {
+      const paymentItems = group.items.filter((i) =>
+        String(i?.field ?? "").toLowerCase().includes("payment")
+      );
+      const otherItems = group.items.filter(
+        (i) => !collectionItems.includes(i) && !paymentItems.includes(i)
+      );
+
+      collectionItems.forEach((collectionItem, i) => {
+        const paymentItem = paymentItems[i] || (i === 0 ? paymentItems[0] : undefined);
+
+        log.push({
+          stamp: `${stamp}#${i}`,
+          editedAt: group.editedAt,
+          amount: toNumber(collectionItem.newValue) - toNumber(collectionItem.oldValue),
+          newTotal: toNumber(collectionItem.newValue),
+          paymentMethod: paymentItem?.newValue
+            ? String(paymentItem.newValue)
+            : String(target?.paymentMethod ?? ""),
+          otherFields:
+            i === 0
+              ? otherItems.map((it) => prettyFieldName(it?.field)).filter(Boolean)
+              : [],
+          oldAmount: toNumber(collectionItem.oldValue),
+          editedBy: group.editedBy,
+        });
+      });
+      return;
+    }
+
     const collection = group.items.find((i) =>
       String(i?.field ?? "").toLowerCase().includes("collection")
     );
@@ -221,21 +262,24 @@ const buildPaymentLog = (target: any): PaymentLogEntry[] => {
   // is created, edited, saved, or how collection amounts are added
   // anywhere else on this page.
   if (target) {
-    const collectionEdits = history
-      .filter((i: any) =>
-        String(i?.field ?? "").toLowerCase().includes("collection")
-      )
-      .sort(
-        (a: any, b: any) =>
-          new Date(a?.editedAt ?? 0).getTime() -
-          new Date(b?.editedAt ?? 0).getTime()
-      );
+    // FIXED: this used to .sort() these by editedAt to find the
+    // "earliest" one. But editedAt is exactly the field an ADMIN can
+    // edit (moving one entry's date onto another day, e.g. in the
+    // admin's Edit Payment Log screen) -- once that happens, a LATER
+    // entry can sort as if it were the earliest, its oldValue gets
+    // mistaken for the true original creation amount, and a bogus
+    // extra row appears here on top of what the employee actually
+    // entered. Array order (what .filter already preserves) is never
+    // touched by a date edit, so the FIRST entry ever inserted is the
+    // reliable original -- not whichever one now has the earliest date.
+    const collectionEdits = history.filter((i: any) =>
+      String(i?.field ?? "").toLowerCase().includes("collection")
+    );
 
-    // Right before the EARLIEST collection edit, the total was whatever
-    // it became at creation -- so that earliest edit's oldValue IS the
-    // original amount typed on the Add Target form. If this target has
-    // never been edited at all yet, the current collectionAmount itself
-    // is still exactly that original amount.
+    // The first-ever collection edit's oldValue IS the original amount
+    // typed on the Add Target form. If this target has never been
+    // edited at all yet, the current collectionAmount itself is still
+    // exactly that original amount.
     const originalCollectionAmount =
       collectionEdits.length > 0
         ? toNumber(collectionEdits[0].oldValue)
@@ -245,16 +289,12 @@ const buildPaymentLog = (target: any): PaymentLogEntry[] => {
     // CURRENT/live value, which changes whenever ANY later entry's
     // payment method is edited. Using it directly here made this
     // creation row's payment method appear to change along with it,
-    // even though this entry itself was never touched. The earliest
+    // even though this entry itself was never touched. The first-ever
     // payment-method edit's oldValue is what it actually was at
     // creation; if it was never edited, the current value still is it.
-    const paymentEdits = history
-      .filter((i: any) => String(i?.field ?? "").toLowerCase().includes("payment"))
-      .sort(
-        (a: any, b: any) =>
-          new Date(a?.editedAt ?? 0).getTime() -
-          new Date(b?.editedAt ?? 0).getTime()
-      );
+    const paymentEdits = history.filter((i: any) =>
+      String(i?.field ?? "").toLowerCase().includes("payment")
+    );
     const originalPaymentMethod =
       paymentEdits.length > 0
         ? String(paymentEdits[0].oldValue ?? target.paymentMethod ?? "")
@@ -334,6 +374,25 @@ const putTarget = async (id: string, payload: Record<string, any>) => {
   return data;
 };
 
+// FIXED: Alert.alert does not reliably show on web (laptop/desktop
+// browser) in this Expo setup -- it's the same reason the "Locked"
+// message in openEditTargetModal (below) already uses window.alert on
+// web. "Submit Target" was silently blocked by this: a validation
+// message (or the Success/Error result) never appeared on web, so it
+// looked like pressing the button did nothing. This shows every
+// message on every platform -- the browser's own alert() on web, the
+// native Alert on iOS/Android -- without changing what any message
+// says or when it's shown.
+const showMessage = (title: string, message?: string) => {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") {
+      window.alert(message ? `${title}\n\n${message}` : title);
+    }
+    return;
+  }
+  Alert.alert(title, message);
+};
+
 interface Target {
   _id: string;
   emp_id: string;
@@ -400,6 +459,180 @@ function Footer() {
           © {new Date().getFullYear()} Manikya Chits Pvt Ltd.
           {"\n"}All rights reserved.
         </Text>
+      </View>
+    </View>
+  );
+}
+
+/* =========================================================
+   SIMPLE DATE PICKER (replaces native DateTimePicker)
+
+   FIXED: the native DateTimePicker from
+   @react-native-community/datetimepicker doesn't respond on
+   laptop/desktop (web) -- tapping a date did nothing there, which is
+   what was reported. This is a small calendar built only from plain
+   React Native View/TouchableOpacity/Text, so it renders and responds
+   the same way on iOS, Android AND web -- no native picker involved.
+   Same approach already proven working on the admin screen's date
+   pickers. It only picks a date and calls onChange; it doesn't touch
+   anything else here.
+========================================================= */
+const PICKER_MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const PICKER_DAY_NAMES = ["S", "M", "T", "W", "T", "F", "S"];
+
+function SimpleDatePicker({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: Date;
+  onChange: (d: Date) => void;
+  onClose: () => void;
+}) {
+  const safeValue =
+    value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+  const [viewMonth, setViewMonth] = useState(safeValue.getMonth());
+  const [viewYear, setViewYear] = useState(safeValue.getFullYear());
+
+  useEffect(() => {
+    setViewMonth(safeValue.getMonth());
+    setViewYear(safeValue.getFullYear());
+  }, [safeValue]);
+
+  const today = new Date();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const isSelected = (d: number) =>
+    safeValue.getFullYear() === viewYear &&
+    safeValue.getMonth() === viewMonth &&
+    safeValue.getDate() === d;
+
+  const isToday = (d: number) =>
+    today.getFullYear() === viewYear &&
+    today.getMonth() === viewMonth &&
+    today.getDate() === d;
+
+  const prevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const handleSelect = (d: number) => {
+    onChange(new Date(viewYear, viewMonth, d));
+    onClose();
+  };
+
+  const CELL = 38;
+
+  return (
+    <View
+      className="bg-white rounded-2xl shadow-2xl"
+      style={{ width: CELL * 7 + 24, padding: 12 }}
+    >
+      <View className="flex-row justify-between items-center mb-2">
+        <TouchableOpacity onPress={prevMonth} className="p-2 rounded-full" activeOpacity={0.6}>
+          <MaterialIcons name="chevron-left" size={24} color="#024e32" />
+        </TouchableOpacity>
+
+        <Text className="text-gray-800 font-bold text-base">
+          {PICKER_MONTH_NAMES[viewMonth]} {viewYear}
+        </Text>
+
+        <TouchableOpacity onPress={nextMonth} className="p-2 rounded-full" activeOpacity={0.6}>
+          <MaterialIcons name="chevron-right" size={24} color="#024e32" />
+        </TouchableOpacity>
+      </View>
+
+      <View className="flex-row mb-1">
+        {PICKER_DAY_NAMES.map((d, i) => (
+          <View key={`${d}-${i}`} style={{ width: CELL, alignItems: "center" }}>
+            <Text className="text-gray-500 text-xs font-semibold">{d}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View className="flex-row flex-wrap">
+        {cells.map((d, i) => {
+          if (d === null) {
+            return <View key={`e-${i}`} style={{ width: CELL, height: CELL }} />;
+          }
+          const sel = isSelected(d);
+          const tod = isToday(d);
+          return (
+            <TouchableOpacity
+              key={d}
+              onPress={() => handleSelect(d)}
+              activeOpacity={0.7}
+              style={{ width: CELL, height: CELL, alignItems: "center", justifyContent: "center" }}
+            >
+              <View
+                style={{
+                  width: CELL - 6,
+                  height: CELL - 6,
+                  borderRadius: (CELL - 6) / 2,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: sel ? "#024e32" : "transparent",
+                  borderWidth: tod && !sel ? 1.5 : 0,
+                  borderColor: "#024e32",
+                }}
+              >
+                <Text
+                  style={{
+                    color: sel ? "#ffffff" : "#1f2937",
+                    fontWeight: sel || tod ? "700" : "500",
+                    fontSize: 13,
+                  }}
+                >
+                  {d}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View className="flex-row mt-3" style={{ gap: 10 }}>
+        <TouchableOpacity
+          onPress={() => {
+            const t = new Date();
+            onChange(t);
+            onClose();
+          }}
+          className="flex-1 bg-gray-100 py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-gray-700 text-center font-semibold">Today</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={onClose}
+          className="flex-1 bg-[#024e32] py-2.5 rounded-xl"
+          activeOpacity={0.7}
+        >
+          <Text className="text-white text-center font-semibold">Close</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -496,8 +729,14 @@ export default function MyTargets() {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   };
 
+  // FIXED: toISOString() converts to UTC, so local midnight of the 20th
+  // (picked in the calendar) came out as the 19th in India. Build the
+  // YYYY-MM-DD text from the LOCAL year / month / day instead.
   const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   };
 
   const formatHistoryDate = (value: any) => {
@@ -736,12 +975,12 @@ export default function MyTargets() {
 
   const handleSubmit = async () => {
     if (!customerName || !phoneNumber || !chitAmount || !collectionAmount || !totalGB) {
-      Alert.alert("Validation", "Please fill all required fields");
+      showMessage("Validation", "Please fill all required fields");
       return;
     }
 
     if (phoneNumber.length < 10) {
-      Alert.alert("Validation", "Please enter valid phone number");
+      showMessage("Validation", "Please enter valid phone number");
       return;
     }
 
@@ -749,7 +988,7 @@ export default function MyTargets() {
       setLoading(true);
       const stored = await AsyncStorage.getItem("employee");
       if (!stored) {
-        Alert.alert("Error", "Employee not found");
+        showMessage("Error", "Employee not found");
         return;
       }
       const emp = JSON.parse(stored);
@@ -775,15 +1014,15 @@ export default function MyTargets() {
       const data = await response.json();
 
       if (response.ok) {
-        Alert.alert("Success", "Target submitted successfully");
+        showMessage("Success", "Target submitted successfully");
         resetForm();
         fetchTargets();
       } else {
-        Alert.alert("Error", data.message || "Failed to submit target");
+        showMessage("Error", data.message || "Failed to submit target");
       }
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to submit target");
+      showMessage("Error", "Failed to submit target");
     } finally {
       setLoading(false);
     }
@@ -1014,9 +1253,23 @@ export default function MyTargets() {
                 // when this screen has no navigation history behind it
                 // (opened fresh, via a refresh, or a direct link).
                 // Falls back to the employee home instead.
-                if (router.canGoBack()) {
-                  router.back();
-                } else {
+                //
+                // On web/desktop, canGoBack() can say true from
+                // expo-router's own in-memory stack even when the
+                // browser itself has nowhere real to go back to (a
+                // fresh tab, a direct link, or a page reload reset the
+                // browser's history but not that stack) -- so back()
+                // can still throw there even after this check. The
+                // try/catch is the actual fix: whatever canGoBack()
+                // gets wrong, the user always lands on /employee
+                // instead of seeing an error.
+                try {
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace("/employee");
+                  }
+                } catch (e) {
                   router.replace("/employee");
                 }
               }}
@@ -1061,9 +1314,19 @@ export default function MyTargets() {
                 // and the History table view, so it crashed in History
                 // too whenever there was no screen behind it to go back
                 // to. Falls back to the employee home instead.
-                if (router.canGoBack()) {
-                  router.back();
-                } else {
+                //
+                // See the loading-skeleton back button above for why
+                // this is now also wrapped in try/catch: canGoBack()
+                // can be wrong specifically on web/desktop, so the
+                // try/catch -- not the check itself -- is what actually
+                // guarantees no error reaches the user there.
+                try {
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace("/employee");
+                  }
+                } catch (e) {
                   router.replace("/employee");
                 }
               }}
@@ -1452,35 +1715,32 @@ export default function MyTargets() {
                 <MaterialIcons name="calendar-today" size={24} color="#024e32" />
               </TouchableOpacity>
 
-              {showDatePicker && (
-                <Modal
-                  transparent={true}
-                  animationType="fade"
-                  visible={showDatePicker}
-                  onRequestClose={() => setShowDatePicker(false)}
+              <Modal
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                visible={showDatePicker}
+                onRequestClose={() => setShowDatePicker(false)}
+              >
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: "rgba(0,0,0,0.5)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                  activeOpacity={1}
+                  onPress={() => setShowDatePicker(false)}
                 >
-                  <View className="flex-1 bg-black/50 justify-center items-center">
-                    <View className="bg-white rounded-2xl p-4 w-[90%]">
-                      <DateTimePicker
-                        value={date}
-                        mode="date"
-                        display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                        onChange={(event, selectedDate) => {
-                          setShowDatePicker(false);
-                          if (selectedDate) setDate(selectedDate);
-                        }}
-                        style={{ width: '100%' }}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowDatePicker(false)}
-                        className="mt-4 bg-[#024e32] py-3 rounded-xl"
-                      >
-                        <Text className="text-white text-center font-semibold">Done</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </Modal>
-              )}
+                  <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                    <SimpleDatePicker
+                      value={date}
+                      onChange={(d) => setDate(d)}
+                      onClose={() => setShowDatePicker(false)}
+                    />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              </Modal>
 
               <Text className="font-semibold text-gray-800 mb-2">Customer Name *</Text>
               <TextInput value={customerName} onChangeText={setCustomerName} placeholder="Enter customer name" className="bg-white border border-gray-300 rounded-xl px-4 py-3 mb-4" />
@@ -1780,17 +2040,32 @@ export default function MyTargets() {
                     <MaterialIcons name="calendar-today" size={24} color="#024e32" />
                   </TouchableOpacity>
 
-                  {showEditDatePicker && (
-                    <DateTimePicker
-                      value={editTargetDate}
-                      mode="date"
-                      display={Platform.OS === 'ios' ? 'inline' : 'spinner'}
-                      onChange={(event, selectedDate) => {
-                        setShowEditDatePicker(false);
-                        if (selectedDate) setEditTargetDate(selectedDate);
+                  <Modal
+                    transparent
+                    animationType="fade"
+                    statusBarTranslucent
+                    visible={showEditDatePicker}
+                    onRequestClose={() => setShowEditDatePicker(false)}
+                  >
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        backgroundColor: "rgba(0,0,0,0.5)",
+                        justifyContent: "center",
+                        alignItems: "center",
                       }}
-                    />
-                  )}
+                      activeOpacity={1}
+                      onPress={() => setShowEditDatePicker(false)}
+                    >
+                      <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                        <SimpleDatePicker
+                          value={editTargetDate}
+                          onChange={(d) => setEditTargetDate(d)}
+                          onClose={() => setShowEditDatePicker(false)}
+                        />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </Modal>
 
                   {/* Customer Name */}
                   <Text className="font-semibold text-gray-800 mb-2">Customer Name *</Text>

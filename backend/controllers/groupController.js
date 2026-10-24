@@ -1,6 +1,7 @@
 import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import Employee from "../models/Employee.js";
+import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
 
 /* ================= COPY PLAN TO MEMBER COLLECTIONS ================= */
 export const syncCollectionPlanToMembers = async (
@@ -120,8 +121,15 @@ export const getGroupMembers = async (req, res) => {
   const groupMembers = group.members.map((m) => {
     const mObj = m.toObject();
 
+    // single backend penalty number per month (used to cross-check the pages)
+    const backendPenalty = computeMemberPenalty(
+      mObj.collections,
+      group.collectionPlans
+    ).perMonth;
+
     mObj.collections = (mObj.collections || []).map((c) => ({
       ...c,
+      backendPenaltyDue: backendPenalty[c.index]?.penaltyDue ?? 0,
       payments: (c.payments || []).map((p) =>
         !p.employeePhone && p.employeeId && employeePhoneMap[p.employeeId]
           ? { ...p, employeePhone: employeePhoneMap[p.employeeId] }
@@ -557,6 +565,11 @@ export const getMyAccountCopy = async (req, res) => {
       return res.status(404).json({ message: "Member not found in group" });
     }
 
+    const backendPenalty = computeMemberPenalty(
+      member.collections,
+      group.collectionPlans
+    ).perMonth;
+
     const ledger = member.collections.map((c) => {
       let payments = [...(c.payments || [])];
 
@@ -608,6 +621,8 @@ export const getMyAccountCopy = async (req, res) => {
         payments,
         paidAmount,
         penaltyAmount: penaltyPaid,
+        penaltyWaived: Boolean(c.penaltyWaived),
+        backendPenaltyDue: backendPenalty[c.index]?.penaltyDue ?? 0,
         paymentDates,
         /*
           ADDED:

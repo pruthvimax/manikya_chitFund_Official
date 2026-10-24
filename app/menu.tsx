@@ -23,6 +23,8 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
+import { useLiveBadges } from "../components/useLiveBadges";
+import { usePushNotifications } from "../components/usePushNotifications";
 
 // =========================================================
 // SCREENSHOT PREVENTION (unchanged)
@@ -702,6 +704,20 @@ export default function HomeScreen() {
     }, [loadVacancyCount])
   );
 
+  // LIVE BADGES: re-run the SAME count functions above the moment the
+  // server says a notification / vacancy changed (no manual refresh).
+  useLiveBadges(Boolean(memberUserid), () => {
+    loadNotificationCount();
+    loadVacancyCount();
+  });
+
+  // PUSH: asks notification permission, registers this phone, and keeps the
+  // number on the app icon equal to bell count + vacancy count.
+  const { unregister: unregisterPush } = usePushNotifications(
+    memberUserid,
+    unseenNotificationCount + newVacancyCount
+  );
+
   const handleNotificationPress = async () => {
     try {
       await AsyncStorage.setItem("lastSeenNotificationAt", new Date().toISOString());
@@ -720,6 +736,11 @@ export default function HomeScreen() {
     setLogoutModalVisible(false);
     setProfileMenuVisible(false);
     try {
+      try {
+        await unregisterPush(); // stop pushes to this phone for this member
+      } catch {
+        // never block logout
+      }
       await AsyncStorage.multiRemove(["loggedUser", introVideoPlayedKey]);
       router.replace("/");
     } catch (error) {

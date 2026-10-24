@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 
   import BACKEND_URL from "../config";
+import SpinnerAutoOpen from "../components/spinner/SpinnerAutoOpen";
 
   const { width } = Dimensions.get("window");
 
@@ -1988,6 +1989,15 @@ const body = {
                 </View>
 
               </View>
+
+              <SpinnerAutoOpen
+                enabled={auctionEnded}
+                groupId={groupId}
+                groupCode={groupCode}
+                auctionEndDate={auctionEndDate}
+                auctionEndTime={auctionEndTime}
+                userid={userid}
+              />
 
               {/* =================================================
                   PLACE BID

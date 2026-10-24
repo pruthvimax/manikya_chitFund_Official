@@ -642,6 +642,29 @@ if (
     maxBidAmount: adminMaxBid,
   });
 }
+/* =====================================================
+   MAXIMUM ALREADY REACHED
+
+   Once a member has bid the maximum, the only bid that can
+   still compete is the maximum itself (those members go to the
+   spin). Lower bids are refused.
+===================================================== */
+
+if (
+  highestBid &&
+  Number(highestBid.bidAmount) >= adminMaxBid &&
+  amount < adminMaxBid
+) {
+  return res.status(400).json({
+    message:
+      `The maximum bid of ₹${adminMaxBid.toLocaleString("en-IN")} has already been reached. You can only bid ₹${adminMaxBid.toLocaleString("en-IN")} now.`,
+    highestBid:
+      highestBid.bidAmount,
+    minBidAmount: adminMinBid,
+    maxBidAmount: adminMaxBid,
+  });
+}
+
     /* =====================================================
        CREATE BID
     ===================================================== */
