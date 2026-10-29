@@ -357,6 +357,14 @@ function VacancyCardSkeleton() {
   );
 }
 
+/* ================= FAST LOAD CACHE =================
+   Last data is kept in memory + on the phone, so the page shows
+   instantly and the fresh data replaces it a moment later. */
+const VAC_KEY = (id: string) => `empVacancies_${id}`;
+const VAC_NOTIF_KEY = "empVacancyNotifs";
+const memVac: Record<string, any[]> = {};
+let memNotifs: any[] | null = null;
+
 /* ================= MAIN ================= */
 export default function EmployeeVacancy() {
   const router = useRouter();
@@ -376,10 +384,13 @@ export default function EmployeeVacancy() {
     try {
       const res = await fetch(`${BACKEND_URL}/notifications`);
       const data = await res.json();
-      setNotifications(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setNotifications(list);
+      memNotifs = list;
+      AsyncStorage.setItem(VAC_NOTIF_KEY, JSON.stringify(list)).catch(() => {});
     } catch (err) {
       console.log("Load notifications error:", err);
-      setNotifications([]);
+      setNotifications((prev) => prev);
     }
   };
 
@@ -401,10 +412,14 @@ export default function EmployeeVacancy() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
-      setVacancies(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setVacancies(list);
+      memVac[id] = list;
+      AsyncStorage.setItem(VAC_KEY(id), JSON.stringify(list)).catch(() => {});
     } catch (err) {
       console.log("Load vacancies error:", err);
-      setError("Could not connect to server");
+      // keep showing the saved list if we have one
+      if (!memVac[id]) setError("Could not connect to server");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -429,6 +444,28 @@ export default function EmployeeVacancy() {
         setEmpId(parsed?.emp_id || null);
 
         if (parsed?.emp_id) {
+          // show the last saved list at once (no spinner), refresh below
+          try {
+            const id = String(parsed.emp_id);
+            let cachedV = memVac[id];
+            let cachedN = memNotifs;
+            if (!cachedV) {
+              const [v, n] = await Promise.all([
+                AsyncStorage.getItem(VAC_KEY(id)),
+                AsyncStorage.getItem(VAC_NOTIF_KEY),
+              ]);
+              if (v) cachedV = memVac[id] = JSON.parse(v);
+              if (n && !cachedN) cachedN = memNotifs = JSON.parse(n);
+            }
+            if (active && cachedV) {
+              setVacancies(cachedV);
+              if (cachedN) setNotifications(cachedN);
+              setLoading(false);
+            }
+          } catch {
+            // ignore - normal loading continues
+          }
+
           await Promise.all([
             loadVacancies(parsed.emp_id),
             loadNotifications(),

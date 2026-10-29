@@ -12,7 +12,7 @@ import {
 export default function WorkTracker() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // was true: a fake 0.5 s skeleton, nothing is fetched here
 
   const menus = [
     {

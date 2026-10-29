@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -15,6 +16,13 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
+import { USE_NEW_MEMBER_DESIGN } from "../components/memberDesign";
+import { MemberSchemeCards, MemberSchemeSkeleton } from "../components/memberSchemes";
+
+/* ===== FAST LOAD: last list is kept in memory + on the phone, so the page
+   opens with cards at once and the fresh list replaces it a moment later ===== */
+const SCHEMES_CACHE = "newSchemesCache_v1";
+let memSchemes: any[] | null = null;
 
 /* ================= SKELETON HELPERS ================= */
 function useSkeletonPulse() {
@@ -126,8 +134,8 @@ export default function NewlyCommencedGroups() {
   const isDesktop = width >= 1024;
 
   // State variables
-  const [schemes, setSchemes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [schemes, setSchemes] = useState<any[]>(memSchemes ?? []);
+  const [loading, setLoading] = useState(!memSchemes);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
@@ -148,14 +156,29 @@ const [sendingContactRequest, setSendingContactRequest] = useState(false);
 
   /* ================= INITIAL DATA FETCH ================= */
   useEffect(() => {
-    fetchSchemes();
+    // 1) show the saved list instantly (if this phone has one)
+    if (!memSchemes) {
+      AsyncStorage.getItem(SCHEMES_CACHE)
+        .then((raw) => {
+          if (!raw || memSchemes) return;
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.length) {
+            memSchemes = list;
+            setSchemes(list);
+            setLoading(false);
+          }
+        })
+        .catch(() => {});
+    }
+    // 2) refresh quietly in the background (no spinner)
+    fetchSchemes(true);
   }, []);
 
   /* ================= FETCH SCHEMES (parallel race instead of sequential fallback) ================= */
-  const fetchSchemes = async () => {
+  const fetchSchemes = async (silent: any = false) => {
     try {
       setError("");
-      setRefreshing(true);
+      if (silent !== true) setRefreshing(true);
 
       const endpoints = [
         `${BACKEND_URL}/chitscheme`,
@@ -175,9 +198,12 @@ const [sendingContactRequest, setSendingContactRequest] = useState(false);
 
       const data = await firstSuccessful(endpoints.map(attempt));
       setSchemes(data);
+      memSchemes = data;
+      AsyncStorage.setItem(SCHEMES_CACHE, JSON.stringify(data)).catch(() => {});
     } catch (err) {
       console.log("Error fetching schemes", err);
-      setError("Could not connect to server");
+      // keep showing the saved list when the network is slow or down
+      if (!memSchemes) setError("Could not connect to server");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -471,7 +497,7 @@ const sendContactRequest = async (scheme: any) => {
       {/* ScrollView with Refresh Control */}
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 110, paddingBottom: 20 }}
+        contentContainerStyle={{ paddingTop: 110, paddingBottom: navPad(20) }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -483,7 +509,7 @@ const sendContactRequest = async (scheme: any) => {
         showsVerticalScrollIndicator={true}
       >
         {loading ? (
-          <SchemesSkeleton />
+          USE_NEW_MEMBER_DESIGN && isMobile ? <MemberSchemeSkeleton /> : <SchemesSkeleton />
         ) : error ? (
           <View className="p-6 items-center justify-center min-h-[400px]">
             <MaterialIcons name="error-outline" size={50} color="#dc2626" />
@@ -507,6 +533,14 @@ const sendContactRequest = async (scheme: any) => {
               <Text className="text-gray-600 ml-2">Refresh</Text>
             </TouchableOpacity>
           </View>
+        ) : USE_NEW_MEMBER_DESIGN && isMobile ? (
+          /* ================= NEW DESIGN: SCHEME CARDS ================= */
+          <MemberSchemeCards
+            schemes={schemes}
+            onAction={confirmContactRequest}
+            actionLabel="Contact for Details"
+            hero={{ title: "Find your chit", subtitle: "Pick a plan and tap Contact for Details" }}
+          />
         ) : (
           <View className={`${isDesktop ? "px-8 py-6" : "px-4 py-5"}`}>
             {/* Header with count */}

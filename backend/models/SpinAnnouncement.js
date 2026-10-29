@@ -44,6 +44,14 @@ const spinAnnouncementSchema = new mongoose.Schema(
       s30: { type: Boolean, default: false },
     },
     notifiedCount: { type: Number, default: 0 },
+
+    // true  = the server starts the spin by itself when spinAt arrives
+    // false = it waits for the admin to press Start (manual spin)
+    autoSpin: { type: Boolean, default: false },
+    // auto spin only: "" = random draw, otherwise the member the admin picked
+    autoTargetId: { type: String, default: "" },
+    autoSpinTriggered: { type: Boolean, default: false },
+    autoSpinResult: { type: String, default: "" },
   },
   { timestamps: true }
 );

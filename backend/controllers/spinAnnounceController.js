@@ -2,6 +2,7 @@ import Group from "../models/Group.js";
 import Notification from "../models/Notification.js";
 import SpinAnnouncement from "../models/SpinAnnouncement.js";
 import {
+  buildCandidates,
   findSession,
   getAuctionEnd,
   loadAuction,
@@ -46,6 +47,8 @@ const toClient = (a) =>
           s30: Boolean(a.sent?.s30),
         },
         notifiedCount: a.notifiedCount || 0,
+        autoSpin: Boolean(a.autoSpin),
+        autoTargetId: a.autoTargetId || "",
       }
     : null;
 
@@ -82,6 +85,30 @@ export const announceSpin = async (req, res) => {
       return res
         .status(409)
         .json({ success: false, message: "This auction has already been spun." });
+    }
+
+    // the admin must choose Auto spin or Manual spin first
+    if (typeof req.body?.autoSpin !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "Choose Auto spin or Manual spin first.",
+      });
+    }
+    const autoSpin = req.body.autoSpin === true;
+
+    // "Members on the wheel": random draw, or the member the admin picked.
+    // For auto spin it is saved now and used when the spin starts by itself.
+    const autoTargetId = autoSpin
+      ? String(req.body?.targetGroupMemberId || "").trim()
+      : "";
+    if (autoTargetId) {
+      const { candidates } = await buildCandidates(notification, group);
+      if (!candidates.some((c) => c.groupMemberId === autoTargetId)) {
+        return res.status(400).json({
+          success: false,
+          message: "The selected member is not an eligible candidate.",
+        });
+      }
     }
 
     const spinDate = String(req.body?.spinDate || "").trim();
@@ -126,6 +153,8 @@ export const announceSpin = async (req, res) => {
       spinTime,
       spinAt,
       status: "active",
+      autoSpin,
+      autoTargetId,
       // reminders that no longer make sense are marked as already sent
       sent: {
         now: true,
@@ -204,6 +233,7 @@ export const getMemberSpinAnnouncements = async (req, res) => {
         spinDateText: prettySpinDate(a.spinDate),
         spinTimeText: prettySpinTime(a.spinTime),
         spinAt: new Date(a.spinAt).getTime(),
+        autoSpin: Boolean(a.autoSpin),
         createdAt: a.createdAt,
       }))
     );

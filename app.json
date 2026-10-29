@@ -2,7 +2,7 @@
   "expo": {
     "name": "Manikya Chits",
     "slug": "manikya-chits",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "orientation": "portrait",
     "icon": "./assets/images/maxxxxx.png",
     "scheme": "manikya-chits",
@@ -70,10 +70,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/manikyaChits.png",
+          "image": "./assets/images/splashBlank.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#ffffff",
+          "android": {
+            "image": "./assets/images/splashBlank.png",
+            "imageWidth": 288
+          }
         }
       ],
       "expo-sharing",
@@ -86,6 +90,7 @@
       ]
     ],
     "extra": {
+      "_splashNote": "Native splash is blank on purpose (iOS + Android): the logo is shown by the animated screen in components/AnimatedSplash.tsx. To go back to the old static splash set the splash plugin image to ./assets/images/manikyaChits.png with imageWidth 200 (iOS and Android) and set SHOW_ANIMATED_SPLASH = false.",
       "router": {},
       "eas": {
         "projectId": "30ef0b27-0815-4855-9798-cfee2a4f4d94"

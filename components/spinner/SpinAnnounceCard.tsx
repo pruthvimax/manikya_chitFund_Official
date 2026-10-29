@@ -46,6 +46,8 @@ type Announcement = {
   spinAt: number;
   sent: { now: boolean; m10: boolean; m5?: boolean; m2?: boolean; m1: boolean; s30?: boolean };
   notifiedCount: number;
+  autoSpin?: boolean;
+  autoTargetId?: string;
 };
 
 type Props = {
@@ -53,6 +55,8 @@ type Props = {
   adminKey: string;
   groupCode: string;
   defaultDate?: string; // DD-MM-YYYY, usually the auction end date
+  targetId?: string | null; // "Members on the wheel": null = random draw
+  targetLabel?: string; // text for the picked member
   onInvalidKey: () => void;
 };
 
@@ -439,10 +443,14 @@ export default function SpinAnnounceCard({
   adminKey,
   groupCode,
   defaultDate,
+  targetId,
+  targetLabel,
   onInvalidKey,
 }: Props) {
   const [pickedDate, setPickedDate] = useState<PickedDate | null>(null);
   const [pickedTime, setPickedTime] = useState<PickedTime | null>(null);
+  // the admin must choose this first: Auto spin or Manual spin
+  const [spinMode, setSpinMode] = useState<"auto" | "manual" | null>(null);
   const [dateOpen, setDateOpen] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
   const [current, setCurrent] = useState<Announcement | null>(null);
@@ -505,17 +513,19 @@ export default function SpinAnnounceCard({
     return () => clearInterval(t);
   }, [current, load]);
 
-  const canSend = Boolean(pickedDate && pickedTime) && !busy;
+  const canSend = Boolean(spinMode && pickedDate && pickedTime) && !busy;
 
   const send = async () => {
     setBusy(true);
     setError("");
     setInfo("");
     try {
-      if (!pickedDate || !pickedTime) return;
+      if (!spinMode || !pickedDate || !pickedTime) return;
       const json = await call("POST", "announce", {
         spinDate: toServerDate(pickedDate),
         spinTime: toServerTime(pickedTime),
+        autoSpin: spinMode === "auto",
+        targetGroupMemberId: spinMode === "auto" && targetId ? targetId : undefined,
       });
       setCurrent(json.announcement || null);
       setInfo(
@@ -536,7 +546,13 @@ export default function SpinAnnounceCard({
       current?.status === "active" ? "Change the spin time?" : "Notify the members?",
       `Members of Group ${groupCode || "-"} will get: "The live spin will start on ${prettyDate(
         pickedDate
-      )} at ${prettyTime(pickedTime)}."\n\nReminders go out 10 min, 5 min, 2 min, 1 min and 30 sec before.`,
+      )} at ${prettyTime(pickedTime)}."\n\n${
+        spinMode === "auto"
+          ? `AUTO SPIN: the spin will start by itself when the time ends (5 second countdown). Winner: ${
+              targetId ? `${targetLabel || targetId} (admin selected)` : "Random draw"
+            }. You do not need to press Start.`
+          : "MANUAL SPIN: after the time ends, it waits for you to press Start."
+      }\n\nReminders go out 10 min, 5 min, 2 min, 1 min and 30 sec before.`,
       "Send",
       send
     );
@@ -635,6 +651,13 @@ export default function SpinAnnounceCard({
           <Text style={{ color: "#166534", fontWeight: "800", fontSize: 14 }}>
             Spin scheduled: {active.spinDateText} at {active.spinTimeText}
           </Text>
+          <Text style={{ color: "#166534", fontSize: 12.5, marginTop: 4, fontWeight: "700" }}>
+            {active.autoSpin
+              ? `Auto spin - starts by itself when the time ends. Winner: ${
+                  active.autoTargetId ? `${active.autoTargetId} (admin selected)` : "Random draw"
+                }`
+              : "Manual spin - waits for you to press Start"}
+          </Text>
           <Tick
             done={active.sent.now}
             label={
@@ -651,8 +674,66 @@ export default function SpinAnnounceCard({
         </View>
       ) : null}
 
+      {/* ---------- Auto / Manual spin (choose this first) ---------- */}
+      <Text style={{ color: "#6B7280", fontSize: 12, marginTop: 14, marginBottom: 6 }}>
+        1. Choose how the spin starts
+      </Text>
+      <View style={{ flexDirection: "row", backgroundColor: "#F3F4F6", borderRadius: 14, padding: 4 }}>
+        {(
+          [
+            { key: "auto", label: "Auto spin", icon: "bolt" },
+            { key: "manual", label: "Manual spin", icon: "touch-app" },
+          ] as const
+        ).map((opt) => {
+          const on = spinMode === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              onPress={() => setSpinMode(opt.key)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                paddingVertical: 11,
+                borderRadius: 11,
+                backgroundColor: on ? GREEN : "transparent",
+              }}
+            >
+              <MaterialIcons name={opt.icon} size={18} color={on ? "#FFFFFF" : "#6B7280"} />
+              <Text
+                style={{
+                  marginLeft: 6,
+                  fontWeight: "800",
+                  fontSize: 13.5,
+                  color: on ? "#FFFFFF" : "#374151",
+                }}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <Text style={{ color: "#6B7280", fontSize: 11.5, marginTop: 6, lineHeight: 16 }}>
+        {spinMode === "auto"
+          ? `The spin starts by itself when the time ends, with a 5 second countdown. Winner: ${
+              targetId ? `${targetLabel || targetId} (admin selected)` : "Random draw"
+            } - change it in "Members on the wheel" above. The Spin settings below are not used.`
+          : spinMode === "manual"
+          ? "After the time ends it waits for you. Press Start in the Spin settings below."
+          : "Select Auto spin or Manual spin first, then set the date and time."}
+      </Text>
+
       {/* ---------- date + time (tap to choose) ---------- */}
-      <View style={{ flexDirection: "row", marginTop: 14 }}>
+      <Text style={{ color: "#6B7280", fontSize: 12, marginTop: 14 }}>2. Set the date and time</Text>
+      <View
+        pointerEvents={spinMode ? "auto" : "none"}
+        style={{ flexDirection: "row", marginTop: 6, opacity: spinMode ? 1 : 0.45 }}
+      >
         <View style={{ flex: 1, marginRight: 10 }}>
           <Text style={{ color: "#6B7280", fontSize: 12, marginBottom: 6 }}>Spin date</Text>
           <PickerField
@@ -694,6 +775,32 @@ export default function SpinAnnounceCard({
         </Text>
         <Text style={{ color: "#6B7280", marginTop: 8, fontSize: 12, lineHeight: 17 }}>
           Then automatic reminders at 10 min, 5 min, 2 min, 1 min and 30 sec before the spin.
+        </Text>
+        {spinMode === "auto" ? (
+          <Text style={{ color: "#166534", marginTop: 6, fontSize: 12, lineHeight: 17, fontWeight: "700" }}>
+            Members also see: the spin starts automatically when the time ends, with a 5 second countdown.
+          </Text>
+        ) : null}
+      </View>
+
+      {/* the winner choice made in "Members on the wheel" (kept in view here so it is never forgotten) */}
+      <View
+        style={{
+          marginTop: 12,
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: targetId ? "#FFFBEB" : "#F3F4F6",
+          borderRadius: 12,
+          padding: 10,
+        }}
+      >
+        <MaterialIcons name={targetId ? "person-pin" : "shuffle"} size={18} color="#374151" />
+        <Text style={{ marginLeft: 8, flex: 1, fontSize: 12.5, color: "#374151", lineHeight: 17 }}>
+          Winner for the spin:{" "}
+          <Text style={{ fontWeight: "800" }}>
+            {targetId ? `${targetLabel || targetId} (admin selected)` : "Random draw"}
+          </Text>
+          {" "}- change it in "Members on the wheel" above.
         </Text>
       </View>
 

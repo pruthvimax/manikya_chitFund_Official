@@ -12,6 +12,8 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import BACKEND_URL from "../../config";
+import { USE_NEW_EMPLOYEE_DESIGN } from "../../components/memberDesign";
+import { SchemeCards, SchemeCardsSkeleton } from "../../components/employeeSchemes";
 
 /* =========================================================
    SKELETON COMPONENT
@@ -120,14 +122,21 @@ function Footer() {
 }
 
 /* =========================================================
+   FAST OPEN: the last list is kept (memory + phone storage) and shown
+   at once, then refreshed quietly in the background.
+========================================================= */
+const SCHEMES_CACHE = "empSchemesCache_v1";
+let memSchemes: any[] | null = null;
+
+/* =========================================================
    MAIN SCREEN
 ========================================================= */
 
 export default function NewlyCommencedGroups() {
   const router = useRouter();
 
-  const [schemes, setSchemes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [schemes, setSchemes] = useState<any[]>(memSchemes || []);
+  const [loading, setLoading] = useState(!memSchemes);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
@@ -163,6 +172,20 @@ export default function NewlyCommencedGroups() {
   /* ================= FETCH SCHEMES ================= */
 
   useEffect(() => {
+    // show the saved list straight away, then refresh quietly
+    if (!memSchemes) {
+      AsyncStorage.getItem(SCHEMES_CACHE)
+        .then((raw) => {
+          if (!raw || memSchemes) return;
+          const saved = JSON.parse(raw);
+          if (Array.isArray(saved) && saved.length) {
+            memSchemes = saved;
+            setSchemes(saved);
+            setLoading(false);
+          }
+        })
+        .catch(() => {});
+    }
     fetchSchemes();
   }, []);
 
@@ -195,6 +218,8 @@ export default function NewlyCommencedGroups() {
             );
 
             setSchemes(data);
+            memSchemes = data;
+            AsyncStorage.setItem(SCHEMES_CACHE, JSON.stringify(data)).catch(() => {});
             success = true;
             break;
           }
@@ -203,7 +228,8 @@ export default function NewlyCommencedGroups() {
         }
       }
 
-      if (!success) {
+      // a saved list is already on screen -> no error banner for a slow network
+      if (!success && !memSchemes) {
         setError("Could not connect to server");
       }
     } catch (err) {
@@ -276,7 +302,7 @@ export default function NewlyCommencedGroups() {
             className="flex-1"
             showsVerticalScrollIndicator={false}
           >
-            <SchemeSkeleton />
+            {USE_NEW_EMPLOYEE_DESIGN ? <SchemeCardsSkeleton /> : <SchemeSkeleton />}
 
             <Footer />
           </ScrollView>
@@ -334,6 +360,12 @@ export default function NewlyCommencedGroups() {
                 </Text>
 
               </View>
+
+            ) : USE_NEW_EMPLOYEE_DESIGN ? (
+
+              /* ================= NEW: SCHEME CARDS ================= */
+
+              <SchemeCards schemes={schemes} />
 
             ) : (
 

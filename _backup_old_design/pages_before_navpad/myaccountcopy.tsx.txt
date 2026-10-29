@@ -1,0 +1,2358 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import {
+  Animated,
+  Modal,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+  Platform,
+  Alert,
+} from "react-native";
+import BACKEND_URL from "../config";
+import { logPenaltyMismatch } from "../components/penaltyCheck";
+import {
+  cacheGet,
+  cacheSet,
+  groupsKey,
+  ledgerKey,
+  dividendsKey,
+} from "../memberCache";
+
+// =========================================================
+// SCREENSHOT PREVENTION FOR ALL PLATFORMS
+// =========================================================
+
+// For Android & iOS using expo-screen-capture
+let ScreenCapture: any = null;
+
+try {
+  const module = require("expo-screen-capture");
+  ScreenCapture = module.default || module;
+} catch (error) {
+  console.log("expo-screen-capture not available, using fallback");
+}
+
+const preventScreenshot = async () => {
+  try {
+    // Admin exemption. While an admin session is active on this
+    // device the app leaves screen capture ENABLED, so only an
+    // admin can screenshot. Every other user stays blocked.
+    if ((await AsyncStorage.getItem("adminSession")) === "true") {
+      await allowScreenshot();
+      return;
+    }
+
+    if (ScreenCapture && typeof ScreenCapture.preventScreenCaptureAsync === 'function') {
+      await ScreenCapture.preventScreenCaptureAsync();
+      console.log("✅ Screenshots prevented (expo-screen-capture)");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(true);
+          console.log("✅ Screenshots prevented (native)");
+        }
+      } catch (error) {
+        console.log("Native SecureViewManager not available");
+      }
+    }
+  } catch (error) {
+    console.log("Screenshot prevention error:", error);
+  }
+};
+
+const allowScreenshot = async () => {
+  try {
+    if (ScreenCapture && typeof ScreenCapture.allowScreenCaptureAsync === 'function') {
+      await ScreenCapture.allowScreenCaptureAsync();
+      console.log("✅ Screenshots allowed (expo-screen-capture)");
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      try {
+        const { NativeModules } = require("react-native");
+        const { SecureViewManager } = NativeModules;
+
+        if (SecureViewManager?.setSecure) {
+          await SecureViewManager.setSecure(false);
+          console.log("✅ Screenshots allowed (native)");
+        }
+      } catch (error) {
+        console.log("Native SecureViewManager not available");
+      }
+    }
+  } catch (error) {
+    console.log("Screenshot allow error:", error);
+  }
+};
+
+/* =========================================================================
+   ✅ FIX: "Nothing Phone" text truncation issue
+   ✅ PERF: memoized so it doesn't re-render on every parent state change
+   ========================================================================= */
+const SkeletonBox = React.memo(function SkeletonBox({
+  width,
+  height = 14,
+  radius = 6,
+  style = {},
+}: {
+  width: number | string;
+  height?: number;
+  radius?: number;
+  style?: any;
+}) {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: width as any,
+          height,
+          borderRadius: radius,
+          backgroundColor: "#e3e8e6",
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+});
+
+/* =========================================================================
+   SUMMARY CARD
+
+   Compact tile. Several sit side by side in a wrapping row - React Native
+   has no CSS grid, so the old "grid grid-cols-2" classes did nothing and
+   every card stretched full width, one per line.
+   ========================================================================= */
+const SummaryCard = React.memo(function SummaryCard({
+  label,
+  value,
+  color,
+  icon,
+  cardWidth,
+  subLabel,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+  icon: any;
+  cardWidth: string;
+  subLabel?: string;
+}) {
+  return (
+    <View
+      className="bg-white rounded-2xl border border-gray-200 px-3 py-2.5 mb-2.5"
+      style={{
+        width: cardWidth as any,
+        shadowColor: "#000",
+        shadowOpacity: 0.04,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 1,
+      }}
+    >
+      <View className="flex-row items-center mb-1">
+        <MaterialIcons name={icon} size={13} color={color} />
+        <Text
+          className="text-gray-500 text-[10px] font-semibold ml-1 flex-1"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.1}
+        >
+          {label}
+        </Text>
+      </View>
+
+      <Text
+        className="text-base font-bold"
+        style={{ color }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+        maxFontSizeMultiplier={1.1}
+      >
+        ₹{value}
+      </Text>
+
+      {subLabel ? (
+        <Text
+          className="text-gray-400 text-[9px] mt-0.5"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.1}
+        >
+          {subLabel}
+        </Text>
+      ) : null}
+    </View>
+  );
+});
+
+const SkeletonGroupsScreen = () => (
+  <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+    <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+      <View className="flex-row items-center">
+        <TouchableOpacity className="mt-1" disabled>
+          <MaterialIcons name="arrow-back" size={26} color="white" />
+        </TouchableOpacity>
+        <Text
+          className="text-white text-2xl font-bold ml-4 mt-1 flex-1"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.3}
+          style={{ flexShrink: 1 }}
+        >
+          Account Copy
+        </Text>
+      </View>
+    </View>
+    <View className="p-5" style={{ paddingTop: 120 }}>
+      <SkeletonBox width={110} height={14} style={{ marginBottom: 10 }} />
+      <SkeletonBox width={"100%" as any} height={64} radius={16} />
+
+      <View className="flex-row flex-wrap justify-between mt-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <View
+            key={i}
+            className="bg-white px-3 py-2.5 rounded-2xl border border-gray-200 mb-2.5"
+            style={{ width: "48%" }}
+          >
+            <SkeletonBox width={70} height={9} style={{ marginBottom: 7 }} />
+            <SkeletonBox width={55} height={16} />
+          </View>
+        ))}
+      </View>
+    </View>
+    <View className="px-5">
+      <Footer />
+    </View>
+  </SafeAreaView>
+);
+
+const SkeletonLedgerBlock = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) => (
+  <View>
+    <View className="flex-row flex-wrap justify-between mb-6">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <View
+          key={i}
+          className="bg-white px-3 py-2.5 rounded-2xl border border-gray-200 mb-2.5"
+          style={{ width: isDesktopOrLaptop ? "31.5%" : "48%" }}
+        >
+          <SkeletonBox width={70} height={9} style={{ marginBottom: 7 }} />
+          <SkeletonBox width={55} height={16} />
+        </View>
+      ))}
+    </View>
+
+    <View className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+      <View className="bg-[#024e32] flex-row px-3 py-3">
+        {Array.from({ length: isDesktopOrLaptop ? 7 : 4 }).map((_, i) => (
+          <SkeletonBox
+            key={i}
+            width={isDesktopOrLaptop ? 100 : 70}
+            height={12}
+            style={{ marginRight: 12, backgroundColor: "#0d6b46" }}
+          />
+        ))}
+      </View>
+      {Array.from({ length: 6 }).map((_, row) => (
+        <View
+          key={row}
+          className={`flex-row items-center px-3 py-4 border-b border-gray-100 ${
+            row % 2 === 0 ? "bg-white" : "bg-gray-50"
+          }`}
+        >
+          {Array.from({ length: isDesktopOrLaptop ? 7 : 4 }).map((_, col) => (
+            <SkeletonBox
+              key={col}
+              width={isDesktopOrLaptop ? 90 : 60}
+              height={12}
+              style={{ marginRight: 12 }}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  </View>
+);
+
+const Footer = () => (
+  <View className="mt-6 mb-6">
+    <View className="border-t border-gray-200 pt-4 items-center">
+      <Text className="text-[#024e32] font-bold text-base">
+        MANIKYA CHITS PVT LTD
+      </Text>
+      <Text className="text-gray-500 text-xs mt-1 text-center">
+        My Account Copy
+      </Text>
+      <Text className="text-gray-400 text-xs mt-1 text-center">
+        © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
+      </Text>
+    </View>
+  </View>
+);
+
+/* =========================================================
+   CUMULATIVE PENALTY (6%)  —  ported from the My Outstanding page
+
+   That page hits the SAME backend endpoint this page does
+   (/groups/account-copy) but never trusts a raw `penaltyAmount`
+   field off the ledger row — it works the 6% cumulative /
+   compounding penalty out itself from due dates and actual
+   payments (same formula as the admin Group Members page, the
+   employee Collect Payment page, and My Chits). This page used to
+   read `row.penaltyAmount` straight off the backend for its
+   Penalty column and the History modal's penalty section, which is
+   exactly the same kind of stale-snapshot problem the Status badge
+   had earlier — a value set once and never re-checked. Porting the
+   same computation here (unchanged) makes the Penalty figures, and
+   the new "penalty still pending" note below, reliable instead of
+   possibly stale.
+========================================================= */
+const FIXED_PENALTY_PERCENTAGE = 6;
+
+const isAfterPenaltyDueDate = (dueDate: any) => {
+  if (!dueDate) return false;
+  const due = new Date(dueDate);
+  if (isNaN(due.getTime())) return false;
+  due.setHours(23, 59, 59, 999);
+  return new Date().getTime() > due.getTime();
+};
+
+const getCumulativePenaltyForRows = (rows: any[]) => {
+  const sorted = [...(rows || [])]
+    .filter((r) => r && r.installment)
+    .sort((a, b) => (a.monthIndex ?? 0) - (b.monthIndex ?? 0));
+
+  // Pending amount for `row`, using only payments made on or before
+  // `cutoffDate` — shared by the "own month" freeze (cutoff = that
+  // row's own due date) and the "carry" freeze (cutoff = the LATER
+  // row's due date, i.e. the moment that later row's penalty gets
+  // assessed).
+  const pendingAsOfDate = (row: any, cutoffDate: any) => {
+    const installment = row.installment || 0;
+    const dividend = Number(row.dividend || 0);
+    const effectiveInstallment = Math.max(installment - dividend, 0);
+    const payments = Array.isArray(row.payments) ? row.payments : [];
+
+    if (!cutoffDate) {
+      const paidAny = payments
+        .filter((p: any) => p.paymentType !== "PENALTY" && p.paymentType !== "DIVIDEND")
+        .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      return Math.max(effectiveInstallment - paidAny, 0);
+    }
+
+    const due = new Date(cutoffDate);
+    due.setHours(23, 59, 59, 999);
+    const dueTime = due.getTime();
+    let paidByCutoff = 0;
+    payments.forEach((p: any) => {
+      if (p.paymentType === "PENALTY" || p.paymentType === "DIVIDEND") return;
+      const t = new Date(p.paidAt || p.date).getTime();
+      if (t <= dueTime) paidByCutoff += Number(p.amount || 0);
+    });
+    return Math.max(effectiveInstallment - paidByCutoff, 0);
+  };
+
+  const unpaidAsOfOwnDueDate = (row: any) => pendingAsOfDate(row, row.dueDateObj || null);
+
+  const penaltyByMonth: Record<string, number> = {};
+
+  sorted.forEach((row, i) => {
+    let penaltyIncrement = 0;
+
+    if (row.dueDateObj && isAfterPenaltyDueDate(row.dueDateObj)) {
+      const thisMonthUnpaid = unpaidAsOfOwnDueDate(row);
+      let carriedUnpaid = 0;
+      for (let j = 0; j < i; j++) {
+        // Freeze each earlier row's contribution as of THIS row's own
+        // due date, not "today" — so once assessed, this penalty stays
+        // fixed no matter when the earlier row eventually gets paid.
+        const priorPending = pendingAsOfDate(sorted[j], row.dueDateObj);
+        if (priorPending > 0) carriedUnpaid += priorPending;
+      }
+
+      const base = thisMonthUnpaid + carriedUnpaid;
+      penaltyIncrement = Math.round((base * FIXED_PENALTY_PERCENTAGE) / 100);
+    }
+
+    penaltyByMonth[row.monthIndex] = penaltyIncrement;
+  });
+
+  return penaltyByMonth;
+};
+
+/* =========================================================
+   BACKGROUND PRELOAD HELPER
+
+   Same dividend lookup loadDividends does, as a plain function, so
+   the other groups can be loaded quietly in the background while the
+   member looks at the first one.
+========================================================= */
+const fetchDividendMap = async (
+  groupId: string,
+  ledgerRows: any[]
+): Promise<Record<number, number>> => {
+  const map: Record<number, number> = {};
+  await Promise.all(
+    ledgerRows.map(async (row) => {
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
+        );
+        const plan = await res.json();
+        map[row.monthIndex] = plan?.dividend || 0;
+      } catch (err) {
+        map[row.monthIndex] = 0;
+      }
+    })
+  );
+  return map;
+};
+
+export default function MyAccountCopy() {
+  const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const isDesktopOrLaptop = width >= 768;
+
+  // =========================================================
+  // SCREENSHOT PREVENTION
+  // =========================================================
+
+  useEffect(() => {
+    preventScreenshot();
+    return () => {
+      allowScreenshot();
+    };
+  }, []);
+
+  // =========================================================
+  // WEB SCREENSHOT DETECTION
+  // =========================================================
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "PrintScreen") {
+          e.preventDefault();
+          Alert.alert(
+            "Screenshot Blocked",
+            "Screenshots are not allowed for security reasons."
+          );
+        }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        Alert.alert(
+          "Action Blocked",
+          "Right-click is disabled for security reasons."
+        );
+      };
+
+      const handleDevTools = (e: KeyboardEvent) => {
+        if (
+          (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i")) ||
+          (e.ctrlKey && e.shiftKey && (e.key === "J" || e.key === "j")) ||
+          (e.ctrlKey && e.key === "U") ||
+          (e.ctrlKey && e.key === "u")
+        ) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Developer tools are disabled for security reasons."
+          );
+        }
+      };
+
+      const handleSave = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Save is disabled for security reasons."
+          );
+        }
+      };
+
+      const handlePrint = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Print is disabled for security reasons."
+          );
+        }
+      };
+
+      const handleCopy = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
+          e.preventDefault();
+          Alert.alert(
+            "Action Blocked",
+            "Copy is disabled for security reasons."
+          );
+        }
+      };
+
+      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("contextmenu", handleContextMenu);
+      document.addEventListener("keydown", handleDevTools);
+      document.addEventListener("keydown", handleSave);
+      document.addEventListener("keydown", handlePrint);
+      document.addEventListener("keydown", handleCopy);
+
+      // Add CSS to prevent selection and screenshots
+      const style = document.createElement("style");
+      style.textContent = `
+        body {
+          user-select: none !important;
+          -webkit-user-select: none !important;
+          -moz-user-select: none !important;
+          -ms-user-select: none !important;
+        }
+        img {
+          -webkit-user-drag: none !important;
+          user-drag: none !important;
+        }
+        @media print {
+          body { display: none !important; }
+        }
+        * {
+          -webkit-touch-callout: none !important;
+          -webkit-user-select: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("contextmenu", handleContextMenu);
+        document.removeEventListener("keydown", handleDevTools);
+        document.removeEventListener("keydown", handleSave);
+        document.removeEventListener("keydown", handlePrint);
+        document.removeEventListener("keydown", handleCopy);
+        document.head.removeChild(style);
+      };
+    }
+  }, []);
+
+  /* ================= SESSION GUARD ================= */
+  useEffect(() => {
+    const checkSession = async () => {
+      const stored = await AsyncStorage.getItem("loggedUser");
+      if (!stored) {
+        router.replace("/");
+      }
+    };
+    checkSession();
+  }, []);
+
+  const [groups, setGroups] = useState([]);
+  const [selectedGroupKey, setSelectedGroupKey] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [selectedGroupMemberId, setSelectedGroupMemberId] = useState("");
+  const [ledger, setLedger] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedGroupData, setSelectedGroupData] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dividendMap, setDividendMap] = useState<Record<number, number>>({});
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  // ✅ Custom cross-platform dropdown state
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+
+  // ========== HISTORY MODAL STATES ==========
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [selectedHistoryMonth, setSelectedHistoryMonth] = useState<any>(null);
+  const [historyPayments, setHistoryPayments] = useState<any[]>([]);
+  const [historyMemberInfo, setHistoryMemberInfo] = useState<any>(null);
+
+  // ✅ PERFORMANCE: cache ledger + dividend data
+  const [ledgerCache, setLedgerCache] = useState<Record<string, any[]>>({});
+  const [dividendCache, setDividendCache] = useState<Record<string, Record<number, number>>>({});
+
+  const didInitialLoad = useRef(false);
+  useEffect(() => {
+    if (!didInitialLoad.current) {
+      didInitialLoad.current = true;
+      loadGroups();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedGroupId && selectedGroupMemberId) {
+      loadAccountCopy(selectedGroupId, selectedGroupMemberId);
+    }
+  }, [selectedGroupId, selectedGroupMemberId]);
+
+  /* ================= LOAD USER GROUPS ================= */
+  // ✅ PERF: useCallback so this stable reference isn't recreated every render
+  const loadGroups = useCallback(async (preserveSelection = false, forceRefresh = false) => {
+    if (isLoadingGroups) return;
+
+    try {
+      setIsLoadingGroups(true);
+      if (!preserveSelection) setLoading(true);
+
+      const storedUser = await AsyncStorage.getItem("loggedUser");
+      if (!storedUser) {
+        setLoading(false);
+        setIsLoadingGroups(false);
+        return;
+      }
+
+      const { userid } = JSON.parse(storedUser);
+
+      // CACHE: reuse the group list from the last visit; only a manual
+      // refresh (forceRefresh) goes to the server again.
+      let data: any = forceRefresh ? undefined : cacheGet(userid, groupsKey());
+
+      if (!data) {
+        const res = await fetch(`${BACKEND_URL}/groups/my-chits/${userid}`);
+        data = await res.json();
+        if (Array.isArray(data)) cacheSet(userid, groupsKey(), data);
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        setGroups(data);
+
+        if (preserveSelection && selectedGroupKey) {
+          const stillExists = data.find((g: any) => g.uniqueKey === selectedGroupKey);
+          if (stillExists) {
+            setSelectedGroupData(stillExists);
+            await loadAccountCopy(stillExists.groupId, stillExists.groupMemberId || "", true);
+            return;
+          }
+        }
+
+        const firstGroup = data[0];
+        setSelectedGroupKey(firstGroup.uniqueKey);
+        setSelectedGroupId(firstGroup.groupId);
+        setSelectedGroupMemberId(firstGroup.groupMemberId || "");
+        setSelectedGroupData(firstGroup);
+      } else {
+        setGroups([]);
+        setSelectedGroupKey("");
+        setSelectedGroupId("");
+        setSelectedGroupMemberId("");
+        setSelectedGroupData(null);
+        setLedger([]);
+      }
+    } catch (err) {
+      console.log("❌ Load groups error:", err);
+    } finally {
+      setLoading(false);
+      setIsLoadingGroups(false);
+      setRefreshing(false);
+    }
+  }, [isLoadingGroups, selectedGroupKey]);
+
+  /* ================= LOAD ACCOUNT COPY ================= */
+  const loadAccountCopy = useCallback(async (
+    groupId: string,
+    groupMemberId: string,
+    forceRefresh = false
+  ) => {
+    const cacheKey = `${groupId}_${groupMemberId}`;
+
+    if (!forceRefresh && ledgerCache[cacheKey]) {
+      setLedger(ledgerCache[cacheKey]);
+      setDividendMap(dividendCache[cacheKey] || {});
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const storedUser = await AsyncStorage.getItem("loggedUser");
+      if (!storedUser) return;
+
+      const { userid } = JSON.parse(storedUser);
+
+      // CACHE: ledger + dividends from the last visit (this page or My
+      // Outstanding) are reused with no network request. A manual
+      // refresh (forceRefresh) skips this and fetches fresh data.
+      const cachedLedgerData = forceRefresh
+        ? undefined
+        : cacheGet(userid, ledgerKey(groupId, groupMemberId));
+      const cachedDividends = forceRefresh
+        ? undefined
+        : cacheGet(userid, dividendsKey(groupId, groupMemberId));
+
+      let data: any = cachedLedgerData;
+
+      if (!data) {
+        const res = await fetch(
+          `${BACKEND_URL}/groups/account-copy/${userid}/${groupId}?groupMemberId=${groupMemberId}`
+        );
+
+        data = await res.json();
+        if (Array.isArray(data?.ledger)) {
+          cacheSet(userid, ledgerKey(groupId, groupMemberId), data);
+        }
+      }
+
+      if (Array.isArray(data.ledger)) {
+        setLedger(data.ledger);
+        setLedgerCache((prev) => ({ ...prev, [cacheKey]: data.ledger }));
+
+        if (cachedLedgerData && cachedDividends) {
+          setDividendMap(cachedDividends);
+          setDividendCache((prev) => ({ ...prev, [cacheKey]: cachedDividends }));
+        } else {
+          await loadDividends(groupId, data.ledger, cacheKey, userid, groupMemberId);
+        }
+      } else {
+        setLedger([]);
+      }
+
+      const group = groups.find((g: any) => g.uniqueKey === selectedGroupKey);
+      if (group) {
+        setSelectedGroupData(group);
+      }
+    } catch (err) {
+      console.log("❌ Account copy error:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [ledgerCache, dividendCache, groups, selectedGroupKey]);
+
+  const loadDividends = useCallback(async (groupId: string, ledgerData: any[], cacheKey: string, userId?: string, groupMemberId?: string) => {
+    try {
+      const map: Record<number, number> = {};
+      await Promise.all(
+        ledgerData.map(async (row) => {
+          try {
+            const res = await fetch(
+              `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
+            );
+            const plan = await res.json();
+            map[row.monthIndex] = plan?.dividend || 0;
+          } catch (err) {
+            console.log("Dividend fetch error for month", row.monthIndex);
+            map[row.monthIndex] = 0;
+          }
+        })
+      );
+      setDividendMap(map);
+      setDividendCache((prev) => ({ ...prev, [cacheKey]: map }));
+
+      // CACHE: remember these dividends for the next visit.
+      if (userId) {
+        cacheSet(userId, dividendsKey(groupId, groupMemberId || ""), map);
+      }
+    } catch (err) {
+      console.log("❌ Dividend load error:", err);
+      setDividendMap({});
+    }
+  }, []);
+
+  /* ================= PRELOAD OTHER GROUPS ================= */
+  // Once the selected group has finished loading, the member's OTHER
+  // groups are loaded quietly in the background (one after the other,
+  // so they never slow down what is on screen). When the member then
+  // picks one in the dropdown, its data is already here and it opens
+  // instantly. A manual refresh re-loads them from the server too.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const refreshVersionRef = useRef(0);
+  const forcePreloadRef = useRef(false);
+  const preloadTokenRef = useRef("");
+
+  useEffect(() => {
+    if (loading || groups.length < 2 || !selectedGroupKey || ledger.length === 0) return;
+
+    const token = `${refreshVersionRef.current}|${groups.map((g: any) => g.uniqueKey).join(",")}`;
+    if (preloadTokenRef.current === token) return;
+    preloadTokenRef.current = token;
+
+    const force = forcePreloadRef.current;
+    forcePreloadRef.current = false;
+
+    const preloadOtherGroups = async () => {
+      try {
+        const stored = await AsyncStorage.getItem("loggedUser");
+        if (!stored) return;
+        const { userid } = JSON.parse(stored);
+
+        for (const g of groups as any[]) {
+          if (!mountedRef.current) return;
+          if (g.uniqueKey === selectedGroupKey) continue;
+
+          const gid = g.groupId;
+          const mid = g.groupMemberId || "";
+          const localKey = `${gid}_${mid}`;
+
+          try {
+            let data: any = force ? undefined : cacheGet(userid, ledgerKey(gid, mid));
+
+            if (!data) {
+              const res = await fetch(
+                `${BACKEND_URL}/groups/account-copy/${userid}/${gid}?groupMemberId=${mid}`
+              );
+              const json = await res.json();
+              if (!Array.isArray(json?.ledger)) continue;
+              cacheSet(userid, ledgerKey(gid, mid), json);
+              data = json;
+            }
+
+            let divMap: any = force && data ? undefined : cacheGet(userid, dividendsKey(gid, mid));
+            if (!divMap) {
+              divMap = await fetchDividendMap(gid, data.ledger);
+              cacheSet(userid, dividendsKey(gid, mid), divMap);
+            }
+
+            if (!mountedRef.current) return;
+            setLedgerCache((prev) => ({ ...prev, [localKey]: data.ledger }));
+            setDividendCache((prev) => ({ ...prev, [localKey]: divMap }));
+          } catch (err) {
+            console.log("Preload error for group", gid);
+          }
+        }
+      } catch (err) {
+        console.log("Preload error:", err);
+      }
+    };
+
+    preloadOtherGroups();
+  }, [loading, groups, selectedGroupKey, ledger]);
+
+  /* ================= HANDLE REFRESH ================= */
+  const handleRefresh = useCallback(() => {
+    refreshVersionRef.current += 1;
+    forcePreloadRef.current = true;
+    setRefreshing(true);
+    const cacheKey = `${selectedGroupId}_${selectedGroupMemberId}`;
+    setLedgerCache((prev) => {
+      const copy = { ...prev };
+      delete copy[cacheKey];
+      return copy;
+    });
+    setDividendCache((prev) => {
+      const copy = { ...prev };
+      delete copy[cacheKey];
+      return copy;
+    });
+    loadGroups(true, true);
+  }, [selectedGroupId, selectedGroupMemberId, loadGroups]);
+
+  /* ================= HANDLE GROUP CHANGE ================= */
+  const handleGroupChange = useCallback((uniqueKey: string) => {
+    if (uniqueKey === selectedGroupKey) return;
+
+    const selected: any = groups.find((g: any) => g.uniqueKey === uniqueKey);
+    if (selected) {
+      setSelectedGroupKey(uniqueKey);
+      setSelectedGroupId(selected.groupId);
+      setSelectedGroupMemberId(selected.groupMemberId || "");
+      setSelectedGroupData(selected);
+    }
+  }, [groups, selectedGroupKey]);
+
+  /* ================= GET PAID AMOUNTS =================
+     Two different totals on purpose:
+       - "User Paid" is installment + penalty together (everything the
+         member has actually paid in, excluding dividend, which is the
+         admin's credit rather than a member payment). Every "User Paid"
+         label in this screen carries a "(Inst+Penalty)" note so it's
+         clear penalty is folded in, since "Penalty Paid" is also shown
+         on its own line for the itemised breakdown.
+       - "installment paid" (installment only, no penalty) is kept
+         separately for the "Installment Paid" label, which shows
+         progress against the installment alone.
+  ================================================= */
+  const getInstallmentPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType !== "DIVIDEND" && p.paymentType !== "PENALTY")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  const getNonDividendPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType !== "DIVIDEND")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  // "User Paid" = installment + penalty combined (dividend excluded).
+  const getUserPaidAmount = getNonDividendPaidAmount;
+
+  const getPenaltyPaidAmount = useCallback((payments: any[]) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments
+      .filter((p: any) => p.paymentType === "PENALTY")
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, []);
+
+  // Cumulative 6% penalty per month, computed from this ledger +
+  // dividend data the same way the My Outstanding page does (see the
+  // getCumulativePenaltyForRows helper above) — recomputed whenever the
+  // ledger or dividend map changes. Everywhere below that used to read
+  // `row.penaltyAmount` / `selectedHistoryMonth.penaltyAmount` directly
+  // now looks this up instead.
+  const penaltyByMonth = useMemo(() => {
+    if (!Array.isArray(ledger) || ledger.length === 0) return {};
+
+    const normalizedRows = ledger.map((row: any) => {
+      const dividend = dividendMap[row.monthIndex] || 0;
+      return {
+        monthIndex: row.monthIndex,
+        installment: Number(row.installmentAmount || 0) + dividend,
+        dividend,
+        payments: Array.isArray(row.payments) ? row.payments : [],
+        dueDateObj: row.dueDate ? new Date(row.dueDate) : null,
+      };
+    });
+
+    const computedPenalty = getCumulativePenaltyForRows(normalizedRows);
+
+    // PENALTY WAIVER: admin switched the penalty OFF for these months.
+    // Penalty already paid stays; nothing more is due.
+    ledger.forEach((row: any) => {
+      if (!row.penaltyWaived) return;
+      computedPenalty[row.monthIndex] = (Array.isArray(row.payments) ? row.payments : [])
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+    });
+
+    ledger.forEach((row: any) => {
+      logPenaltyMismatch(
+        "member-accountCopy",
+        `M${row.monthIndex}`,
+        computedPenalty[row.monthIndex] || 0,
+        row.backendPenaltyDue
+      );
+    });
+
+    return computedPenalty;
+  }, [ledger, dividendMap]);
+
+  /* =========================================================
+     EFFECTIVE STATUS  (FIX)
+
+     The backend's `row.status` field ("PAID"/"OVERDUE"/"PENDING")
+     was being shown as-is everywhere - the ledger table's Status
+     pill, the History modal's "Fully Paid" header badge, and its
+     footer "Status" line. But every OTHER number on these same
+     screens (Balance Due, the progress bar, the table's own
+     "Fully paid"/"Partial" caption) is worked out fresh on the
+     frontend from installment + dividend vs. what was actually
+     paid. When those two disagree - e.g. gross due is 6666, only
+     6500 has been paid in (4834 installment + 1666 dividend), so
+     ₹166 is still outstanding - the backend's stored status can
+     still say "PAID" (it was likely set at the moment of the last
+     payment without re-checking against a dividend added
+     afterwards), which is exactly the "still ₹166 pending but
+     showing Fully Paid" mismatch.
+
+     This computes the status the SAME way the Balance Due number
+     already is, and uses that wherever "PAID"/"Fully Paid" is
+     displayed, so the badge can never disagree with the balance
+     shown right next to it. It only ever downgrades an
+     incorrectly-early "PAID" to "PENDING"/"OVERDUE" when money is
+     still owed - it never overrides a genuine OVERDUE from the
+     backend.
+
+     FIX: penalty is intentionally left OUT of this check, matching
+     how "Fully paid"/"Partial" underneath User Paid already worked
+     out (installment + dividend vs. gross - penalty was never part
+     of that either). Folding penalty in here made a row show
+     PENDING even when the member had paid the full installment +
+     dividend, just because a separate penalty was still
+     outstanding. A penalty balance is still visible on its own via
+     the "Includes penalty" note and the penalty column - it no
+     longer drags the main PAID/PENDING status down with it.
+  ========================================================= */
+  const getEffectiveStatus = useCallback(
+    (row: any, dividend: number) => {
+      const gross = (row?.installmentAmount || 0) + dividend;
+      const installmentOnlyPaid = getInstallmentPaidAmount(row?.payments || []);
+      const balanceDue = Math.max(gross - (installmentOnlyPaid + dividend), 0);
+
+      // ADDED: month whose amount isn't set yet (installment 0, nothing
+      // paid, no dividend) - not really "PAID", so show "NOT SET".
+      if (gross <= 0 && installmentOnlyPaid <= 0) return "NOT SET";
+
+      if (balanceDue <= 0) return "PAID";
+      return row?.status === "OVERDUE" ? "OVERDUE" : "PENDING";
+    },
+    [getInstallmentPaidAmount]
+  );
+
+  /* ================= OPEN HISTORY MODAL ================= */
+  const openHistoryModal = useCallback((row: any) => {
+    const payments = row.payments || [];
+    const dividend = dividendMap[row.monthIndex] || 0;
+    const hasDividendPayment = payments.some((p: any) => p.paymentType === "DIVIDEND");
+
+    let allPayments = [...payments];
+
+    if (dividend > 0 && !hasDividendPayment) {
+      const dividendPayment = {
+        amount: dividend,
+        paidAt: row.dueDate || new Date(),
+        paymentType: "DIVIDEND",
+        collectedBy: "System",
+      };
+      allPayments = [dividendPayment, ...payments];
+    }
+
+    setSelectedHistoryMonth(row);
+    setHistoryPayments(allPayments);
+    setHistoryMemberInfo({
+      memberName: selectedGroupData?.groupId || "Member",
+      groupMemberId: selectedGroupMemberId,
+    });
+    setHistoryVisible(true);
+  }, [dividendMap, selectedGroupData, selectedGroupMemberId]);
+
+  // Effective status for whichever month the History modal is currently
+  // showing - computed once here so the header badge and the footer
+  // Status line (further down, inside the modal) always agree with each
+  // other and with the Balance Due figure.
+  const selectedHistoryStatus = useMemo(() => {
+    if (!selectedHistoryMonth) return null;
+    const dividend = dividendMap[selectedHistoryMonth.monthIndex] || 0;
+    return getEffectiveStatus(selectedHistoryMonth, dividend);
+  }, [selectedHistoryMonth, dividendMap, getEffectiveStatus]);
+
+  // ✅ PERF: only recompute totals when ledger or dividendMap actually change,
+  // instead of on every render (dropdown open/close, modal state, etc.)
+  const totals = useMemo(() => {
+    if (!Array.isArray(ledger) || ledger.length === 0) {
+      return {
+        totalInstallment: 0,
+        totalPaid: 0,
+        totalPenalty: 0,
+        totalDue: 0,
+        totalInstallmentPaid: 0,
+        totalPenaltyPaid: 0,
+        totalDividend: 0,
+        totalUserPaid: 0,
+      };
+    }
+
+    const totalInstallment = ledger.reduce(
+      (sum, row) => sum + (row.installmentAmount || 0) + (dividendMap[row.monthIndex] || 0),
+      0
+    );
+
+    // FIX: total assessed penalty across the ledger, now from the
+    // computed penaltyByMonth map (see above) instead of the raw
+    // per-row `penaltyAmount` field, so Net Balance and this figure
+    // agree with the Penalty column and the "penalty pending" note.
+    const totalPenalty = ledger.reduce((sum, row) => sum + (penaltyByMonth[row.monthIndex] || 0), 0);
+
+    // Installment-only paid — used for the "Installment Paid" label.
+    const totalInstallmentPaid = ledger.reduce((sum, row) => {
+      return sum + getInstallmentPaidAmount(row.payments || []);
+    }, 0);
+
+    // Installment + penalty paid together — this is what "User Paid"
+    // shows (with its "(Inst+Penalty)" note), and it also feeds the
+    // running Total Paid / Net Balance figures below.
+    const totalNonDividendPaid = ledger.reduce((sum, row) => {
+      return sum + getNonDividendPaidAmount(row.payments || []);
+    }, 0);
+
+    const totalDividend = ledger.reduce((sum, row) => {
+      return sum + (dividendMap[row.monthIndex] || 0);
+    }, 0);
+
+    // Grand total actually paid (installment + penalty + dividend) — this
+    // is what "Total Paid (incl. Dividend)" shows, and what Net Balance
+    // nets against.
+    const totalPaid = totalNonDividendPaid + totalDividend;
+
+    const totalPenaltyPaid = ledger.reduce((sum, row) => {
+      const penaltyPaid = (row.payments || [])
+        .filter((p: any) => p.paymentType === "PENALTY")
+        .reduce((s, p) => s + (p.amount || 0), 0);
+      return sum + penaltyPaid;
+    }, 0);
+
+    const totalUserPaid = totalNonDividendPaid;
+    const totalDue = totalInstallment + totalPenalty - totalPaid;
+
+    return {
+      totalInstallment,
+      totalPaid,
+      totalPenalty,
+      totalDue,
+      totalInstallmentPaid,
+      totalPenaltyPaid,
+      totalDividend,
+      totalUserPaid,
+    };
+  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount, penaltyByMonth]);
+
+  if (loading && groups.length === 0) {
+    return <SkeletonGroupsScreen />;
+  }
+
+  const getColumnWidth = () => {
+    return isDesktopOrLaptop ? 120 : 90;
+  };
+
+  const selectedLabel =
+    selectedGroupData?.displayLabel ||
+    (selectedGroupData ? `${selectedGroupData.groupId} - ${selectedGroupData.chitId}` : "Select a group");
+
+  /* Dropdown sizing - centered card on laptop/tablet,
+     near-full-width sheet on phones, always capped by screen height */
+  const dropdownMaxWidth = isDesktopOrLaptop ? 520 : 460;
+  const dropdownMaxHeight = Math.min(height * 0.75, 620);
+
+  /* Summary tiles: 3 per row on laptop/tablet, 2 per row on phones */
+  const summaryCardWidth = isDesktopOrLaptop ? "31.5%" : "48%";
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+      {/* HEADER */}
+      <View className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={() => router.back()} className="mt-1">
+            <MaterialIcons name="arrow-back" size={26} color="white" />
+          </TouchableOpacity>
+
+          <Text
+            className="text-white text-2xl font-bold ml-4 mt-1 flex-1"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            maxFontSizeMultiplier={1.3}
+            style={{ flexShrink: 1 }}
+          >
+            My Account Copy
+          </Text>
+        </View>
+      </View>
+
+      <ScrollView
+        className="flex-1 bg-[#f7f9f8]"
+        contentContainerStyle={{ paddingTop: 110 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#024e32"]}
+            tintColor="#024e32"
+          />
+        }
+      >
+        <View className="p-5">
+          {/* =====================================================
+              GROUP SELECTOR
+          ===================================================== */}
+          <View className="mb-6">
+            <Text className="text-gray-500 text-xs font-bold tracking-wider uppercase mb-2 ml-1">
+              Select Group
+            </Text>
+
+            {/* TRIGGER */}
+            <TouchableOpacity
+              onPress={() => setDropdownVisible(true)}
+              activeOpacity={0.8}
+              disabled={groups.length === 0}
+              className={`bg-white rounded-2xl border px-4 py-3 flex-row items-center ${
+                dropdownVisible ? "border-[#024e32]" : "border-gray-200"
+              }`}
+              style={{
+                minHeight: 64,
+                shadowColor: "#000",
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 2 },
+                elevation: 2,
+              }}
+            >
+              <View className="w-10 h-10 rounded-xl bg-[#024e32]/10 items-center justify-center mr-3">
+                <MaterialIcons name="account-balance" size={20} color="#024e32" />
+              </View>
+
+              <View className="flex-1 mr-2">
+                <Text
+                  className="text-gray-900 text-base font-semibold"
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {groups.length === 0 ? "No groups found" : selectedLabel}
+                </Text>
+
+                {selectedGroupData?.groupMemberId ? (
+                  <Text
+                    className="text-gray-400 text-xs mt-0.5"
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    Member ID: {selectedGroupData.groupMemberId}
+                  </Text>
+                ) : null}
+              </View>
+
+              {groups.length > 1 ? (
+                <View className="bg-gray-100 rounded-full px-2 py-0.5 mr-1">
+                  <Text className="text-gray-600 text-[11px] font-bold">
+                    {groups.length}
+                  </Text>
+                </View>
+              ) : null}
+
+              <MaterialIcons
+                name={dropdownVisible ? "arrow-drop-up" : "arrow-drop-down"}
+                size={28}
+                color="#6b7280"
+              />
+            </TouchableOpacity>
+
+            {/* =====================================================
+                DROPDOWN MODAL
+                Centered card on laptop / tablet, wide sheet on
+                phones. Height is capped so a long group list always
+                scrolls inside the card instead of overflowing.
+            ===================================================== */}
+            <Modal
+              visible={dropdownVisible}
+              transparent
+              animationType="fade"
+              statusBarTranslucent
+              onRequestClose={() => setDropdownVisible(false)}
+            >
+              <Pressable
+                onPress={() => setDropdownVisible(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: "rgba(15, 23, 42, 0.55)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  padding: 20,
+                }}
+              >
+                {/* stops a tap inside the card from closing it */}
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{ width: "100%", maxWidth: dropdownMaxWidth }}
+                >
+                  <View
+                    className="bg-white rounded-3xl overflow-hidden"
+                    style={{
+                      maxHeight: dropdownMaxHeight,
+                      shadowColor: "#000",
+                      shadowOpacity: 0.25,
+                      shadowRadius: 30,
+                      shadowOffset: { width: 0, height: 12 },
+                      elevation: 14,
+                    }}
+                  >
+                    {/* HEADER */}
+                    <View className="bg-[#024e32] px-5 py-4 flex-row items-center">
+                      <View className="w-9 h-9 rounded-full bg-white/15 items-center justify-center mr-3">
+                        <MaterialIcons name="groups" size={20} color="white" />
+                      </View>
+
+                      <View className="flex-1">
+                        <Text
+                          className="text-white font-bold text-base"
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={1.2}
+                        >
+                          Select Group
+                        </Text>
+                        <Text className="text-green-100 text-xs mt-0.5">
+                          {groups.length} group{groups.length === 1 ? "" : "s"} available
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        onPress={() => setDropdownVisible(false)}
+                        activeOpacity={0.8}
+                        className="w-9 h-9 rounded-full bg-white/15 items-center justify-center"
+                      >
+                        <MaterialIcons name="close" size={20} color="white" />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* LIST */}
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={{ padding: 12 }}
+                      bounces={false}
+                    >
+                      {groups.length === 0 ? (
+                        <View className="items-center py-12">
+                          <MaterialIcons name="folder-open" size={44} color="#d1d5db" />
+                          <Text className="text-gray-500 mt-3 font-medium">
+                            No groups found
+                          </Text>
+                          <Text className="text-gray-400 text-xs mt-1 text-center px-6">
+                            You are not part of any chit group yet
+                          </Text>
+                        </View>
+                      ) : (
+                        groups.map((g: any, i: number) => {
+                          const isSelected = g.uniqueKey === selectedGroupKey;
+
+                          const label =
+                            g.displayLabel || `${g.groupId} - ${g.chitId}`;
+
+                          return (
+                            <TouchableOpacity
+                              key={i}
+                              onPress={() => {
+                                handleGroupChange(g.uniqueKey);
+                                setDropdownVisible(false);
+                              }}
+                              activeOpacity={0.8}
+                              className={`flex-row items-center rounded-2xl px-3 py-3 mb-2 border ${
+                                isSelected
+                                  ? "bg-[#024e32]/5 border-[#024e32]/30"
+                                  : "bg-white border-gray-100"
+                              }`}
+                            >
+                              {/* AVATAR */}
+                              <View
+                                className={`w-11 h-11 rounded-xl items-center justify-center mr-3 ${
+                                  isSelected ? "bg-[#024e32]" : "bg-gray-100"
+                                }`}
+                              >
+                                <Text
+                                  className={`font-extrabold text-base ${
+                                    isSelected ? "text-white" : "text-[#024e32]"
+                                  }`}
+                                  maxFontSizeMultiplier={1.2}
+                                >
+                                  {String(g.groupId || "G").charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+
+                              <View className="flex-1 mr-2">
+                                <Text
+                                  className={`text-base ${
+                                    isSelected
+                                      ? "text-[#024e32] font-bold"
+                                      : "text-gray-800 font-semibold"
+                                  }`}
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.2}
+                                >
+                                  {label}
+                                </Text>
+
+                                <View className="flex-row flex-wrap items-center mt-1">
+                                  {g.groupMemberId ? (
+                                    <View className="bg-amber-100 rounded-md px-2 py-0.5 mr-2">
+                                      <Text className="text-amber-800 text-[11px] font-bold">
+                                        {g.groupMemberId}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+
+                                  {g.status ? (
+                                    <Text className="text-gray-400 text-[11px]">
+                                      {g.status}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              </View>
+
+                              {/* RADIO */}
+                              <View
+                                className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                                  isSelected
+                                    ? "border-[#024e32] bg-[#024e32]"
+                                    : "border-gray-300"
+                                }`}
+                              >
+                                {isSelected ? (
+                                  <MaterialIcons name="check" size={16} color="white" />
+                                ) : null}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
+                    </ScrollView>
+
+                    {/* FOOTER */}
+                    <View className="px-4 py-3 border-t border-gray-100 bg-white">
+                      <TouchableOpacity
+                        onPress={() => setDropdownVisible(false)}
+                        activeOpacity={0.8}
+                        className="bg-gray-100 py-3 rounded-2xl"
+                      >
+                        <Text className="text-gray-700 text-center font-semibold">
+                          Close
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Group Info */}
+            {selectedGroupData && (
+              <View className="mt-3 bg-blue-50 rounded-xl p-3">
+                <Text className="text-blue-700 text-sm">
+                  <Text className="font-semibold">Group:</Text> {selectedGroupData.groupId}
+                </Text>
+                <Text className="text-blue-700 text-sm mt-1">
+                  <Text className="font-semibold">Member ID:</Text> {selectedGroupData.groupMemberId || "N/A"}
+                </Text>
+                <Text className="text-blue-700 text-sm mt-1">
+                  <Text className="font-semibold">Status:</Text> {selectedGroupData.status || "Active"}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {loading && groups.length > 0 ? (
+            <SkeletonLedgerBlock isDesktopOrLaptop={isDesktopOrLaptop} />
+          ) : ledger.length === 0 ? (
+            <View className="bg-white rounded-2xl p-8 items-center justify-center border border-gray-200 shadow-sm">
+              <View className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center mb-4">
+                <MaterialIcons name="receipt" size={30} color="#9ca3af" />
+              </View>
+              <Text className="text-gray-500 text-lg font-medium text-center">
+                No ledger entries found
+              </Text>
+              <Text className="text-gray-400 text-sm text-center mt-2">
+                Payment records will appear here
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* =====================================================
+                  SUMMARY TILES
+                  flex-wrap row - 2 per line on phones, 3 on laptop.
+                  (React Native has no CSS grid, so the previous
+                  "grid grid-cols-2" classes did nothing and every
+                  card stretched to full width.)
+              ===================================================== */}
+              <View className="flex-row flex-wrap justify-between mb-4">
+                <SummaryCard
+                  label="Total Installment"
+                  value={totals.totalInstallment}
+                  color="#024e32"
+                  icon="account-balance-wallet"
+                  cardWidth={summaryCardWidth}
+                />
+
+                <SummaryCard
+                  label="Total Dividend"
+                  value={totals.totalDividend}
+                  color="#2563eb"
+                  icon="trending-up"
+                  cardWidth={summaryCardWidth}
+                />
+
+                <SummaryCard
+                  label="User Paid"
+                  value={totals.totalInstallmentPaid}
+                  color="#16a34a"
+                  icon="check-circle"
+                  cardWidth={summaryCardWidth}
+                  subLabel="(Installment)"
+                />
+
+               {/* <SummaryCard
+                  label="Total Penalty"
+                  value={totals.totalPenalty}
+                  color="#dc2626"
+                  icon="warning"
+                  cardWidth={summaryCardWidth}
+                />*/}
+
+                <SummaryCard
+                  label="Total Due"
+                  value={Math.max(totals.totalDue, 0)}
+                  color={totals.totalDue > 0 ? "#dc2626" : "#16a34a"}
+                  icon="pending-actions"
+                  cardWidth={summaryCardWidth}
+                />
+
+                {/* keeps the last row aligned when the count is odd */}
+                <View style={{ width: summaryCardWidth as any }} />
+              </View>
+
+              {/* About Account Copy Card */}
+              <View className="mb-6 bg-blue-50 rounded-2xl p-4 border border-blue-200">
+                <View className="flex-row items-center mb-2">
+                  <MaterialIcons name="info-outline" size={20} color="#1e40af" />
+                  <Text
+                    className="text-blue-800 font-semibold ml-2 text-base"
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    maxFontSizeMultiplier={1.3}
+                    style={{ flexShrink: 1 }}
+                  >
+                    About Account Copy
+                  </Text>
+                </View>
+                <Text className="text-blue-700 text-sm leading-5">
+                  This statement shows your complete payment history for the selected chit group.
+                  It includes monthly installments, dividends credited, penalties applied (if any),
+                  and your current balance. The dividend amount is paid by the admin and automatically
+                  adjusted against your dues. Pull down to refresh for the latest updates.
+                </Text>
+              </View>
+
+              {/* Ledger Table */}
+              <View className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View>
+                    {/* Table Header */}
+                    <View className="bg-[#024e32] flex-row border-b border-gray-300">
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Month
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Installment
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }} className="p-3">
+                        <Text
+                          className="text-white font-semibold text-sm text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          User Paid
+                        </Text>
+                        <Text
+                          className="text-white text-[9px] text-center opacity-70 mt-0.5"
+                          numberOfLines={1}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          (Inst+Penalty)
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Dividend
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Penalty
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          Status
+                        </Text>
+                      </View>
+                      <View style={{ width: getColumnWidth() }}>
+                        <Text
+                          className="text-white font-semibold text-sm p-3 text-center"
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.75}
+                          maxFontSizeMultiplier={1.15}
+                        >
+                          History
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Table Rows */}
+                    {ledger.map((row: any, index: number) => {
+                      const dividend = dividendMap?.[row.monthIndex] || 0;
+                      // Displayed "User Paid" = installment + penalty combined.
+                      const userPaid = getNonDividendPaidAmount(row.payments || []);
+                      // "Fully paid" status still checks the installment alone
+                      // (+ dividend), so a penalty payment can't make an
+                      // unpaid installment look fully paid.
+                      const installmentOnlyPaid = getInstallmentPaidAmount(row.payments || []);
+                      const grossInstallment = (row.installmentAmount || 0) + dividend;
+                      // FIX: same reasoning as getEffectiveStatus above -
+                      // don't trust row.status blindly for the pill, since
+                      // it can go stale once a dividend is added after the
+                      // month was marked paid. Derive it from the actual
+                      // balance instead, so it always matches the "Fully
+                      // paid"/"Partial" caption right below it.
+                      const effectiveStatus = getEffectiveStatus(row, dividend);
+                      // FIX: computed penalty (see penaltyByMonth above)
+                      // instead of the raw row.penaltyAmount field, plus
+                      // how much of it is still unpaid — this is what
+                      // "identify pending penalty" needed: a number that
+                      // doesn't go stale.
+                      const penaltyDue = penaltyByMonth[row.monthIndex] || 0;
+                      const penaltyPaidAmt = getPenaltyPaidAmount(row.payments || []);
+                      const pendingPenalty = Math.max(penaltyDue - penaltyPaidAmt, 0);
+
+                      return (
+                        <View
+                          key={index}
+                          className={`flex-row border-b border-gray-100 ${
+                            index % 2 === 0 ? "bg-white" : "bg-gray-50"
+                          }`}
+                        >
+                          <View style={{ width: getColumnWidth() }} className="p-3">
+                            <Text
+                              className="font-medium text-gray-800 text-center"
+                              numberOfLines={1}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              M{row.monthIndex}
+                            </Text>
+                            {row.dueDate && (
+                              <Text
+                                className="text-gray-500 text-xs text-center mt-1"
+                                numberOfLines={1}
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                {new Date(row.dueDate).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                })}
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <Text
+                              className="text-gray-800 text-center font-medium"
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.7}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              ₹{grossInstallment}
+                            </Text>
+                            {dividend > 0 && (
+                              <Text
+                                className="text-gray-400 text-xs text-center mt-1"
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.6}
+                                ellipsizeMode="tail"
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                (net ₹{row.installmentAmount})
+                              </Text>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <Text
+                              className="font-medium text-gray-800 text-center"
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.7}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              ₹{userPaid}
+                            </Text>
+                            <Text
+                              className="text-gray-500 text-xs text-center mt-1"
+                              numberOfLines={1}
+                              maxFontSizeMultiplier={1.15}
+                            >
+                              {effectiveStatus === "NOT SET"
+                                ? "Not set"
+                                : installmentOnlyPaid + dividend >= grossInstallment
+                                ? "Fully paid"
+                                : "Partial"}
+                            </Text>
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            {dividend > 0 ? (
+                              <>
+                                <Text
+                                  className="text-blue-600 font-medium text-center"
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.7}
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  ₹{dividend}
+                                </Text>
+                                <Text className="text-blue-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  Applied
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Text className="text-gray-400 text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹0
+                                </Text>
+                                <Text className="text-gray-400 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  None
+                                </Text>
+                              </>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            {pendingPenalty > 0 ? (
+                              <>
+                                <Text
+                                  className="text-red-600 font-medium text-center"
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.7}
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  ₹{pendingPenalty}
+                                </Text>
+                                <Text
+                                  className="text-red-500 text-xs text-center mt-1"
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Penalty pending
+                                </Text>
+                              </>
+                            ) : penaltyDue > 0 ? (
+                              <>
+                                <Text className="text-green-600 font-medium text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹{penaltyPaidAmt}
+                                </Text>
+                                <Text className="text-green-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  Penalty paid
+                                </Text>
+                              </>
+                            ) : (
+                              <>
+                                <Text className="text-gray-400 text-center" maxFontSizeMultiplier={1.15}>
+                                  ₹0
+                                </Text>
+                                <Text className="text-green-500 text-xs text-center mt-1" maxFontSizeMultiplier={1.15}>
+                                  {row.penaltyWaived ? "Penalty waived" : "No penalty"}
+                                </Text>
+                              </>
+                            )}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center">
+                            <View
+                              className={`px-2 py-1 rounded-full items-center ${
+                                effectiveStatus === "PAID"
+                                  ? "bg-green-100"
+                                  : effectiveStatus === "OVERDUE"
+                                  ? "bg-red-100"
+                                  : effectiveStatus === "NOT SET"
+                                  ? "bg-gray-100"
+                                  : "bg-yellow-100"
+                              }`}
+                            >
+                              <Text
+                                className={`text-xs font-semibold ${
+                                  effectiveStatus === "PAID"
+                                    ? "text-green-700"
+                                    : effectiveStatus === "OVERDUE"
+                                    ? "text-red-700"
+                                    : effectiveStatus === "NOT SET"
+                                    ? "text-gray-500"
+                                    : "text-yellow-700"
+                                }`}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.7}
+                                maxFontSizeMultiplier={1.15}
+                              >
+                                {effectiveStatus}
+                              </Text>
+                            </View>
+                            {/* ADDED: small explicit note, mirroring the
+                                My Outstanding page, for the case that used
+                                to be invisible - installment (+dividend)
+                                is fully paid, so the badge above now
+                                correctly says PAID, but a penalty is
+                                still owed on top of it. Disappears on its
+                                own once the penalty is paid too, since
+                                pendingPenalty then becomes 0. */}
+                            {pendingPenalty > 0 &&
+                              (effectiveStatus === "PAID" ? (
+                                <Text
+                                  className="text-amber-600 text-xs text-center mt-1"
+                                  numberOfLines={2}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Penalty pending
+                                </Text>
+                              ) : (
+                                <Text
+                                  className="text-red-500 text-xs text-center mt-1"
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                  maxFontSizeMultiplier={1.15}
+                                >
+                                  Includes penalty
+                                </Text>
+                              ))}
+                          </View>
+
+                          <View style={{ width: getColumnWidth() }} className="p-3 items-center justify-center">
+                            <TouchableOpacity
+                              onPress={() => openHistoryModal(row)}
+                              className="bg-[#024e32]/10 p-2 rounded-full"
+                            >
+                              <MaterialIcons name="history" size={22} color="#024e32" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Scroll hint */}
+              {!isDesktopOrLaptop && ledger.length > 0 && (
+                <View className="flex-row items-center justify-center mt-2">
+                  <MaterialIcons name="chevron-left" size={16} color="#9ca3af" />
+                  <Text className="text-gray-400 text-xs mx-2">Swipe to see more →</Text>
+                  <MaterialIcons name="chevron-right" size={16} color="#9ca3af" />
+                </View>
+              )}
+
+              {/* Detailed View */}
+              <View className="mt-6 bg-gray-50 rounded-2xl p-4 border border-gray-200">
+                <Text className="font-semibold text-gray-700 mb-2">Payment Summary</Text>
+                <View className="space-y-2">
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Total Months:</Text>
+                    <Text className="font-medium">{ledger.length}</Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Paid Months:</Text>
+                    <Text className="font-medium text-green-600">
+                      {ledger.filter((row: any) => getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0) === "PAID").length}
+                    </Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Months with Penalty:</Text>
+                    <Text className="font-medium text-red-600">
+                      {ledger.filter((row: any) => (penaltyByMonth[row.monthIndex] || 0) > 0).length}
+                    </Text>
+                  </View>
+                  {/*<View className="flex-row justify-between">
+                    <Text className="text-gray-600">Total Penalty Amount:</Text>
+                    <Text className="font-medium text-red-600">
+                      ₹{totals.totalPenalty}
+                    </Text>
+                  </View>*/}
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Pending Months:</Text>
+                    <Text className="font-medium text-red-600">
+                      {ledger.filter((row: any) => { const st = getEffectiveStatus(row, dividendMap?.[row.monthIndex] || 0); return st !== "PAID" && st !== "NOT SET"; }).length}
+                    </Text>
+                  </View>
+
+                  <View className="pt-2 border-t border-gray-300">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-700 font-semibold">Installment Total (Gross):</Text>
+                      <Text className="font-bold text-[#024e32]">
+                        ₹{totals.totalInstallment}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Dividend Total:</Text>
+                      <Text className="font-bold text-blue-600">
+                        ₹{totals.totalDividend}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Penalty Total:</Text>
+                      <Text className="font-bold text-red-600">
+                        ₹{totals.totalPenalty}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View className="pt-2 border-t border-gray-300">
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">
+                        User Paid{" "}
+                        <Text className="text-gray-400 font-normal text-xs">
+                          (Inst+Penalty)
+                        </Text>
+                        :
+                      </Text>
+                      <Text className="font-bold text-green-600">
+                        ₹{totals.totalUserPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Total Paid (incl. Dividend):</Text>
+                      <Text className="font-bold text-green-600">
+                        ₹{totals.totalPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Installment Paid:</Text>
+                      <Text className="font-bold text-[#024e32]">
+                        ₹{totals.totalInstallmentPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-700 font-semibold">Penalty Paid:</Text>
+                      <Text className="font-bold text-red-600">
+                        ₹{totals.totalPenaltyPaid}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between pt-2 mt-2 border-t border-gray-300">
+                      <Text className="text-gray-800 font-bold">Net Balance:</Text>
+                      <Text
+                        className={`font-bold text-lg ${
+                          totals.totalDue > 0 ? "text-red-600" : "text-green-600"
+                        }`}
+                      >
+                        ₹{Math.max(totals.totalDue, 0)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </>
+          )}
+
+          <Footer />
+        </View>
+      </ScrollView>
+
+      {/* Payment History Modal */}
+      <Modal visible={historyVisible} transparent animationType="slide">
+        <View className="flex-1 bg-black/60 justify-center items-center px-4">
+          <View
+            className="bg-white w-full rounded-3xl overflow-hidden"
+            style={{
+              maxWidth: 420,
+              maxHeight: "85%",
+              shadowColor: "#000",
+              shadowOpacity: 0.25,
+              shadowRadius: 20,
+              shadowOffset: { width: 0, height: 10 },
+              elevation: 10,
+            }}
+          >
+            {/* Header */}
+            <View className="bg-[#024e32] px-5 pt-5 pb-5">
+              <View className="flex-row justify-between items-start">
+                <View className="flex-row items-center flex-1" style={{ flexShrink: 1 }}>
+                  <View
+                    className="items-center justify-center rounded-2xl mr-3"
+                    style={{ width: 46, height: 46, backgroundColor: "rgba(255,255,255,0.18)" }}
+                  >
+                    <Text className="text-white font-bold text-base">
+                      M{selectedHistoryMonth?.monthIndex ?? "-"}
+                    </Text>
+                  </View>
+                  <View style={{ flexShrink: 1 }}>
+                    <Text
+                      className="text-white text-lg font-bold"
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      maxFontSizeMultiplier={1.2}
+                    >
+                      Payment History
+                    </Text>
+                    <Text
+                      className="text-white text-xs mt-0.5"
+                      style={{ opacity: 0.75 }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {historyMemberInfo?.memberName || "Member"}
+                      {historyMemberInfo?.groupMemberId ? ` · #${historyMemberInfo.groupMemberId}` : ""}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setHistoryVisible(false)}
+                  className="items-center justify-center rounded-full ml-2"
+                  style={{ width: 30, height: 30, backgroundColor: "rgba(255,255,255,0.18)" }}
+                >
+                  <MaterialIcons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {selectedHistoryMonth && (
+                <View className="flex-row items-center flex-wrap mt-3">
+                  <View
+                    className="flex-row items-center px-2.5 py-1 rounded-full mr-2 mb-1"
+                    style={{
+                      backgroundColor:
+                        selectedHistoryStatus === "PAID"
+                          ? "rgba(34,197,94,0.22)"
+                          : selectedHistoryStatus === "OVERDUE"
+                          ? "rgba(239,68,68,0.22)"
+                          : "rgba(234,179,8,0.22)",
+                    }}
+                  >
+                    <MaterialIcons
+                      name={
+                        selectedHistoryStatus === "PAID"
+                          ? "check-circle"
+                          : selectedHistoryStatus === "OVERDUE"
+                          ? "error"
+                          : "schedule"
+                      }
+                      size={13}
+                      color={
+                        selectedHistoryStatus === "PAID"
+                          ? "#86efac"
+                          : selectedHistoryStatus === "OVERDUE"
+                          ? "#fca5a5"
+                          : "#fde68a"
+                      }
+                    />
+                    <Text
+                      className="text-xs font-semibold ml-1"
+                      style={{
+                        color:
+                          selectedHistoryStatus === "PAID"
+                            ? "#bbf7d0"
+                            : selectedHistoryStatus === "OVERDUE"
+                            ? "#fecaca"
+                            : "#fef08a",
+                      }}
+                    >
+                      {selectedHistoryStatus === "PAID"
+                        ? "Fully Paid"
+                        : selectedHistoryStatus === "OVERDUE"
+                        ? "Overdue"
+                        : selectedHistoryStatus === "NOT SET"
+                        ? "Not Set"
+                        : "Pending"}
+                    </Text>
+                  </View>
+                  <Text className="text-white text-xs mb-1" style={{ opacity: 0.65 }}>
+                    Month {selectedHistoryMonth.monthIndex}
+                    {selectedHistoryMonth.dueDate
+                      ? ` · Due ${new Date(selectedHistoryMonth.dueDate).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}`
+                      : ""}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <ScrollView
+              style={{ backgroundColor: "#f8faf9" }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}
+            >
+              {selectedHistoryMonth &&
+                (() => {
+                  const dividend = dividendMap[selectedHistoryMonth.monthIndex] || 0;
+                  const gross = (selectedHistoryMonth.installmentAmount || 0) + dividend;
+                  const net = selectedHistoryMonth.installmentAmount || 0;
+                  // FIX: computed penalty (penaltyByMonth), not the raw
+                  // selectedHistoryMonth.penaltyAmount field — same
+                  // "don't trust a stale stored value" fix as the Status
+                  // badge and the table's Penalty column above.
+                  const penalty = penaltyByMonth[selectedHistoryMonth.monthIndex] || 0;
+                  const installmentOnlyPaid = getInstallmentPaidAmount(selectedHistoryMonth.payments || []);
+                  const combinedPaid = getUserPaidAmount(selectedHistoryMonth.payments || []);  
+                  const penaltyPaidAmt = Math.max(combinedPaid - installmentOnlyPaid, 0);
+                  const totalPaidInclDividend = combinedPaid + dividend;
+
+                  const pendingInstallment = Math.max(gross - (installmentOnlyPaid + dividend), 0);
+                  const pendingPenaltyAmt = Math.max(penalty - penaltyPaidAmt, 0);
+
+                  const progressRatio =
+                    gross > 0 ? Math.min((installmentOnlyPaid + dividend) / gross, 1) : installmentOnlyPaid > 0 ? 1 : 0;
+                  const balanceDue = Math.max(gross + penalty - totalPaidInclDividend, 0);
+
+                  return (
+                    <>
+                      {/* Progress bar */}
+                      <View className="mb-4">
+                        <View className="flex-row justify-between mb-1.5">
+                          <Text className="text-gray-500 text-xs font-medium">Installment Progress</Text>
+                          <Text className="text-gray-700 text-xs font-semibold">
+                            ₹{installmentOnlyPaid + dividend} / ₹{gross}
+                          </Text>
+                        </View>
+                        <View className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                          <View
+                            style={{
+                              width: `${Math.round(progressRatio * 100)}%`,
+                              backgroundColor: progressRatio >= 1 ? "#16a34a" : "#024e32",
+                            }}
+                            className="h-full rounded-full"
+                          />
+                        </View>
+                      </View>
+
+                      {/* Quick stat chips */}
+                      <View className="flex-row flex-wrap justify-between mb-1">
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Gross Installment
+                          </Text>
+                          <Text className="text-[#024e32] text-base font-bold mt-0.5">₹{gross}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Dividend
+                          </Text>
+                          <Text className="text-blue-600 text-base font-bold mt-0.5">₹{dividend}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            User Paid (Inst+Penalty)
+                          </Text>
+                          <Text className="text-green-600 text-base font-bold mt-0.5">₹{combinedPaid}</Text>
+                        </View>
+                        <View
+                          className="bg-white rounded-2xl border border-gray-100 px-3 py-2.5 mb-3"
+                          style={{ width: "48%" }}
+                        >
+                          <Text className="text-gray-400 text-[10px] font-semibold" numberOfLines={1}>
+                            Balance Due (Inst+Penalty)
+                          </Text>
+                          <Text
+                            className={`text-base font-bold mt-0.5 ${
+                              balanceDue > 0 ? "text-red-600" : "text-green-600"
+                            }`}
+                          >
+                             ₹{pendingInstallment} + ₹{pendingPenaltyAmt} = ₹{balanceDue}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* ADDED: same small friendly note as the My
+                          Outstanding page - shown only when the
+                          installment (+ dividend) is fully paid but the
+                          penalty on it is not, so it's clear the
+                          progress bar above being full doesn't mean
+                          nothing is owed. Goes away on its own once the
+                          penalty itself is paid off. */}
+                      {progressRatio >= 1 && penalty > 0 && penaltyPaidAmt < penalty && (
+                        <View className="flex-row items-center bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4">
+                          <MaterialIcons name="info-outline" size={16} color="#b45309" />
+                          <Text className="text-amber-700 text-xs ml-2 flex-1">
+                            Installment paid ✓ — your penalty (₹
+                            {Math.max(penalty - penaltyPaidAmt, 0)}) is still pending this
+                            month
+                          </Text>
+                        </View>
+                      )}
+
+                      {penalty > 0 && (
+                        <View className="mb-4 p-3 rounded-2xl border border-red-100 bg-red-50">
+                          <View className="flex-row items-center">
+                            <MaterialIcons name="percent" size={15} color="#dc2626" />
+                            <Text className="text-red-600 font-semibold text-sm ml-1.5">
+                              Penalty (6%) — ₹{penalty}
+                            </Text>
+                          </View>
+                          <Text className="text-red-400 text-xs mt-1">
+                            ₹{penaltyPaidAmt} paid · ₹{Math.max(penalty - penaltyPaidAmt, 0)} pending
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Payments list */}
+                      <Text className="text-gray-700 font-semibold text-sm mb-2">Payments</Text>
+                      {historyPayments.length === 0 ? (
+                        <View className="items-center py-8">
+                          <MaterialIcons name="receipt-long" size={32} color="#d1d5db" />
+                          <Text className="text-gray-400 text-sm mt-2">No payments recorded yet</Text>
+                        </View>
+                      ) : (
+                        historyPayments.map((p: any, i: number) => {
+                          const paymentType = p?.paymentType || "INSTALLMENT";
+                          const iconName =
+                            paymentType === "PENALTY"
+                              ? "percent"
+                              : paymentType === "DIVIDEND"
+                              ? "trending-up"
+                              : "payments";
+                          const bg =
+                            paymentType === "PENALTY"
+                              ? "#fee2e2"
+                              : paymentType === "DIVIDEND"
+                              ? "#dbeafe"
+                              : "#dcfce7";
+                          const fg =
+                            paymentType === "PENALTY"
+                              ? "#dc2626"
+                              : paymentType === "DIVIDEND"
+                              ? "#2563eb"
+                              : "#16a34a";
+
+                          return (
+                            <View
+                              key={i}
+                              className="flex-row items-center bg-white rounded-2xl p-3 mb-2.5 border border-gray-100"
+                            >
+                              <View
+                                className="items-center justify-center rounded-full mr-3"
+                                style={{ width: 38, height: 38, backgroundColor: bg }}
+                              >
+                                <MaterialIcons name={iconName as any} size={17} color={fg} />
+                              </View>
+                              <View className="flex-1">
+                                <View className="flex-row items-center flex-wrap">
+                                  <Text className="text-gray-800 font-bold text-sm">₹{p.amount}</Text>
+                                  <View
+                                    className="ml-2 px-2 py-0.5 rounded-full"
+                                    style={{ backgroundColor: bg }}
+                                  >
+                                    <Text className="text-[10px] font-semibold" style={{ color: fg }}>
+                                      {paymentType}
+                                    </Text>
+                                  </View>
+                                </View>
+                                <Text className="text-gray-400 text-xs mt-0.5">
+                                  {new Date(p.paidAt).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}{" "}
+                                  · {p.collectedBy || "System"}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })
+                      )}
+
+                      {/* Breakdown footer */}
+                      <View className="bg-white rounded-2xl border border-gray-100 p-4 mt-1 mb-3">
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-500 text-xs">Net Installment</Text>
+                          <Text className="text-gray-800 text-xs font-semibold">₹{net}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-2">
+                          <Text className="text-gray-500 text-xs">
+                            User Paid <Text className="text-gray-400">(Inst+Penalty)</Text>
+                          </Text>
+                          <Text className="text-green-600 text-xs font-semibold">₹{combinedPaid}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-2">
+                          <Text className="text-gray-500 text-xs">Total Paid (incl. Dividend)</Text>
+                          <Text className="text-green-600 text-xs font-semibold">₹{totalPaidInclDividend}</Text>
+                        </View>
+                        <View className="flex-row justify-between mt-3 pt-3 border-t border-gray-100">
+                          <Text className="text-gray-800 text-sm font-bold">Status</Text>
+                          <Text
+                            className={`text-sm font-bold ${
+                              selectedHistoryStatus === "PAID"
+                                ? "text-green-600"
+                                : selectedHistoryStatus === "OVERDUE"
+                                ? "text-red-600"
+                                : "text-yellow-600"
+                            }`}
+                          >
+                            {selectedHistoryStatus || "PENDING"}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  );
+                })()}
+            </ScrollView>
+
+            <View className="px-5 pb-5 pt-3 bg-white border-t border-gray-100">
+              <TouchableOpacity
+                onPress={() => setHistoryVisible(false)}
+                className="bg-[#024e32] py-3.5 rounded-2xl"
+              >
+                <Text className="text-white text-center font-bold">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}

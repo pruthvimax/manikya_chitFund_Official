@@ -17,7 +17,19 @@ import {
   View,
   Modal,
   Dimensions,
+  RefreshControl,
 } from "react-native";
+import { USE_NEW_ADMIN_DESIGN } from "../../components/memberDesign";
+import { AdminFollowUpsSection } from "../../components/followUpDue";
+import {
+  AdminAlertsSheet,
+  AdminHeader,
+  AdminHeroAndOverview,
+  AdminLogoutModal,
+  AdminMenuSections,
+  LiveBidsSection,
+  useAdminOverview,
+} from "../../components/adminHome";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const CARD_W = 132;
@@ -201,6 +213,34 @@ export default function AdminIndex() {
     }
   }, []);
 
+  /* NEW look only: bell count for Interested Members (pending ones) */
+  const [interestedCount, setInterestedCount] = useState(0);
+  const [bellVisible, setBellVisible] = useState(false);
+
+  // "Clear" on the bell: hides what is waiting right now (kept on this phone only,
+  // nothing is deleted). New items that arrive later show up again.
+  const BELL_CLEARED_KEY = "adminBellCleared";
+  const [bellBase, setBellBase] = useState({ interested: 0, vacancy: 0, contact: 0 });
+  useEffect(() => {
+    AsyncStorage.getItem(BELL_CLEARED_KEY)
+      .then((v) => {
+        if (v) setBellBase({ interested: 0, vacancy: 0, contact: 0, ...JSON.parse(v) });
+      })
+      .catch(() => {});
+  }, []);
+  const loadInterestedCount = useCallback(async () => {
+    if (!USE_NEW_ADMIN_DESIGN) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/member-interest/all-interests`);
+      if (!res.ok) return;
+      const json = await res.json();
+      const list = Array.isArray(json) ? json : [];
+      setInterestedCount(list.filter((m: any) => m?.status === "pending").length);
+    } catch (error) {
+      console.log("Interested count load error:", error);
+    }
+  }, []);
+
   const loadRequestCount = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/vacancy/requests/count`);
@@ -316,8 +356,9 @@ export default function AdminIndex() {
     useCallback(() => {
       loadRequestCount();
       loadContactRequestCount();
+      loadInterestedCount();
       loadGroupCapacity();
-    }, [loadRequestCount, loadContactRequestCount, loadGroupCapacity])
+    }, [loadRequestCount, loadContactRequestCount, loadInterestedCount, loadGroupCapacity])
   );
 
   // LIVE BADGES: re-run the SAME count functions above the moment the server
@@ -325,6 +366,7 @@ export default function AdminIndex() {
   useLiveBadges(true, () => {
     loadRequestCount();
     loadContactRequestCount();
+    loadInterestedCount(); // bell count (new look)
     loadGroupCapacity(); // vacancies / seats may have changed
   });
 
@@ -355,6 +397,128 @@ export default function AdminIndex() {
      DERIVED SUMMARY NUMBERS FOR THE CAPACITY STRIP
   ========================================================= */
 
+  /* NEW look only: extra read-only data + pull to refresh (does not touch the logic above) */
+  const NEW = USE_NEW_ADMIN_DESIGN;
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [refreshing, setRefreshing] = useState(false);
+  const overview = useAdminOverview(NEW);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      loadRequestCount(),
+      loadContactRequestCount(),
+      loadInterestedCount(),
+      loadGroupCapacity(),
+      overview.reload(),
+    ]);
+    setRefreshing(false);
+  }, [loadRequestCount, loadContactRequestCount, loadInterestedCount, loadGroupCapacity, overview.reload]);
+  const eff = (now: number, base: number) => (now > base ? now - base : 0);
+
+  // Opening the bell makes its red number disappear (the list inside stays
+  // until "Clear"). Only items that arrive after that raise the number again.
+  const SEEN_KEY = "adminBellSeen";
+  const [bellSeen, setBellSeen] = useState({ interested: 0, vacancy: 0, contact: 0 });
+  useEffect(() => {
+    AsyncStorage.getItem(SEEN_KEY)
+      .then((v) => {
+        if (v) setBellSeen({ interested: 0, vacancy: 0, contact: 0, ...JSON.parse(v) });
+      })
+      .catch(() => {});
+  }, []);
+  // when the newest waiting item of each kind arrived (from the lists the
+  // pages already use - nothing new is needed on the server)
+  const [bellTimes, setBellTimes] = useState<{ interested?: string | null; vacancy?: string | null; contact?: string | null }>({});
+  const loadBellTimes = useCallback(async () => {
+    const newest = (list: any[]) =>
+      list
+        .map((x) => x?.createdAt)
+        .filter(Boolean)
+        .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+    try {
+      const [i, v, c] = await Promise.all([
+        fetch(`${BACKEND_URL}/member-interest/all-interests`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+        fetch(`${BACKEND_URL}/vacancy/requests?status=Pending`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+        fetch(`${BACKEND_URL}/contact-requests`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      ]);
+      setBellTimes({
+        interested: newest((Array.isArray(i) ? i : []).filter((m: any) => m?.status === "pending")),
+        vacancy: newest(((v as any)?.requests || []).filter((m: any) => m?.seenByAdmin === false || m?.seenByAdmin === undefined)),
+        contact: newest(((c as any)?.requests || []).filter((m: any) => m?.read === false)),
+      });
+    } catch {
+      // ignore - times are optional
+    }
+  }, []);
+  useEffect(() => {
+    if (bellVisible) loadBellTimes();
+  }, [bellVisible, interestedCount, newRequestCount, contactRequestCount, loadBellTimes]);
+
+  const openBell = () => {
+    const next = { interested: interestedCount, vacancy: newRequestCount, contact: contactRequestCount };
+    setBellSeen(next);
+    AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+    setBellVisible(true);
+  };
+  useEffect(() => {
+    const next = {
+      interested: Math.min(bellSeen.interested, interestedCount),
+      vacancy: Math.min(bellSeen.vacancy, newRequestCount),
+      contact: Math.min(bellSeen.contact, contactRequestCount),
+    };
+    if (
+      next.interested !== bellSeen.interested ||
+      next.vacancy !== bellSeen.vacancy ||
+      next.contact !== bellSeen.contact
+    ) {
+      setBellSeen(next);
+      AsyncStorage.setItem(SEEN_KEY, JSON.stringify(next)).catch(() => {});
+    }
+  }, [interestedCount, newRequestCount, contactRequestCount, bellSeen]);
+  const bellBadge =
+    eff(interestedCount, Math.max(bellBase.interested, bellSeen.interested)) +
+    eff(newRequestCount, Math.max(bellBase.vacancy, bellSeen.vacancy)) +
+    eff(contactRequestCount, Math.max(bellBase.contact, bellSeen.contact));
+  const bellInterested = eff(interestedCount, bellBase.interested);
+  const bellVacancy = eff(newRequestCount, bellBase.vacancy);
+  const bellContact = eff(contactRequestCount, bellBase.contact);
+
+  // when items get handled (count goes down) lower the saved level too,
+  // so the next new one is counted
+  useEffect(() => {
+    const next = {
+      interested: Math.min(bellBase.interested, interestedCount),
+      vacancy: Math.min(bellBase.vacancy, newRequestCount),
+      contact: Math.min(bellBase.contact, contactRequestCount),
+    };
+    if (
+      next.interested !== bellBase.interested ||
+      next.vacancy !== bellBase.vacancy ||
+      next.contact !== bellBase.contact
+    ) {
+      setBellBase(next);
+      AsyncStorage.setItem(BELL_CLEARED_KEY, JSON.stringify(next)).catch(() => {});
+    }
+  }, [interestedCount, newRequestCount, contactRequestCount, bellBase]);
+
+  const clearBell = () => {
+    const next = { interested: interestedCount, vacancy: newRequestCount, contact: contactRequestCount };
+    setBellBase(next);
+    AsyncStorage.setItem(BELL_CLEARED_KEY, JSON.stringify(next)).catch(() => {});
+    setBellVisible(false);
+  };
+
+  const ScrollComp: any = NEW ? Animated.ScrollView : ScrollView;
+  const newScrollProps: any = NEW
+    ? {
+        onScroll: Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true }),
+        scrollEventThrottle: 16,
+        refreshControl: (
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#024e32" colors={["#024e32"]} />
+        ),
+      }
+    : {};
+
   const totalGroups = groupCapacity.length;
   const fullGroups = groupCapacity.filter(
     (g) => g.needed > 0 && g.vacancy === 0
@@ -367,6 +531,25 @@ export default function AdminIndex() {
           HEADER
       ===================================================== */}
 
+      {NEW ? (
+        <>
+          <AdminHeader
+            scrollY={scrollY}
+            onLogout={() => setLogoutVisible(true)}
+            bellCount={bellBadge}
+            onBell={openBell}
+          />
+          <AdminAlertsSheet
+            visible={bellVisible}
+            onClose={() => setBellVisible(false)}
+            interestedCount={bellInterested}
+            vacancyCount={bellVacancy}
+            contactCount={bellContact}
+            onClear={clearBell}
+            times={bellTimes}
+          />
+        </>
+      ) : (
       <View
         className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50"
         style={{
@@ -410,11 +593,19 @@ export default function AdminIndex() {
           </TouchableOpacity>
         </View>
       </View>
+      )}
 
       {/* =====================================================
           LOGOUT CONFIRM MODAL
       ===================================================== */}
 
+      {NEW ? (
+        <AdminLogoutModal
+          visible={logoutVisible}
+          onCancel={() => setLogoutVisible(false)}
+          onConfirm={confirmLogout}
+        />
+      ) : (
       <Modal visible={logoutVisible} transparent animationType="fade">
         <View className="flex-1 bg-black/50 justify-center items-center">
           <View className="bg-white w-80 rounded-2xl p-6">
@@ -448,23 +639,40 @@ export default function AdminIndex() {
           </View>
         </View>
       </Modal>
+      )}
 
       {/* =====================================================
           CONTENT
       ===================================================== */}
 
-      <ScrollView
+      <ScrollComp
         className="flex-1"
         contentContainerStyle={{
-          paddingTop: 116,
+          paddingTop: NEW ? 142 : 116,
           paddingBottom: 24,
         }}
         showsVerticalScrollIndicator={false}
+        {...newScrollProps}
       >
         {/* ===================================================
             LOGO
         =================================================== */}
 
+        {NEW ? (
+          <>
+            <AdminHeroAndOverview
+              stats={overview.stats}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+            <LiveBidsSection
+              liveAuctions={overview.liveAuctions}
+              closedAuctions={overview.closedAuctions}
+              loading={overview.bidsLoading}
+            />
+            <AdminFollowUpsSection />
+          </>
+        ) : (
         <View className="items-center mt-4">
           <Image
             source={require("../../assets/images/manikyaChits.png")}
@@ -472,11 +680,15 @@ export default function AdminIndex() {
             resizeMode="contain"
           />
         </View>
+        )}
 
         {/* ===================================================
             DASHBOARD MENU
         =================================================== */}
 
+        {NEW ? (
+          <AdminMenuSections vacancyCount={newRequestCount} contactCount={contactRequestCount} />
+        ) : (
         <View className="flex-row flex-wrap justify-between px-5 mt-6 pb-6">
           <MenuCard
             title="Chit Schemes"
@@ -485,6 +697,10 @@ export default function AdminIndex() {
           />
 
           <MenuCard title="Groups" icon="group-work" route="/admin/groups" />
+
+          <MenuCard title="Ledger" icon="menu-book" route="/admin/ledger" />
+
+          <MenuCard title="More" icon="apps" route="/admin/more" />
 
           <MenuCard
             title="Vacancies"
@@ -560,6 +776,7 @@ export default function AdminIndex() {
 
           <MenuCard title="Profile" icon="person" route="/admin/profile" />
         </View>
+        )}
 
         {/* ===================================================
             GROUP CAPACITY SECTION — redesigned
@@ -973,6 +1190,16 @@ export default function AdminIndex() {
           )}
         </View>
 
+        {NEW && (
+          <View className="items-center mt-2">
+            <Image
+              source={require("../../assets/images/manikyaChits.png")}
+              style={{ width: 130, height: 130 }}
+              resizeMode="contain"
+            />
+          </View>
+        )}
+
         {/* ===================================================
             COMPANY FOOTER
         =================================================== */}
@@ -993,7 +1220,7 @@ export default function AdminIndex() {
             </Text>
           </View>
         </View>
-      </ScrollView>
+      </ScrollComp>
     </SafeAreaView>
   );
 }

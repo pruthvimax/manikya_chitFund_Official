@@ -876,7 +876,7 @@ export default function WinnerCelebration({
                       <View style={{ flex: hasChit ? 1.1 : 1, flexDirection: "row" }}>
                         <Tile
                           icon="gavel"
-                          label="Winning Bid"
+                          label="Bid Amount"
                           value={bidTarget > 0 ? rupees(shown.bid) : "-"}
                           gold
                         />
@@ -895,7 +895,7 @@ export default function WinnerCelebration({
                           <View style={{ flex: hasAuctionNo ? 1.1 : 1, flexDirection: "row" }}>
                             <Tile
                               icon="emoji-events"
-                              label="Winning Amount"
+                              label="Prize Amount"
                               value={rupees(winAmountTarget > 0 ? winAmountShown : 0)}
                               gold
                             />

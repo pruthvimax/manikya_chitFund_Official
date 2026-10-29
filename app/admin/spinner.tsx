@@ -579,17 +579,6 @@ export default function AdminSpinner() {
               {/* ---------- candidates + controls ---------- */}
               {!session ? (
                 <>
-                  {/* ADDED: "spin starts at ..." notification + reminders */}
-                  <SpinAnnounceCard
-                    identity={identity}
-                    adminKey={adminKey}
-                    groupCode={groupCode || data?.groupId || ""}
-                    defaultDate={data?.auctionEndDate}
-                    onInvalidKey={() =>
-                      forgetKey("That key was not accepted. Enter the spinner admin key again.")
-                    }
-                  />
-
                   <View style={card}>
                     <Text style={{ fontSize: 16, fontWeight: "800", color: "#111827" }}>
                       Members on the wheel
@@ -680,9 +669,28 @@ export default function AdminSpinner() {
                     )}
                   </View>
 
+                  {/* ADDED: "spin starts at ..." notification + reminders */}
+                  <SpinAnnounceCard
+                    identity={identity}
+                    adminKey={adminKey}
+                    groupCode={groupCode || data?.groupId || ""}
+                    defaultDate={data?.auctionEndDate}
+                    targetId={target}
+                    targetLabel={(() => {
+                      const c = candidates.find((x) => x.groupMemberId === target);
+                      return c ? `${c.groupMemberId}${c.memberName ? ` - ${c.memberName}` : ""}` : target || "";
+                    })()}
+                    onInvalidKey={() =>
+                      forgetKey("That key was not accepted. Enter the spinner admin key again.")
+                    }
+                  />
+
                   <View style={card}>
                     <Text style={{ fontSize: 16, fontWeight: "800", color: "#111827" }}>
                       Spin settings
+                    </Text>
+                    <Text style={{ color: "#6B7280", fontSize: 11.5, marginTop: 3 }}>
+                      Used only for Manual spin. Auto spin starts by itself (9 seconds, 8 full turns) and uses the Members on the wheel choice above.
                     </Text>
 
                     <Text style={{ color: "#6B7280", fontSize: 12, marginTop: 12 }}>

@@ -8,6 +8,8 @@ dotenv.config();
 
 // ROUTES - Make sure each is imported only ONCE
 import adminRoutes from "./routes/adminRoutes.js";
+import ledgerRoutes from "./routes/ledgerRoutes.js";
+import moreRoutes from "./routes/moreRoutes.js";
 import chitSchemeRoutes from "./routes/chitSchemeRoutes.js";
 import commitmentRoutes from "./routes/commitmentRoutes.js";
 import employeeRoutes from "./routes/employeeRoutes.js";
@@ -32,8 +34,13 @@ import spinnerRoutes from "./routes/spinnerRoutes.js";
 import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
 import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
 import { startSpinReminders } from "./realtime/spinReminders.js";
+import { startAutoSpin } from "./realtime/autoSpin.js";
+import { startFollowUpReminders } from "./realtime/followUpReminders.js";
+import { employeeAccessMiddleware } from "./realtime/employeeAccess.js";
 import pushRoutes from "./routes/pushRoutes.js";
 import dailyFollowUpRoutes from "./routes/dailyFollowUpRoutes.js";
+import employeeNoticeRoutes from "./routes/employeeNoticeRoutes.js";
+import { employeeNoticeMiddleware, employeeVacancyMiddleware } from "./realtime/employeeNotices.js";
 
 
 const app = express();
@@ -73,12 +80,26 @@ connectDB().then((connected) => {
 
 app.use("/api/chitscheme", chitSchemeRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/ledger", ledgerRoutes);
+app.use("/api/more", moreRoutes);
 
+app.use("/api/employee", employeeAccessMiddleware);
 app.use("/api/employee", employeeRoutes);
 app.use("/api/members", memberRoutes);
 
+// live badges: ping phones when an interested-member request is added / changed (admin bell)
+app.use("/api/member-interest", liveBadgeMiddleware("interest"));
 app.use("/api/member-interest", memberInterestRoutes);
 app.use("/api/member-history", memberHistoryRoutes);
+// employee bell + push: notices when admin approves/rejects, or a vacancy is published (no logic change)
+app.use("/api/leave-request", employeeNoticeMiddleware("leave"));
+app.use("/api/target", employeeNoticeMiddleware("target"));
+app.use("/api/meeting", employeeNoticeMiddleware("meeting"));
+app.use("/api/worksheet", employeeNoticeMiddleware("worksheet"));
+app.use("/api/enrollment", employeeNoticeMiddleware("enrollment"));
+app.use("/api/commitment", employeeNoticeMiddleware("commitment"));
+app.use("/api/vacancy", employeeVacancyMiddleware);
+app.use("/api/employee-notices", employeeNoticeRoutes);
 // live badges: ping phones after notification / vacancy changes (no logic change)
 app.use("/api/notifications", liveBadgeMiddleware("notifications"));
 app.use("/api/vacancy", liveBadgeMiddleware("vacancy"));
@@ -133,6 +154,8 @@ const HOST = process.env.HOST || "0.0.0.0";
 const httpServer = http.createServer(app);
 initSocket(httpServer);
 startSpinReminders();
+startAutoSpin();
+startFollowUpReminders();
 httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on http://${HOST}:${PORT}`);
   console.log(

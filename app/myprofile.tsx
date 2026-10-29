@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useRouter } from "expo-router";
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -239,7 +240,7 @@ export default function MyProfile() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: navPad(20) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -469,7 +470,7 @@ function ProfileSkeleton() {
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: navPad(20) }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.section}>

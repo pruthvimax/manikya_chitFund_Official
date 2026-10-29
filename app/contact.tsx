@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -171,7 +172,7 @@ export default function Contact() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingTop: 130,
-          paddingBottom: 35,
+          paddingBottom: navPad(35),
         }}
       >
         {checkingSession ? (

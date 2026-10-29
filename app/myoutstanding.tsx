@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -19,7 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
 import { logPenaltyMismatch } from "../components/penaltyCheck";
 import { cacheGet, cacheSet, groupsKey, ledgerKey } from "../memberCache";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 // =========================================================
 // SCREENSHOT PREVENTION FOR ALL PLATFORMS
@@ -401,9 +402,14 @@ export default function MyOutstanding() {
   const [error, setError] = useState<string | null>(null);
 
   // Group selection
+  // opened from a notification card: start on that group (no need to pick it again)
+  const openParams = useLocalSearchParams<{ groupId?: string }>();
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(
-    null
+    openParams?.groupId ? String(openParams.groupId) : null
   );
+  useEffect(() => {
+    if (openParams?.groupId) setSelectedGroupId(String(openParams.groupId));
+  }, [openParams?.groupId]);
 
   const [groupList, setGroupList] = useState<any[]>([]);
   const [dropdownVisible, setDropdownVisible] = useState(false);
@@ -1839,7 +1845,7 @@ export default function MyOutstanding() {
           /*
             Keep the last card clear of the iOS home indicator.
           */
-          paddingBottom: 20 + insets.bottom,
+          paddingBottom: navPad(20 + insets.bottom),
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={

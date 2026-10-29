@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1115,7 +1116,24 @@ export default function MyAccountCopy() {
     }, 0);
 
     const totalUserPaid = totalNonDividendPaid;
-    const totalDue = totalInstallment + totalPenalty - totalPaid;
+    // FIX: Total Due is the sum of what each month still owes, worked out the
+    // same way the History modal itemises it ("pending installment + pending
+    // penalty"), each part never below zero:
+    //   pending installment = installment + dividend - (installment paid + dividend)
+    //   pending penalty     = penalty assessed - penalty paid
+    // Before, everything was netted in one total (installment + penalty - all
+    // paid), so a penalty paid that was higher than the penalty now assessed
+    // (or one month paid extra) wrongly reduced what the other months still owe.
+    const totalDue = ledger.reduce((sum: number, row: any) => {
+      const dividend = dividendMap[row.monthIndex] || 0;
+      const gross = (row.installmentAmount || 0) + dividend;
+      const installmentPaid = getInstallmentPaidAmount(row.payments || []);
+      const pendingInstallment = Math.max(gross - (installmentPaid + dividend), 0);
+      const penaltyAssessed = penaltyByMonth[row.monthIndex] || 0;
+      const penaltyPaid = getPenaltyPaidAmount(row.payments || []);
+      const pendingPenalty = Math.max(penaltyAssessed - penaltyPaid, 0);
+      return sum + pendingInstallment + pendingPenalty;
+    }, 0);
 
     return {
       totalInstallment,
@@ -1127,7 +1145,7 @@ export default function MyAccountCopy() {
       totalDividend,
       totalUserPaid,
     };
-  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount, penaltyByMonth]);
+  }, [ledger, dividendMap, getInstallmentPaidAmount, getNonDividendPaidAmount, getPenaltyPaidAmount, penaltyByMonth]);
 
   if (loading && groups.length === 0) {
     return <SkeletonGroupsScreen />;
@@ -1172,7 +1190,7 @@ export default function MyAccountCopy() {
 
       <ScrollView
         className="flex-1 bg-[#f7f9f8]"
-        contentContainerStyle={{ paddingTop: 110 }}
+        contentContainerStyle={{ paddingTop: 110, paddingBottom: navPad(0) }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl

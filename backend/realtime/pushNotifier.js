@@ -1,4 +1,5 @@
 import Group from "../models/Group.js";
+import Vacancy from "../models/Vacancy.js";
 import PushToken from "../models/PushToken.js";
 
 /* =========================================================
@@ -90,9 +91,23 @@ export const notifyNewNotification = async (data) => {
   });
 };
 
+/* If the admin publishes a vacancy and deletes it again right away (a
+   mistake), nobody should get the phone alert. So the alert waits this long
+   and is only sent if the vacancy still exists. Set to 0 for instant alerts. */
+export const VACANCY_PUSH_DELAY_MS = 0; // instant (was 60 s)
+
+export const waitAndCheckVacancy = async (vacancy) => {
+  if (VACANCY_PUSH_DELAY_MS > 0) {
+    await new Promise((r) => setTimeout(r, VACANCY_PUSH_DELAY_MS));
+  }
+  if (!vacancy?._id) return true;
+  return !!(await Vacancy.exists({ _id: vacancy._id }));
+};
+
 /* admin published a vacancy -> everybody except members already in that group */
 export const notifyNewVacancy = async (vacancy) => {
   if (!vacancy || vacancy.status === "Closed") return;
+  if (!(await waitAndCheckVacancy(vacancy))) return; // deleted within the wait
 
   const group = await Group.findOne({
     groupId: String(vacancy.groupId),
@@ -104,7 +119,10 @@ export const notifyNewVacancy = async (vacancy) => {
   );
 
   const all = await PushToken.find({}).lean();
-  const tokens = all.filter((t) => !alreadyIn.has(String(t.userid)));
+  // employee phones (id "emp:...") get their own vacancy notice, not the member one
+  const tokens = all.filter(
+    (t) => !alreadyIn.has(String(t.userid)) && !String(t.userid).startsWith("emp:")
+  );
 
   await sendPush(tokens, {
     title: "New vacancy available",

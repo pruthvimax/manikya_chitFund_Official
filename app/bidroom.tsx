@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useRef, useState } from "react";
 
   import {
@@ -1153,7 +1154,7 @@ import { useEffect, useRef, useState } from "react";
             <FlatList
               data={shownNotifications}
               keyExtractor={(item) => item._id}
-              contentContainerStyle={{ paddingTop: 16 }}
+              contentContainerStyle={{ paddingTop: 16, paddingBottom: navPad(0) }}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
                 <View style={{ alignItems: "center", paddingVertical: 40, paddingHorizontal: 30 }}>

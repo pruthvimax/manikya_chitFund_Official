@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -599,7 +600,7 @@ export default function MemberVacancy() {
 
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 130, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingTop: 130, paddingBottom: navPad(24) }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

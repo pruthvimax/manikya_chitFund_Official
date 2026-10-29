@@ -12,23 +12,36 @@ import { SOCKET_ORIGIN } from "./spinner/spinnerApi";
  * count functions, so the numbers always come from the same logic as
  * before - this only makes them run instantly.
  */
-export function useLiveBadges(enabled: boolean, onChange: () => void) {
+export function useLiveBadges(
+  enabled: boolean,
+  // gets "event" when the server really announced a change, "other" for
+  // reconnect / app-back-in-front (old callers simply ignore the word)
+  onChange: (reason?: "event" | "other") => void,
+  // optional: called at once (no waiting) with what the server said, e.g. { topic, method: "DELETE", id }
+  onEvent?: (payload: any) => void
+) {
   const latest = useRef(onChange);
   latest.current = onChange;
+  const latestEvent = useRef(onEvent);
+  latestEvent.current = onEvent;
 
   useEffect(() => {
     if (!enabled) return;
 
     let timer: any = null;
-    const fire = () => {
+    let real = false;
+    const fire = (isReal = false) => {
+      if (isReal) real = true;
       clearTimeout(timer);
       timer = setTimeout(() => {
+        const reason = real ? "event" : "other";
+        real = false;
         try {
-          latest.current();
+          latest.current(reason);
         } catch {
           // ignore
         }
-      }, 400);
+      }, 120);
     };
 
     const socket: Socket = io(SOCKET_ORIGIN, {
@@ -38,8 +51,15 @@ export function useLiveBadges(enabled: boolean, onChange: () => void) {
       reconnectionDelayMax: 10000,
     });
 
-    socket.on("live:changed", fire);
-    socket.on("connect", fire); // also runs after every reconnect
+    socket.on("live:changed", (payload: any) => {
+      try {
+        latestEvent.current?.(payload);
+      } catch {
+        // ignore
+      }
+      fire(true);
+    });
+    socket.on("connect", () => fire()); // also runs after every reconnect
 
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") fire();

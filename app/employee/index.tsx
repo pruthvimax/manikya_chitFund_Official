@@ -5,6 +5,11 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Platform } from "react-native";
 import BACKEND_URL from "../../config";
 import { useFollowUpCount } from "../../components/useFollowUpCount";
+import PushPermissionPrompt from "../../components/PushPermissionPrompt";
+import { EmployeeBell, EmployeeNoticeSheet, useEmployeeNotices } from "../../components/employeeNotices";
+import EmployeeHomeNew from "../../components/employeeHome";
+import { useEmployeeAccess } from "../../components/employeeAccess";
+import { USE_NEW_EMPLOYEE_HOME_DESIGN } from "../../components/memberDesign";
 
 import {
     Alert,
@@ -246,6 +251,14 @@ export default function EmployeeDashboard() {
     const [loadingAccess, setLoadingAccess] = useState(true);
     const [employeeName, setEmployeeName] = useState("Employee");
 
+    // admin changed Feature Control / Vacancy Access -> shown at once (no refresh needed)
+    const liveAccess = useEmployeeAccess();
+    useEffect(() => {
+        if (!liveAccess) return;
+        setFeatureAccess(liveAccess.featureAccess);
+        setCanViewVacancy(liveAccess.canViewVacancy);
+    }, [liveAccess]);
+
     // ✅ Use ref to prevent multiple API calls
     const isFirstRender = useRef(true);
 
@@ -256,6 +269,10 @@ export default function EmployeeDashboard() {
 
     // red badge on "Daily Leads": follow-ups due today / overdue
     const { count: followUpDueCount } = useFollowUpCount();
+
+    // bell + notification list + phone push (all in components/employeeNotices.tsx)
+    const empNotes = useEmployeeNotices(followUpDueCount);
+    const [bellOpen, setBellOpen] = useState(false);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -352,6 +369,7 @@ export default function EmployeeDashboard() {
         setLogoutModalVisible(false);
 
         try {
+            try { await empNotes.unregister(); } catch { }
             await AsyncStorage.removeItem("employee");
             router.replace("/employee/login");
         } catch (error) {
@@ -369,6 +387,10 @@ export default function EmployeeDashboard() {
         setLogoutModalVisible(true);
     };
 
+    // new home draws its own header under the status bar, so it must not sit inside
+    // SafeAreaView (that left a light strip above the green header on iPhone)
+    const Root: any = USE_NEW_EMPLOYEE_HOME_DESIGN ? View : SafeAreaView;
+
     // Get current date
     const currentDate = new Date().toLocaleDateString('en-US', {
         weekday: 'long',
@@ -378,8 +400,26 @@ export default function EmployeeDashboard() {
     });
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
+        <Root style={{ flex: 1, backgroundColor: USE_NEW_EMPLOYEE_HOME_DESIGN ? "#F4F7F5" : "#ffffff" }}>
 
+            {USE_NEW_EMPLOYEE_HOME_DESIGN ? (
+                <EmployeeHomeNew
+                    employeeName={employeeName}
+                    bellCount={empNotes.unread}
+                    onBell={() => { setBellOpen(true); empNotes.markBellSeen(); }}
+                    onLogout={showLogoutModal}
+                    featureAccess={featureAccess}
+                    loadingAccess={loadingAccess}
+                    canViewVacancy={canViewVacancy}
+                    showAccessDenied={showAccessDeniedModal}
+                    followUpDueCount={followUpDueCount}
+                    vacancyBadge={empNotes.vacancyBadge}
+                    onVacancyOpen={empNotes.markVacancySeen}
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                />
+            ) : (
+            <>
             {/* ✅ PROFESSIONAL HEADER */}
             <View className="bg-[#024e32] px-5 pt-12 pb-5 absolute top-0 left-0 right-0 z-50">
                 {/* Top Row */}
@@ -395,6 +435,8 @@ export default function EmployeeDashboard() {
                     </View>
 
                     <View className="flex-row items-center">
+
+                        <EmployeeBell count={empNotes.unread} onPress={() => { setBellOpen(true); empNotes.markBellSeen(); }} />
 
                         {/* Logout Button */}
                         <TouchableOpacity
@@ -537,6 +579,8 @@ export default function EmployeeDashboard() {
                             featureAccess={featureAccess}
                             loadingAccess={loadingAccess}
                             showModal={showAccessDeniedModal}
+                            badge={empNotes.vacancyBadge}
+                            onOpen={empNotes.markVacancySeen}
                         />
                     )}
                 </View>
@@ -557,6 +601,8 @@ export default function EmployeeDashboard() {
                 </View>
 
             </ScrollView>
+            </>
+            )}
 
             {/* ✅ CUSTOM ACCESS DENIED MODAL */}
             <Modal
@@ -670,7 +716,18 @@ export default function EmployeeDashboard() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+            <EmployeeNoticeSheet
+                visible={bellOpen}
+                onClose={() => setBellOpen(false)}
+                notices={empNotes.visible}
+                followShown={empNotes.followShown}
+                newVacancies={empNotes.newVacancies}
+                serverOk={empNotes.serverOk}
+                serverErr={empNotes.serverErr}
+                onClear={empNotes.clear}
+            />
+            <PushPermissionPrompt />
+        </Root>
     );
 }
 
@@ -682,6 +739,7 @@ function MenuCard({
     loadingAccess,
     showModal,
     badge,
+    onOpen,
 }: {
     title: string;
     icon: any;
@@ -690,6 +748,7 @@ function MenuCard({
     loadingAccess: boolean;
     showModal: () => void;
     badge?: number;
+    onOpen?: () => void;
 }) {
     const router = useRouter();
 
@@ -707,6 +766,7 @@ function MenuCard({
             return;
         }
 
+        if (onOpen) onOpen();
         router.push(route);
     };
 

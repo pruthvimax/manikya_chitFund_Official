@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import Constants from "expo-constants";
@@ -25,6 +26,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
 import { useLiveBadges } from "../components/useLiveBadges";
 import { usePushNotifications } from "../components/usePushNotifications";
+import { USE_NEW_MEMBER_DESIGN } from "../components/memberDesign";
+import { HomeHero, LiveAuctionsSection, useHomeChitsData } from "../components/memberHome";
+import { QuickActionsSection } from "../components/memberQuickActions";
 
 // =========================================================
 // SCREENSHOT PREVENTION (unchanged)
@@ -112,6 +116,11 @@ export default function HomeScreen() {
   // Notification & badge states
   const [unseenNotificationCount, setUnseenNotificationCount] = useState(0);
   const [newVacancyCount, setNewVacancyCount] = useState(0);
+  // vacancies the bell has not shown yet (opening the bell clears this one only;
+  // the Vacancies card number above stays until the Vacancy page is opened)
+  const [bellVacancyCount, setBellVacancyCount] = useState(0);
+  // payment-due cards + admin announcements the bell has not shown yet (see /more/member-feed)
+  const [bellMoreCount, setBellMoreCount] = useState(0);
   const [memberUserid, setMemberUserid] = useState<string | null>(null);
 
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -680,8 +689,14 @@ export default function HomeScreen() {
       const vacancies = Array.isArray(data) ? data : [];
       if (vacancies.length === 0) {
         setNewVacancyCount(0);
+        setBellVacancyCount(0);
         return;
       }
+      const bellSeenStr = await AsyncStorage.getItem("bellSeenVacancyAt");
+      const bellSeenTime = bellSeenStr ? new Date(bellSeenStr).getTime() : 0;
+      setBellVacancyCount(
+        vacancies.filter((v: any) => (v.createdAt ? new Date(v.createdAt).getTime() : 0) > bellSeenTime).length
+      );
       const lastSeenStr = await AsyncStorage.getItem("lastSeenVacancyAt");
       const lastSeenTime = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
       const newCount = vacancies.filter((v: any) => {
@@ -704,24 +719,57 @@ export default function HomeScreen() {
     }, [loadVacancyCount])
   );
 
+  const loadMoreBellCount = useCallback(async () => {
+    try {
+      if (!memberUserid) return;
+      const res = await fetch(`${BACKEND_URL}/more/member-feed?userid=${encodeURIComponent(memberUserid)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.success) return;
+      const seenStr = await AsyncStorage.getItem("bellSeenMoreAt");
+      const seen = seenStr ? new Date(seenStr).getTime() : 0;
+      const all = [...(data.dues || []), ...(data.announcements || [])];
+      setBellMoreCount(all.filter((x: any) => (x?.at ? new Date(x.at).getTime() : 0) > seen).length);
+    } catch (error) {
+      console.log("Bell extra count load error:", error);
+    }
+  }, [memberUserid]);
+
+  useEffect(() => {
+    loadMoreBellCount();
+  }, [loadMoreBellCount, refreshing]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMoreBellCount();
+    }, [loadMoreBellCount])
+  );
+
   // LIVE BADGES: re-run the SAME count functions above the moment the
   // server says a notification / vacancy changed (no manual refresh).
   useLiveBadges(Boolean(memberUserid), () => {
     loadNotificationCount();
     loadVacancyCount();
+    loadMoreBellCount();
   });
 
   // PUSH: asks notification permission, registers this phone, and keeps the
   // number on the app icon equal to bell count + vacancy count.
   const { unregister: unregisterPush } = usePushNotifications(
     memberUserid,
-    unseenNotificationCount + newVacancyCount
+    unseenNotificationCount + newVacancyCount + bellMoreCount
   );
 
   const handleNotificationPress = async () => {
     try {
       await AsyncStorage.setItem("lastSeenNotificationAt", new Date().toISOString());
+      // the bell shows vacancies too: it goes to 0, but the Vacancies card keeps
+      // its number until the member opens the Vacancy page
+      await AsyncStorage.setItem("bellSeenVacancyAt", new Date().toISOString());
+      await AsyncStorage.setItem("bellSeenMoreAt", new Date().toISOString());
       setUnseenNotificationCount(0);
+      setBellVacancyCount(0);
+      setBellMoreCount(0);
     } catch (error) {
       console.log("Mark seen error:", error);
     }
@@ -758,7 +806,12 @@ export default function HomeScreen() {
     setLogoutModalVisible(true);
   };
 
+  // NEW design only: hero numbers + live auctions (reads existing routes, changes nothing)
+  const home = useHomeChitsData(memberUserid, USE_NEW_MEMBER_DESIGN);
+  const homeWidthClass = isDesktopOrLaptop ? "w-full max-w-5xl" : isTablet ? "w-[95%]" : "w-[92%]";
+
   const handleRefresh = () => {
+    if (USE_NEW_MEMBER_DESIGN) home.reload();
     setRefreshing(true);
     const reloadUser = async () => {
       const storedUser = await AsyncStorage.getItem("loggedUser");
@@ -810,22 +863,102 @@ export default function HomeScreen() {
       <PushPermissionPrompt />
 
       {/* HEADER */}
-      <View ref={headerRef} className="bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50">
+      <View
+        ref={headerRef}
+        className={
+          USE_NEW_MEMBER_DESIGN
+            ? "bg-[#024e32] px-5 pt-14 pb-5 absolute top-0 left-0 right-0 z-50"
+            : "bg-[#024e32] px-5 pt-16 pb-6 absolute top-0 left-0 right-0 z-50"
+        }
+        style={
+          USE_NEW_MEMBER_DESIGN
+            ? {
+                borderBottomLeftRadius: 24,
+                borderBottomRightRadius: 24,
+                shadowColor: "#0b3324",
+                shadowOpacity: 0.25,
+                shadowRadius: 10,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: 8,
+              }
+            : undefined
+        }
+      >
         <View className="flex-row items-center">
-          <Text className="text-white text-2xl font-bold mt-1 flex-1">Member Portal</Text>
-          <TouchableOpacity onPress={handleNotificationPress} className="mt-1 mr-4" activeOpacity={0.7}>
-            <MaterialIcons name="notifications" size={26} color="white" />
-            {unseenNotificationCount > 0 && (
+          {USE_NEW_MEMBER_DESIGN ? (
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 13,
+                  backgroundColor: "#ffffff",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 10,
+                }}
+              >
+                <Text style={{ color: "#024e32", fontWeight: "900", fontSize: 15 }}>MC</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#ffffff", fontSize: 19, fontWeight: "800" }}>Member Portal</Text>
+                <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
+                  {username ? `Welcome, ${username}` : "Manikya Chits"}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <Text className="text-white text-2xl font-bold mt-1 flex-1">Member Portal</Text>
+          )}
+          <TouchableOpacity
+            onPress={handleNotificationPress}
+            className={USE_NEW_MEMBER_DESIGN ? "mr-3" : "mt-1 mr-4"}
+            style={
+              USE_NEW_MEMBER_DESIGN
+                ? {
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: "rgba(255,255,255,0.16)",
+                    borderWidth: 1,
+                    borderColor: "rgba(255,255,255,0.24)",
+                  }
+                : undefined
+            }
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="notifications" size={USE_NEW_MEMBER_DESIGN ? 22 : 26} color="white" />
+            {unseenNotificationCount + bellVacancyCount + bellMoreCount > 0 && (
               <View className="absolute -top-2 -right-2 bg-red-500 rounded-full min-w-[18px] h-[18px] px-1 items-center justify-center border border-white">
                 <Text className="text-white text-[10px] font-bold">
-                  {unseenNotificationCount > 9 ? "9+" : unseenNotificationCount}
+                  {unseenNotificationCount + bellVacancyCount + bellMoreCount > 9 ? "9+" : unseenNotificationCount + bellVacancyCount + bellMoreCount}
                 </Text>
               </View>
             )}
           </TouchableOpacity>
-          <View ref={dropdownRef} className="relative mt-1">
-            <TouchableOpacity data-trigger="true" onPress={() => setProfileMenuVisible((v) => !v)} activeOpacity={0.7}>
-              <MaterialIcons name="account-circle" size={30} color="white" />
+          <View ref={dropdownRef} className={USE_NEW_MEMBER_DESIGN ? "relative" : "relative mt-1"}>
+            <TouchableOpacity
+              data-trigger="true"
+              onPress={() => setProfileMenuVisible((v) => !v)}
+              activeOpacity={0.7}
+              style={
+                USE_NEW_MEMBER_DESIGN
+                  ? {
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "rgba(255,255,255,0.16)",
+                      borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.24)",
+                    }
+                  : undefined
+              }
+            >
+              <MaterialIcons name="account-circle" size={USE_NEW_MEMBER_DESIGN ? 26 : 30} color="white" />
             </TouchableOpacity>
             {profileMenuVisible && (
               <View data-dropdown="true" className="absolute right-0 top-11 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" style={{ width: 190, zIndex: 9999, elevation: 12 }}>
@@ -847,7 +980,7 @@ export default function HomeScreen() {
       <ScrollView
         className="flex-1 bg-[#f7f9f8]"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ flexGrow: 1, paddingTop: 110, paddingBottom: isDesktopOrLaptop ? 40 : 20 }}
+        contentContainerStyle={{ flexGrow: 1, paddingTop: 110, paddingBottom: navPad(isDesktopOrLaptop ? 40 : 20) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={["#024e32"]} tintColor="#024e32" />}
         onScrollBeginDrag={() => { if (profileMenuVisible) setProfileMenuVisible(false); }}
         scrollEventThrottle={16}
@@ -865,6 +998,15 @@ export default function HomeScreen() {
               original Kannada/English slogan slides, using the exact
               same swipe / auto-advance / arrows / dots mechanics.
           =================================================== */}
+          {USE_NEW_MEMBER_DESIGN && (
+            <HomeHero
+              username={username}
+              summary={home.summary}
+              loading={home.loading}
+              wide={homeWidthClass}
+            />
+          )}
+
           <View
             onLayout={(e) => {
               const w = e.nativeEvent.layout.width;
@@ -1191,6 +1333,20 @@ export default function HomeScreen() {
             )}
           </View>
 
+          {/* NEW design: Live Auctions replaces the big menu cards (every page is in the bottom bar / More) */}
+          {USE_NEW_MEMBER_DESIGN ? (
+            <>
+            <LiveAuctionsSection
+              auctions={home.auctions}
+              loading={home.loading}
+              userid={memberUserid}
+              wide={homeWidthClass}
+              desktop={isDesktopOrLaptop}
+            />
+            <QuickActionsSection wide={homeWidthClass} />
+            </>
+          ) : (
+            <>
           {/* MENU CARDS */}
           <View className={`mt-8 ${isDesktopOrLaptop ? "flex-row flex-wrap justify-center gap-6" : "flex-row flex-wrap justify-between"}`}>
             {[
@@ -1202,6 +1358,8 @@ export default function HomeScreen() {
               { title: "Contact Us", iconName: "contact-mail", route: "/contact" },
               { title: "Auction Room", iconName: "storefront", route: "/auctionroom" },
               { title: "Bid Now", iconName: "gavel", route: "/bidroom" },
+              { title: "My Next Due", iconName: "event-note", route: "/mynextdue" },
+              { title: "My Receipts", iconName: "receipt-long", route: "/myreceipts" },
             ].map((item, index) => (
               <MenuCard
                 key={index}
@@ -1216,6 +1374,8 @@ export default function HomeScreen() {
               />
             ))}
           </View>
+            </>
+          )}
 
           {/* FOOTER */}
           <View className={`mt-8 mb-10 ${isDesktopOrLaptop ? "max-w-4xl mx-auto w-full" : ""}`}>
@@ -1352,20 +1512,36 @@ function MenuCard({
     else return "py-8";
   };
 
+  const TINTS: Record<string, { c: string; soft: string }> = {
+    "/mychits": { c: "#4f46e5", soft: "#eef2ff" },
+    "/myaccountcopy": { c: "#0284c7", soft: "#e0f2fe" },
+    "/myoutstanding": { c: "#d97706", soft: "#fef3c7" },
+    "/newgroups": { c: "#059669", soft: "#d1fae5" },
+    "/vacancy": { c: "#7c3aed", soft: "#ede9fe" },
+    "/contact": { c: "#e11d48", soft: "#ffe4e6" },
+    "/auctionroom": { c: "#024e32", soft: "#e3f1ea" },
+    "/bidroom": { c: "#ea580c", soft: "#ffedd5" },
+  };
+  const tint = USE_NEW_MEMBER_DESIGN ? TINTS[route] || { c: "#024e32", soft: "#e3f1ea" } : null;
+
   return (
     <TouchableOpacity
       className={`bg-white ${getCardWidth()} ${getCardHeight()} mb-6 rounded-3xl items-center shadow-md border border-[#e8f0eb] ${isDesktopOrLaptop ? "mx-2" : ""}`}
+      style={tint ? { borderColor: tint.soft, shadowColor: tint.c, shadowOpacity: 0.12 } : undefined}
       activeOpacity={0.9}
       onPress={() => {
         if (onPress) onPress();
         router.push(route);
       }}
     >
-      <View className={`rounded-2xl items-center justify-center mb-4 ${isDesktopOrLaptop ? "w-20 h-20" : "w-16 h-16"}`}>
+      <View
+        className={`rounded-2xl items-center justify-center mb-4 ${isDesktopOrLaptop ? "w-20 h-20" : "w-16 h-16"}`}
+        style={tint ? { backgroundColor: tint.soft } : undefined}
+      >
         <MaterialIcons
           name={iconName}
           size={isDesktopOrLaptop ? 42 : isTablet ? 36 : 32}
-          color="#024e32"
+          color={tint ? tint.c : "#024e32"}
         />
         {badgeCount > 0 && (
           <View className="absolute -top-1 -right-1 bg-red-500 rounded-full min-w-[20px] h-[20px] px-1 items-center justify-center border border-white">

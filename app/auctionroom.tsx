@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -719,7 +720,7 @@ export default function UserNotifications() {
             data={groupRows}
             keyExtractor={(group) => group.key}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingTop: 18 }}
+            contentContainerStyle={{ paddingTop: 18, paddingBottom: navPad(0) }}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={{ alignItems: "center", paddingVertical: 40, paddingHorizontal: 30 }}>

@@ -92,3 +92,90 @@ export const markFollowUpDone = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+/* =========================================================
+   FOLLOW-UPS DUE - LIST (for the "Follow-ups due" cards with a Call button)
+
+   EMPLOYEE  GET /daily-database/follow-ups/due/:empId?today=YYYY-MM-DD
+             that employee's due follow-ups (today + overdue, not done)
+   ADMIN     GET /daily-database/follow-ups/due-all?today=YYYY-MM-DD
+             every employee's due follow-ups
+
+   Oldest (most overdue) first. Only a few fields go out - enough to
+   show the name and make the call.
+========================================================= */
+const toDueItem = (e, today) => ({
+  _id: String(e._id),
+  empId: e.empId,
+  employeeName: e.employeeName || "",
+  name: e.name || "",
+  phone: e.phone || "",
+  telephone: e.telephone || "",
+  occupation: e.occupation || "",
+  action: e.action || "Warm",
+  followUpDate: e.followUpDate || "",
+  overdueDays: Math.max(
+    0,
+    Math.round(
+      (new Date(`${today}T00:00:00Z`).getTime() -
+        new Date(`${e.followUpDate}T00:00:00Z`).getTime()) /
+        86400000
+    )
+  ),
+});
+
+const dueFilter = (today) => ({
+  followUpDone: { $ne: true },
+  followUpDate: { $gt: "", $lte: today },
+});
+
+export const getDueFollowUps = async (req, res) => {
+  try {
+    const { empId } = req.params;
+    const today = resolveToday(req.query.today);
+
+    const [list, leadsToday] = await Promise.all([
+      DailyDatabase.find({ empId, ...dueFilter(today) })
+        .sort({ followUpDate: 1, createdAt: 1 })
+        .limit(100)
+        .lean(),
+      DailyDatabase.countDocuments({
+        empId,
+        createdAt: { $gte: new Date(`${today}T00:00:00+05:30`) },
+      }),
+    ]);
+
+    res.json({
+      today,
+      total: list.length,
+      leadsToday,
+      items: list.map((e) => toDueItem(e, today)),
+    });
+  } catch (err) {
+    console.log("getDueFollowUps error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const getDueFollowUpsAll = async (req, res) => {
+  try {
+    const today = resolveToday(req.query.today);
+
+    const [list, total] = await Promise.all([
+      DailyDatabase.find(dueFilter(today))
+        .sort({ followUpDate: 1, createdAt: 1 })
+        .limit(100)
+        .lean(),
+      DailyDatabase.countDocuments(dueFilter(today)),
+    ]);
+
+    res.json({
+      today,
+      total,
+      items: list.map((e) => toDueItem(e, today)),
+    });
+  } catch (err) {
+    console.log("getDueFollowUpsAll error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};

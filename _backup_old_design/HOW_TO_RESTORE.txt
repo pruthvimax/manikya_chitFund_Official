@@ -1,0 +1,22 @@
+OLD DESIGN BACKUP (taken before the new navigation / menu design)
+
+To go back to the old design, copy these two files back:
+  _backup_old_design\app__menu.tsx.txt    ->  app\menu.tsx
+  _backup_old_design\app___layout.tsx.txt ->  app\_layout.tsx
+
+Then delete the new file  components\MemberBottomNav.tsx  (or just leave it unused).
+
+PowerShell (run inside the project folder):
+  Copy-Item _backup_old_design\app__menu.tsx.txt app\menu.tsx -Force
+  Copy-Item _backup_old_design\app___layout.tsx.txt app\_layout.tsx -Force
+
+EASIEST WAY (no file copying):
+Open components\memberDesign.ts and change
+   USE_NEW_MEMBER_DESIGN = true   ->   false
+Save and reload the app. Old design is back exactly as before.
+
+Admin Chit Schemes page: set USE_NEW_ADMIN_SCHEMES_DESIGN = false in components/memberDesign.ts
+(old version is also saved as app_admin_chitSchemes.tsx.txt)
+
+Employee home page: set USE_NEW_EMPLOYEE_HOME_DESIGN = false in components/memberDesign.ts
+(the old dashboard code is still inside app/employee/index.tsx).

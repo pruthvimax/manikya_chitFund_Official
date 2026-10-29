@@ -11,6 +11,8 @@
     Modal,
   } from "react-native";
   import BACKEND_URL from "../../config";
+  import AdminSchemesView from "../../components/adminSchemes";
+  import { USE_NEW_ADMIN_SCHEMES_DESIGN } from "../../components/memberDesign";
 
   export default function ChitSchemes() {
     const router = useRouter();
@@ -134,6 +136,39 @@
       setDeleteModalVisible(false);
       setSchemeToDelete(null);
     };
+
+    if (USE_NEW_ADMIN_SCHEMES_DESIGN) {
+      return (
+        <AdminSchemesView
+          schemes={schemes}
+          chitId={chitId}
+          chitAmount={chitAmount}
+          durationMonths={durationMonths}
+          dailyAmount={dailyAmount}
+          weeklyAmount={weeklyAmount}
+          monthlyAmount={monthlyAmount}
+          setChitId={setChitId}
+          setChitAmount={setChitAmount}
+          setDurationMonths={setDurationMonths}
+          setDailyAmount={setDailyAmount}
+          setWeeklyAmount={setWeeklyAmount}
+          setMonthlyAmount={setMonthlyAmount}
+          message={message}
+          messageType={messageType}
+          deleteMessage={deleteMessage}
+          confirmModalVisible={confirmModalVisible}
+          setConfirmModalVisible={setConfirmModalVisible}
+          deleteModalVisible={deleteModalVisible}
+          schemeToDelete={schemeToDelete}
+          onSubmit={handleSubmit}
+          onAdd={addScheme}
+          onAskDelete={confirmDelete}
+          onDelete={deleteScheme}
+          onCancelDelete={cancelDelete}
+          onBack={() => router.replace("/admin")}
+        />
+      );
+    }
 
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>

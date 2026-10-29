@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -1327,7 +1328,7 @@ export default function MyChits() {
         className="flex-1 bg-[#f2f4f7]"
         contentContainerStyle={{
           paddingTop: A ? 100 : 110,
-          paddingBottom: 24,
+          paddingBottom: navPad(24),
         }}
         showsVerticalScrollIndicator={false}
         refreshControl={

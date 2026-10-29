@@ -32,7 +32,13 @@ export const liveBadgeMiddleware = (topic) => (req, res, next) => {
       if (res.statusCode >= 400) return;
 
       try {
-        emitToAll("live:changed", { topic });
+        // a deleted record also tells which one, so phones can drop it at once
+        const del = req.method === "DELETE" ? /^\/([^/]+)\/?$/.exec(mountedPath) : null;
+        emitToAll("live:changed", {
+          topic,
+          method: req.method,
+          ...(del ? { id: decodeURIComponent(del[1]) } : {}),
+        });
       } catch (e) {
         // never let a ping break a request
       }

@@ -1,3 +1,4 @@
+import { navPad } from "../components/memberDesign";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -20,6 +21,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import BACKEND_URL from "../config";
 import { useLiveBadges } from "../components/useLiveBadges";
 import { isPinned, pinSpin, syncPins, unpinSpin } from "../components/spinPin";
+
+// ANDROID ONLY: phones render this page too big, so sizes are trimmed (x0.86).
+// iPhone, web, laptop and desktop keep the exact same sizes as before (sz returns the number unchanged).
+const sz = (n: number) => (Platform.OS === "android" ? Math.round(n * 0.86 * 2) / 2 : n);
 
 // =========================================================
 // SCREENSHOT PREVENTION FOR ALL PLATFORMS
@@ -250,14 +255,14 @@ function CountdownTimer({
         <View className="flex-row items-center">
           <MaterialIcons 
             name={isExpired ? "timer-off" : "timer"} 
-            size={20} 
+            size={sz(20)} 
             color={isExpired ? "#dc2626" : "white"} 
           />
-          <Text className={`ml-2 font-medium ${isExpired ? 'text-red-700' : 'text-white'}`}>
+          <Text style={Platform.OS === "android" ? { fontSize: 13 } : undefined} className={`ml-2 font-medium ${isExpired ? 'text-red-700' : 'text-white'}`}>
             {isExpired ? "Auction Ended" : "Time Remaining"}
           </Text>
         </View>
-        <Text className={`font-mono font-bold text-lg ${isExpired ? 'text-red-700' : 'text-white'}`}>
+        <Text style={Platform.OS === "android" ? { fontSize: 15 } : undefined} className={`font-mono font-bold text-lg ${isExpired ? 'text-red-700' : 'text-white'}`}>
           {countdown}
         </Text>
       </View>
@@ -269,7 +274,7 @@ function CountdownTimer({
    NEW LOOK: one feed for auction notices, vacancies and
    live-spin announcements. Each card opens the right page.
 ========================================================= */
-type Kind = "auction" | "vacancy" | "spin";
+type Kind = "auction" | "vacancy" | "spin" | "payment" | "notice";
 type Tone = "live" | "ended" | "open" | "soon";
 
 type FeedItem = {
@@ -283,7 +288,7 @@ type FeedItem = {
   tone: Tone;
   chips: string[];
   countdown?: { date: string; time: string };
-  spin?: { groupKey: string; groupCode: string; spinAt: number; dateText: string; timeText: string; route: string };
+  spin?: { groupKey: string; groupCode: string; spinAt: number; dateText: string; timeText: string; route: string; auto?: boolean };
   action: string;
   isNew: boolean;
   go: () => void;
@@ -293,6 +298,8 @@ const KIND_STYLE: Record<Kind, { icon: any; bg: string; fg: string }> = {
   auction: { icon: "gavel", bg: "#DCFCE7", fg: "#15803D" },
   vacancy: { icon: "event-seat", bg: "#DBEAFE", fg: "#1D4ED8" },
   spin: { icon: "casino", bg: "#FEF3C7", fg: "#B45309" },
+  payment: { icon: "payments", bg: "#FEE2E2", fg: "#B91C1C" },
+  notice: { icon: "campaign", bg: "#FFEDD5", fg: "#C2410C" },
 };
 
 const TONE_STYLE: Record<Tone, { bg: string; fg: string }> = {
@@ -311,6 +318,9 @@ const parseEndMs = (date?: string, time?: string): number | null => {
   const ms = new Date(d[2], d[1] - 1, d[0], t[0], t[1], 0, 0).getTime();
   return Number.isNaN(ms) ? null : ms;
 };
+
+// last payment-due / announcement cards per member (kept while the app is open: the page shows them at once)
+const moreFeedMem: Record<string, { dues: any[]; announcements: any[] }> = {};
 
 const timeAgo = (ms: number) => {
   if (!ms) return "";
@@ -445,6 +455,14 @@ function SpinPinRow({ spin }: { spin: NonNullable<FeedItem["spin"]> }) {
         </Text>
       </TouchableOpacity>
       {msg ? <Text style={{ marginTop: 6, fontSize: 11, color: "#B91C1C" }}>{msg}</Text> : null}
+      {spin.auto ? (
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: 8 }}>
+          <MaterialIcons name="bolt" size={15} color="#7E22CE" style={{ marginTop: 1 }} />
+          <Text style={{ marginLeft: 5, flex: 1, fontSize: 11.5, lineHeight: 16, color: "#581C87", fontWeight: "600" }}>
+            Auto spin: when the time ends, the spin page opens by itself and the spin starts after a 5 second countdown.
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -479,7 +497,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
         accessibilityLabel={`${item.title}. ${item.action}`}
         style={{
           backgroundColor: "#FFFFFF",
-          borderRadius: 22,
+          borderRadius: sz(22),
           borderWidth: 1,
           borderColor: item.isNew ? "#A7F3D0" : "#EEF1EF",
           overflow: "hidden",
@@ -494,19 +512,19 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
           <View style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, backgroundColor: "#024e32" }} />
         ) : null}
 
-        <View style={{ flexDirection: "row", padding: 14, paddingLeft: item.isNew ? 19 : 14 }}>
+        <View style={{ flexDirection: "row", padding: sz(14), paddingLeft: item.isNew ? sz(19) : sz(14) }}>
           <View
             style={{
-              width: 48,
-              height: 48,
-              borderRadius: 16,
+              width: sz(48),
+              height: sz(48),
+              borderRadius: sz(16),
               backgroundColor: kind.bg,
               alignItems: "center",
               justifyContent: "center",
-              marginRight: 12,
+              marginRight: sz(12),
             }}
           >
-            <MaterialIcons name={kind.icon} size={24} color={kind.fg} />
+            <MaterialIcons name={kind.icon} size={sz(24)} color={kind.fg} />
           </View>
 
           <View style={{ flex: 1 }}>
@@ -514,7 +532,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
               <Text
                 numberOfLines={2}
                 maxFontSizeMultiplier={1.2}
-                style={{ flex: 1, fontSize: 15, fontWeight: "800", color: "#111827", lineHeight: 20 }}
+                style={{ flex: 1, fontSize: sz(15), fontWeight: "800", color: "#111827", lineHeight: sz(20) }}
               >
                 {item.title}
               </Text>
@@ -529,7 +547,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                     marginTop: 1,
                   }}
                 >
-                  <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.4 }}>NEW</Text>
+                  <Text style={{ color: "#fff", fontSize: sz(10), fontWeight: "800", letterSpacing: 0.4 }}>NEW</Text>
                 </View>
               ) : null}
             </View>
@@ -546,11 +564,11 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                 }}
               >
                 {item.tone === "live" ? <PulseDot color={tone.fg} /> : null}
-                <Text style={{ color: tone.fg, fontSize: 11, fontWeight: "800", letterSpacing: 0.3 }}>
+                <Text style={{ color: tone.fg, fontSize: sz(11), fontWeight: "800", letterSpacing: 0.3 }}>
                   {item.status}
                 </Text>
               </View>
-              <Text style={{ color: "#9CA3AF", fontSize: 12, marginLeft: 10 }} numberOfLines={1}>
+              <Text style={{ color: "#9CA3AF", fontSize: sz(12), marginLeft: 10 }} numberOfLines={1}>
                 {timeAgo(item.createdAt)}
               </Text>
             </View>
@@ -559,7 +577,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
               <Text
                 numberOfLines={3}
                 maxFontSizeMultiplier={1.2}
-                style={{ color: "#4B5563", fontSize: 13.5, lineHeight: 19, marginTop: 8 }}
+                style={{ color: "#4B5563", fontSize: sz(13.5), lineHeight: sz(19), marginTop: 8 }}
               >
                 {item.message}
               </Text>
@@ -579,7 +597,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                       marginBottom: 4,
                     }}
                   >
-                    <Text style={{ color: "#374151", fontSize: 11.5, fontWeight: "600" }}>{c}</Text>
+                    <Text style={{ color: "#374151", fontSize: sz(11.5), fontWeight: "600" }}>{c}</Text>
                   </View>
                 ))}
               </View>
@@ -601,13 +619,13 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                   marginRight: 8,
                 }}
               >
-                <Text style={{ color: "#166534", fontSize: 11.5, fontWeight: "800" }}>
-                  Group {item.groupCode || "-"}
+                <Text style={{ color: "#166534", fontSize: sz(11.5), fontWeight: "800" }}>
+                  {item.kind === "notice" ? "Announcement" : `Group ${item.groupCode || "-"}`}
                 </Text>
               </View>
               <View style={{ flex: 1 }} />
-              <Text style={{ color: "#024e32", fontSize: 12.5, fontWeight: "800" }}>{item.action}</Text>
-              <MaterialIcons name="chevron-right" size={20} color="#024e32" />
+              <Text style={{ color: "#024e32", fontSize: sz(12.5), fontWeight: "800" }}>{item.action}</Text>
+              <MaterialIcons name="chevron-right" size={sz(20)} color="#024e32" />
             </View>
           </View>
         </View>
@@ -747,6 +765,8 @@ export default function UserNotifications() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [vacancies, setVacancies] = useState<any[]>([]);
   const [spins, setSpins] = useState<any[]>([]);
+  // payment-due cards + admin announcements (worked out by the server, nothing stored)
+  const [moreFeed, setMoreFeed] = useState<{ dues: any[]; announcements: any[] }>({ dues: [], announcements: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | Kind>("all");
@@ -773,9 +793,16 @@ export default function UserNotifications() {
 
   /* ================= LOAD EVERYTHING ================= */
   const gotFreshRef = useRef(false);
+  const gotMoreFreshRef = useRef(false);
+  // ids the admin deleted while this page is open: never shown again, even if a
+  // slow, older request comes back late and still contains them
+  const goneRef = useRef<Set<string>>(new Set());
+  const notGone = (list: any[]) => list.filter((x: any) => !goneRef.current.has(String(x?._id)));
 
+  const lastLoadAt = useRef(0);
   const loadAll = async () => {
     if (!userid) return;
+    lastLoadAt.current = Date.now();
 
     const safeJson = async (url: string) => {
       // give up on a slow request after 8 seconds so the page never hangs
@@ -799,7 +826,7 @@ export default function UserNotifications() {
       // a failed request keeps what is already on screen
       if (auctions) {
         gotFreshRef.current = true;
-        setNotifications(auctions);
+        setNotifications(notGone(auctions));
         setLoading(false);
       }
       return auctions;
@@ -807,7 +834,7 @@ export default function UserNotifications() {
     const pVac = safeJson(
       `${BACKEND_URL}/vacancy/open?userid=${encodeURIComponent(userid)}`
     ).then((vac) => {
-      if (vac) setVacancies(vac.filter((v: any) => !v.alreadyInGroup));
+      if (vac) setVacancies(notGone(vac.filter((v: any) => !v.alreadyInGroup)));
       return vac;
     });
     const pSpin = safeJson(
@@ -819,6 +846,20 @@ export default function UserNotifications() {
       }
       return spin;
     });
+
+    // payment-due + announcement cards (a failure here never affects the other lists)
+    fetch(`${BACKEND_URL}/more/member-feed?userid=${encodeURIComponent(userid)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j?.success) {
+          const feedNow = { dues: j.dues || [], announcements: j.announcements || [] };
+          gotMoreFreshRef.current = true;
+          moreFeedMem[String(userid)] = feedNow;
+          setMoreFeed(feedNow);
+          AsyncStorage.setItem(`notifMoreCache_${userid}`, JSON.stringify(feedNow)).catch(() => {});
+        }
+      })
+      .catch(() => {});
 
     try {
       const [auctions, vac, spin] = await Promise.all([pAuctions, pVac, pSpin]);
@@ -850,6 +891,9 @@ export default function UserNotifications() {
 
     // start fetching straight away (do not wait for the phone storage)
     gotFreshRef.current = false;
+    gotMoreFreshRef.current = false;
+    // payment-due / announcement cards: last copy straight away, then the server refreshes it
+    if (moreFeedMem[String(userid)]) setMoreFeed(moreFeedMem[String(userid)]);
     loadAll();
 
     // remember when the list was last opened (for the NEW tags) and
@@ -871,6 +915,13 @@ export default function UserNotifications() {
           setSpins(Array.isArray(c.spins) ? c.spins : []);
           setLoading(false);
         }
+        const moreRaw = await AsyncStorage.getItem(`notifMoreCache_${userid}`);
+        if (moreRaw && !gotMoreFreshRef.current) {
+          const m = JSON.parse(moreRaw);
+          const saved = { dues: Array.isArray(m?.dues) ? m.dues : [], announcements: Array.isArray(m?.announcements) ? m.announcements : [] };
+          moreFeedMem[String(userid)] = saved;
+          setMoreFeed(saved);
+        }
         AsyncStorage.setItem(`notifListOpenedAt_${userid}`, String(Date.now())).catch(() => {});
       } catch {
         // ignore
@@ -879,7 +930,32 @@ export default function UserNotifications() {
   }, [userid]);
 
   // new notification / vacancy / spin time -> list refreshes by itself
-  useLiveBadges(Boolean(userid), loadAll);
+  // The list loads once when the page opens, and again only when the server says
+  // something really changed. Reconnect / coming back to the app reloads only if
+  // the list is more than 30 s old, so the page never reloads for nothing.
+  const relevantEventRef = useRef(false);
+  useLiveBadges(
+    Boolean(userid),
+    (reason) => {
+      if (reason === "event") {
+        // only notification / vacancy changes matter to this page
+        if (!relevantEventRef.current) return;
+        relevantEventRef.current = false;
+      } else if (Date.now() - lastLoadAt.current < 30000) {
+        return;
+      }
+      loadAll();
+    },
+    (p) => {
+      if (p?.topic === "notifications" || p?.topic === "vacancy") relevantEventRef.current = true;
+      // a deleted notification / vacancy disappears the same moment, before the list reloads
+      if (p?.method === "DELETE" && p?.id) {
+        goneRef.current.add(String(p.id));
+        setNotifications((prev) => prev.filter((x: any) => String(x?._id) !== String(p.id)));
+        setVacancies((prev) => prev.filter((x: any) => String(x?._id) !== String(p.id)));
+      }
+    }
+  );
 
   // keeps LIVE / ENDED and "x min ago" fresh
   useEffect(() => {
@@ -1025,6 +1101,7 @@ export default function UserNotifications() {
               spinAt: Number(s.spinAt),
               dateText: String(s.spinDateText || ""),
               timeText: String(s.spinTimeText || ""),
+              auto: Boolean(s.autoSpin),
               route: `/spinnerLive?groupId=${encodeURIComponent(String(s.groupMongoId || ""))}&groupCode=${encodeURIComponent(String(s.groupCode || ""))}&auctionEndDate=${encodeURIComponent(String(s.auctionEndDate || ""))}&auctionEndTime=${encodeURIComponent(String(s.auctionEndTime || ""))}&userid=${encodeURIComponent(uid)}`,
             }
           : undefined,
@@ -1044,16 +1121,57 @@ export default function UserNotifications() {
       });
     });
 
+    moreFeed.dues.forEach((d: any) => {
+      const created = d.at ? new Date(d.at).getTime() : 0;
+      const overdue = d.status === "overdue";
+      const chips: string[] = [`₹${Number(d.pending || 0).toLocaleString("en-IN")}`, `${overdue ? "Due since" : "Due"} ${d.dueText}`];
+      if (overdue && Number(d.months) > 1) chips.push(`${d.months} months pending`);
+      out.push({
+        key: `p-${d.key}`,
+        kind: "payment",
+        createdAt: created,
+        title: overdue ? `Payment overdue · Group ${d.groupId}` : `Payment due soon · Group ${d.groupId}`,
+        message: String(d.sentence || ""),
+        groupCode: String(d.groupId || ""),
+        status: overdue ? "OVERDUE" : "DUE SOON",
+        tone: overdue ? "ended" : "soon",
+        chips,
+        action: "View outstanding",
+        isNew: created > newAfter,
+        go: () => router.push({ pathname: "/myoutstanding", params: { groupId: String(d.groupId || "") } } as any),
+      });
+    });
+
+    moreFeed.announcements.forEach((a: any) => {
+      const created = a.at ? new Date(a.at).getTime() : 0;
+      out.push({
+        key: `n-${a.id}`,
+        kind: "notice",
+        createdAt: created,
+        title: String(a.title || "Announcement"),
+        message: String(a.body || ""),
+        groupCode: "",
+        status: "NOTICE",
+        tone: "open",
+        chips: [],
+        action: "From Manikya Chits",
+        isNew: created > newAfter,
+        go: () => {},
+      });
+    });
+
     return out
       .filter((it) => it.createdAt > clearedAt)
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [notifications, vacancies, spins, prevOpenedAt, clearedAt, userid, router]);
+  }, [notifications, vacancies, spins, moreFeed, prevOpenedAt, clearedAt, userid, router]);
 
   const counts = {
     all: feed.length,
     auction: feed.filter((f) => f.kind === "auction").length,
     vacancy: feed.filter((f) => f.kind === "vacancy").length,
     spin: feed.filter((f) => f.kind === "spin").length,
+    payment: feed.filter((f) => f.kind === "payment").length,
+    notice: feed.filter((f) => f.kind === "notice").length,
   };
   const newCount = feed.filter((f) => f.isNew).length;
   const shown = filter === "all" ? feed : feed.filter((f) => f.kind === filter);
@@ -1090,6 +1208,8 @@ export default function UserNotifications() {
     { key: "auction", label: "Auctions", icon: "gavel" },
     { key: "vacancy", label: "Vacancies", icon: "event-seat" },
     { key: "spin", label: "Live spin", icon: "casino" },
+    { key: "payment", label: "Payments", icon: "payments" },
+    { key: "notice", label: "Notices", icon: "campaign" },
   ];
 
   /* ================= UI ================= */
@@ -1121,7 +1241,7 @@ export default function UserNotifications() {
       {/* CONTENT */}
       <ScrollView
         style={{ flex: 1, backgroundColor: "#F5F7F6" }}
-        contentContainerStyle={{ paddingTop: 110, paddingBottom: 8 }}
+        contentContainerStyle={{ paddingTop: 110, paddingBottom: navPad(8) }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -1138,7 +1258,7 @@ export default function UserNotifications() {
             colors={["#024e32", "#0a8f5a"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={{ borderRadius: 24, padding: 18, overflow: "hidden" }}
+            style={{ borderRadius: sz(24), padding: sz(18), overflow: "hidden" }}
           >
             <View
               style={{
@@ -1172,30 +1292,30 @@ export default function UserNotifications() {
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <View
                   style={{
-                    width: 54,
-                    height: 54,
-                    borderRadius: 18,
+                    width: sz(54),
+                    height: sz(54),
+                    borderRadius: sz(18),
                     backgroundColor: "rgba(255,255,255,0.18)",
                     alignItems: "center",
                     justifyContent: "center",
-                    marginRight: 14,
+                    marginRight: sz(14),
                   }}
                 >
                   <MaterialIcons
                     name={newCount > 0 ? "notifications-active" : "notifications-none"}
-                    size={28}
+                    size={sz(28)}
                     color="#fff"
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: "#fff", fontSize: 20, fontWeight: "800" }} maxFontSizeMultiplier={1.2}>
+                  <Text style={{ color: "#fff", fontSize: sz(20), fontWeight: "800" }} maxFontSizeMultiplier={1.2}>
                     {counts.all === 0
                       ? "No notifications"
                       : newCount > 0
                       ? `${newCount} new ${newCount === 1 ? "update" : "updates"}`
                       : "You're all caught up"}
                   </Text>
-                  <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 12.5, marginTop: 3 }} maxFontSizeMultiplier={1.2}>
+                  <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: sz(12.5), marginTop: 3 }} maxFontSizeMultiplier={1.2}>
                     {counts.all === 0
                       ? "Auctions, vacancies and live spins will show here"
                       : `${counts.all} total · ${counts.auction} auction · ${counts.vacancy} vacancy · ${counts.spin} spin`}
@@ -1215,13 +1335,13 @@ export default function UserNotifications() {
                       borderWidth: 1,
                       borderColor: "rgba(255,255,255,0.55)",
                       borderRadius: 999,
-                      paddingHorizontal: 14,
-                      paddingVertical: 8,
+                      paddingHorizontal: sz(14),
+                      paddingVertical: sz(8),
                       marginLeft: 8,
                     }}
                   >
-                    <MaterialIcons name="delete-sweep" size={18} color="#fff" />
-                    <Text style={{ color: "#fff", fontSize: 12.5, fontWeight: "800", marginLeft: 5 }}>
+                    <MaterialIcons name="delete-sweep" size={sz(18)} color="#fff" />
+                    <Text style={{ color: "#fff", fontSize: sz(12.5), fontWeight: "800", marginLeft: 5 }}>
                       Clear
                     </Text>
                   </TouchableOpacity>
@@ -1255,14 +1375,14 @@ export default function UserNotifications() {
                       borderColor: active ? "#024e32" : "#E5E7EB",
                       borderWidth: 1,
                       borderRadius: 999,
-                      paddingHorizontal: 14,
-                      paddingVertical: 9,
+                      paddingHorizontal: sz(14),
+                      paddingVertical: sz(9),
                       marginRight: 8,
                     }}
                   >
-                    <MaterialIcons name={f.icon} size={16} color={active ? "#fff" : "#374151"} />
+                    <MaterialIcons name={f.icon} size={sz(16)} color={active ? "#fff" : "#374151"} />
                     <Text
-                      style={{ color: active ? "#fff" : "#374151", fontWeight: "700", fontSize: 13, marginLeft: 6 }}
+                      style={{ color: active ? "#fff" : "#374151", fontWeight: "700", fontSize: sz(13), marginLeft: 6 }}
                     >
                       {f.label}
                     </Text>
@@ -1277,7 +1397,7 @@ export default function UserNotifications() {
                         alignItems: "center",
                       }}
                     >
-                      <Text style={{ color: active ? "#fff" : "#6B7280", fontSize: 11.5, fontWeight: "800" }}>
+                      <Text style={{ color: active ? "#fff" : "#6B7280", fontSize: sz(11.5), fontWeight: "800" }}>
                         {n}
                       </Text>
                     </View>
@@ -1349,7 +1469,7 @@ export default function UserNotifications() {
               sections.map((sec) => (
                 <View key={sec.label}>
                   <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, marginTop: 4 }}>
-                    <Text style={{ color: "#6B7280", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 }}>
+                    <Text style={{ color: "#6B7280", fontSize: sz(12), fontWeight: "800", letterSpacing: 0.8 }}>
                       {sec.label.toUpperCase()}
                     </Text>
                     <View style={{ flex: 1, height: 1, backgroundColor: "#E5E7EB", marginLeft: 10 }} />

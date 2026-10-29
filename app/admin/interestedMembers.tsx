@@ -162,6 +162,31 @@ export default function InterestedMembersAdmin() {
   ========================================================= */
 
   const deleteRequest = async (id: string) => {
+    // Web / desktop browser: Alert.alert with buttons does nothing there,
+    // so ask with the browser's own confirm box and delete directly.
+    if (Platform.OS === "web") {
+      const g: any = globalThis;
+      const ok = g.confirm
+        ? g.confirm("Are you sure you want to permanently delete this contacted member?")
+        : true;
+      if (!ok) return;
+      try {
+        const res = await fetch(`${BACKEND_URL}/member-interest/delete/${id}`, {
+          method: "DELETE",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          g.alert?.(json?.message || "Delete failed");
+          return;
+        }
+        fetchRequests();
+      } catch (err) {
+        console.log("Delete Error:", err);
+        g.alert?.("Unable to delete the request.");
+      }
+      return;
+    }
+
     Alert.alert(
       "Delete Request",
       "Are you sure you want to permanently delete this contacted member?",
