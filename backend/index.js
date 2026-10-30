@@ -33,6 +33,7 @@ import { initSocket } from "./realtime/socket.js";
 import spinnerRoutes from "./routes/spinnerRoutes.js";
 import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
 import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
+import { leaveAdminPing } from "./realtime/leaveAdminPing.js";
 import { startSpinReminders } from "./realtime/spinReminders.js";
 import { startAutoSpin } from "./realtime/autoSpin.js";
 import { startFollowUpReminders } from "./realtime/followUpReminders.js";
@@ -92,6 +93,8 @@ app.use("/api/member-interest", liveBadgeMiddleware("interest"));
 app.use("/api/member-interest", memberInterestRoutes);
 app.use("/api/member-history", memberHistoryRoutes);
 // employee bell + push: notices when admin approves/rejects, or a vacancy is published (no logic change)
+// admin bell + dashboard card: ping phones when a leave request is added / changed (no logic change)
+app.use("/api/leave-request", leaveAdminPing);
 app.use("/api/leave-request", employeeNoticeMiddleware("leave"));
 app.use("/api/target", employeeNoticeMiddleware("target"));
 app.use("/api/meeting", employeeNoticeMiddleware("meeting"));

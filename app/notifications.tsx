@@ -1,4 +1,5 @@
 import { navPad } from "../components/memberDesign";
+import MemberLoader from "../components/MemberLoader";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -1411,9 +1412,7 @@ export default function UserNotifications() {
           <View style={{ marginTop: 16 }}>
             {loading ? (
               <View>
-                <NotificationCardSkeleton />
-                <NotificationCardSkeleton />
-                <NotificationCardSkeleton />
+                <MemberLoader text="Loading notifications..." />
               </View>
             ) : shown.length === 0 ? (
               <View

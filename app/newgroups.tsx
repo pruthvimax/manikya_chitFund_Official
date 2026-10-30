@@ -1,4 +1,5 @@
 import { navPad } from "../components/memberDesign";
+import MemberLoader from "../components/MemberLoader";
 import { useEffect, useRef, useState } from "react";
 import {
   View,
@@ -509,7 +510,7 @@ const sendContactRequest = async (scheme: any) => {
         showsVerticalScrollIndicator={true}
       >
         {loading ? (
-          USE_NEW_MEMBER_DESIGN && isMobile ? <MemberSchemeSkeleton /> : <SchemesSkeleton />
+          <MemberLoader text="Loading chit schemes..." />
         ) : error ? (
           <View className="p-6 items-center justify-center min-h-[400px]">
             <MaterialIcons name="error-outline" size={50} color="#dc2626" />

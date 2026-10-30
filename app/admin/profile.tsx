@@ -10,14 +10,24 @@ import {
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function AdminProfile() {
   const router = useRouter();
 
+  /* shows the number of the admin who is logged in (3 admins share this app) */
+  const [loginMobile, setLoginMobile] = useState("");
+  useEffect(() => {
+    AsyncStorage.getItem("adminMobile")
+      .then((v) => v && setLoginMobile(v))
+      .catch(() => {});
+  }, []);
+
   const adminInfo = {
     name: "Manikya Chits Pvt Ltd",
     address: "Sagara, Karnataka, India",
-    mobile: "+91 7259201729",
+    mobile: loginMobile ? `+91 ${loginMobile}` : "+91 7259201729",
     email: "manikyachitsprivatelimited@gmail.com",
   };
 

@@ -28,7 +28,8 @@ export default function AdminLogin() {
   const router = useRouter();
 
   // ✅ Fixed admin number
-  const ADMIN_PHONE = "7259201729";
+  // two admins: both log in with their own number (same admin data)
+  const ADMIN_PHONES = ["7259201729", "9611418376", "9731975121"];
 
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
@@ -283,7 +284,7 @@ export default function AdminLogin() {
       return;
     }
 
-    if (mobile !== ADMIN_PHONE) {
+    if (!ADMIN_PHONES.includes(mobile)) {
       // Not a "missing" case but still worth flagging the field so
       // the user's eye goes straight to it.
       setFieldErrors({ mobile: true, otp: false });
@@ -370,6 +371,9 @@ export default function AdminLogin() {
       setIsLoading(false);
       setMessage("Login Successful! 🎉");
       await AsyncStorage.setItem("adminSession", "true");
+      // remember who logged in, so the dashboard can greet them by their saved name
+      await AsyncStorage.setItem("adminMobile", mobile).catch(() => {});
+      await AsyncStorage.removeItem("adminName").catch(() => {});
 
       Animated.sequence([
         Animated.timing(scaleAnim, {

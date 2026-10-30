@@ -2,7 +2,7 @@ import { navPad } from "../components/memberDesign";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -368,10 +368,23 @@ function VacancyCardSkeleton() {
   );
 }
 
+/* Simple loading indicator (replaces the card-shaped skeletons): a spinner with
+   a few lines of text that change while the data loads. */
+const LOADING_LINES = ["Loading vacancies...", "Data loading...", "Processing..."];
+
+function VacancyLoader() {
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 70 }}>
+      <ActivityIndicator size="large" color="#024e32" />
+      <Text style={{ marginTop: 16, fontSize: 15, fontWeight: "800", color: "#024e32" }}>{LOADING_LINES[0]}</Text>
+    </View>
+  );
+}
+
 /* ================= MAIN ================= */
 export default function MemberVacancy() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height: screenHeight } = useWindowDimensions();
   const isWide = width >= 768;
 
   const [userid, setUserid] = useState<string | null>(null);
@@ -380,6 +393,10 @@ export default function MemberVacancy() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /* The list is drawn a few cards at a time. The next cards are added well before
+     you reach the end, so scrolling at a normal speed never shows a loader. */
+  const PAGE_SIZE = 6;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   /* small loading symbol while the saved list is refreshed in background */
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
@@ -417,7 +434,10 @@ export default function MemberVacancy() {
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
       setVacancies(list);
-      if (uid) cacheSet(uid, "vacancies:open", list);
+      if (uid) {
+        cacheSet(uid, "vacancies:open", list);
+        AsyncStorage.setItem(`vacanciesSaved_${uid}`, JSON.stringify(list)).catch(() => {});
+      }
 
       /* Opening this page marks every vacancy published so far
          as seen, so the red badge on the Menu card clears and
@@ -473,9 +493,18 @@ export default function MemberVacancy() {
 
         /* Show the last saved list instantly, then refresh quietly
            in the background so seats/amounts stay up to date. */
-        const cachedVac = parsed?.userid
+        let cachedVac = parsed?.userid
           ? cacheGet(parsed.userid, "vacancies:open")
           : null;
+        /* nothing in memory (app was closed, or 10 minutes passed): use the copy saved on the
+           phone, so the loader only shows the very first time ever */
+        if (!cachedVac && parsed?.userid) {
+          try {
+            const saved = await AsyncStorage.getItem(`vacanciesSaved_${parsed.userid}`);
+            const arr = saved ? JSON.parse(saved) : null;
+            if (Array.isArray(arr) && arr.length > 0) cachedVac = arr;
+          } catch {}
+        }
         if (cachedVac) {
           const cachedNotif = cacheGet(parsed.userid, "notifications");
           shownFromCacheRef.current = true;
@@ -610,6 +639,17 @@ export default function MemberVacancy() {
           />
         }
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={100}
+        onContentSizeChange={(_w, h) => {
+          // a big screen may not scroll at all: keep adding cards until the page is longer than the screen
+          if (h < screenHeight + 600) setVisibleCount((n) => (n < vacancies.length ? n + PAGE_SIZE : n));
+        }}
+        onScroll={(e) => {
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          if (contentSize.height - (contentOffset.y + layoutMeasurement.height) < 1200) {
+            setVisibleCount((n) => (n < vacancies.length ? n + PAGE_SIZE : n));
+          }
+        }}
       >
         <View className={isWide ? "px-8" : "px-4"}>
           {/* BANNER */}
@@ -638,11 +678,7 @@ export default function MemberVacancy() {
           ) : null}
 
           {loading ? (
-            <>
-              <VacancyCardSkeleton />
-              <VacancyCardSkeleton />
-              <VacancyCardSkeleton />
-            </>
+            <VacancyLoader />
           ) : error ? (
             <View className="py-20 items-center">
               <MaterialIcons name="error-outline" size={50} color="#dc2626" />
@@ -678,7 +714,7 @@ export default function MemberVacancy() {
                 available
               </Text>
 
-              {vacancies.map((v) => (
+              {vacancies.slice(0, visibleCount).map((v) => (
                 <VacancyCard
                   key={v._id}
                   vacancy={v}
@@ -686,6 +722,12 @@ export default function MemberVacancy() {
                   onSubscribe={() => handleSubscribeTap(v)}
                 />
               ))}
+              {visibleCount < vacancies.length ? (
+                <View style={{ alignItems: "center", paddingVertical: 18 }}>
+                  <ActivityIndicator size="small" color="#024e32" />
+                  <Text style={{ marginTop: 6, fontSize: 11.5, color: "#64748B", fontWeight: "600" }}>Loading more vacancies...</Text>
+                </View>
+              ) : null}
             </>
           )}
 

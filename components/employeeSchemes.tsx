@@ -36,6 +36,9 @@ const COLS = [
 type Tag = "popular" | "trending" | null;
 type Stat = { members: number; groups: number };
 
+/* "N members · N groups" line on each scheme card (employee Chit Scheme + member New Chits) */
+const SHOW_MEMBERS_STRIP = false;
+
 const TAGS = {
   popular: { label: "Popular", icon: "local-fire-department", color: "#e11d48", soft: "#fff1f2", bar: "#f0b429" },
   trending: { label: "Trending", icon: "trending-up", color: "#7c3aed", soft: "#f5f0ff", bar: "#9b7bf5" },
@@ -317,8 +320,8 @@ function SchemeCard({
         ))}
       </View>
 
-      {/* ---------- members strip ---------- */}
-      {!!stat && stat.members > 0 && (
+      {/* ---------- members strip (hidden on request: set SHOW_MEMBERS_STRIP to true to bring it back) ---------- */}
+      {SHOW_MEMBERS_STRIP && !!stat && stat.members > 0 && (
         <View
           style={{
             flexDirection: "row",

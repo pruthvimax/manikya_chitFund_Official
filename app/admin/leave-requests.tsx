@@ -1,8 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useState, useRef, useEffect } from "react";
 import {
-  Alert,
   SafeAreaView,
   ScrollView,
   Text,
@@ -16,6 +15,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import BACKEND_URL from "../../config";
+import { LeaveChips, LeaveOverviewModal } from "../../components/leaveInsights";
+import { Alert } from "../../components/webAlert";
 
 interface LeaveRequest {
   _id: string;
@@ -98,6 +99,8 @@ const SkeletonLoader = ({ isDesktopOrLaptop }: { isDesktopOrLaptop: boolean }) =
 
 export default function LeaveRequests() {
   const router = useRouter();
+  const { filter: filterParam, id: openIdParam } = useLocalSearchParams<{ filter?: string; id?: string }>();
+  const openedIdRef = useRef<string>("");
   const { width } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
   
@@ -105,9 +108,12 @@ export default function LeaveRequests() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filter, setFilter] = useState<"All" | "Pending" | "Approved" | "Rejected">("All");
+  const [filter, setFilter] = useState<"All" | "Pending" | "Approved" | "Rejected">(
+    filterParam === "Pending" ? "Pending" : "All"
+  );
   const [selectedLeave, setSelectedLeave] = useState<LeaveRequest | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [overviewVisible, setOverviewVisible] = useState(false);
 
   const fetchLeaves = async () => {
     try {
@@ -145,6 +151,16 @@ export default function LeaveRequests() {
       fetchLeaves();
     }, [])
   );
+
+  // opened from the dashboard / bell: show that one person's request straight away
+  useEffect(() => {
+    if (!openIdParam || openedIdRef.current === openIdParam) return;
+    const found = leaves.find((l) => l._id === openIdParam);
+    if (!found) return;
+    openedIdRef.current = openIdParam;
+    setSelectedLeave(found);
+    setModalVisible(true);
+  }, [leaves, openIdParam]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -299,6 +315,17 @@ export default function LeaveRequests() {
             </Text>
           </View>
           
+          <View className="flex-row items-center">
+            {!loading && (
+              <TouchableOpacity
+                onPress={() => setOverviewVisible(true)}
+                activeOpacity={0.8}
+                className="bg-white/20 px-3 py-2 rounded-full flex-row items-center mr-2"
+              >
+                <MaterialIcons name="calendar-month" size={18} color="white" />
+                <Text className="text-white font-semibold text-sm ml-1">Calendar</Text>
+              </TouchableOpacity>
+            )}
           {!loading && (
             <View className="bg-white/20 px-4 py-2 rounded-full">
               <Text className="text-white font-medium text-sm">
@@ -306,6 +333,7 @@ export default function LeaveRequests() {
               </Text>
             </View>
           )}
+          </View>
         </View>
       </View>
 
@@ -416,6 +444,7 @@ export default function LeaveRequests() {
                         )} days
                       </Text>
                     </View>
+                    <LeaveChips leave={leave} all={leaves} />
                   </TouchableOpacity>
                 ))
               )}
@@ -438,6 +467,20 @@ export default function LeaveRequests() {
           )}
         </View>
       </ScrollView>
+
+      {/* Leave Calendar (opened by the header button) */}
+      <LeaveOverviewModal
+        visible={overviewVisible}
+        onClose={() => setOverviewVisible(false)}
+        leaves={leaves}
+        onOpenLeave={(l) => {
+          setOverviewVisible(false);
+          setTimeout(() => {
+            setSelectedLeave(l);
+            setModalVisible(true);
+          }, 350);
+        }}
+      />
 
       {/* Leave Details Modal with Action Buttons */}
       <Modal

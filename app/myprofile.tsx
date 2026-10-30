@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import MemberLoader from "../components/MemberLoader";
 import BACKEND_URL from "../config.js";
 
 export default function MyProfile() {
@@ -197,7 +198,7 @@ export default function MyProfile() {
 
   /* ================= LOADING ================= */
   if (loading) {
-    return <ProfileSkeleton />;
+    return <MemberLoader fullScreen text="Loading your profile..." />;
   }
 
   /* ================= ERROR ================= */

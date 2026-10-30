@@ -16,7 +16,7 @@ import {
   Animated,
   useWindowDimensions,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../../components/DateTimePickerCompat";
 import BACKEND_URL from "../../config";
 
 interface Enrollment {

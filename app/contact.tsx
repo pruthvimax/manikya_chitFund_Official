@@ -13,6 +13,7 @@ import {
   Animated,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import MemberLoader from "../components/MemberLoader";
 
 /* ================= SKELETON HELPERS ================= */
 function useSkeletonPulse() {
@@ -176,7 +177,7 @@ export default function Contact() {
         }}
       >
         {checkingSession ? (
-          <ContactSkeleton />
+          <MemberLoader text="Loading contact details..." />
         ) : (
           <View className="px-4 max-w-4xl mx-auto w-full">
 

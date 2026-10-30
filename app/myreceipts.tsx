@@ -247,10 +247,6 @@ ${rows}
                 <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>TOTAL PAID ({list.length} PAYMENTS)</Text>
                 <Text style={{ fontSize: 22, fontWeight: "900", color: INK, marginTop: 2 }}>{inr(total)}</Text>
               </View>
-              <TouchableOpacity onPress={statementPdf} style={{ backgroundColor: BRAND, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center" }}>
-                <MaterialIcons name="picture-as-pdf" size={17} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12.5, marginLeft: 5 }}>Statement PDF</Text>
-              </TouchableOpacity>
             </View>
             {note ? <Text style={{ color: RED, fontSize: 12, marginTop: 8 }}>{note}</Text> : null}
 
@@ -271,10 +267,6 @@ ${rows}
                   <TouchableOpacity onPress={() => setOpen(r)} style={{ flexDirection: "row", alignItems: "center" }}>
                     <MaterialIcons name="receipt-long" size={16} color={BRAND} />
                     <Text style={{ marginLeft: 4, color: BRAND, fontWeight: "800", fontSize: 12.5 }}>View receipt</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => receiptPdf(r)} style={{ flexDirection: "row", alignItems: "center" }}>
-                    <MaterialIcons name="picture-as-pdf" size={16} color={BRAND} />
-                    <Text style={{ marginLeft: 4, color: BRAND, fontWeight: "800", fontSize: 12.5 }}>PDF</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -329,12 +321,8 @@ ${rows}
                 </View>
               </ScrollView>
               <View style={{ flexDirection: "row", gap: 10, padding: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" }}>
-                <TouchableOpacity onPress={() => setOpen(null)} style={{ flex: 1, borderWidth: 1, borderColor: BRAND, borderRadius: 12, paddingVertical: 11, alignItems: "center" }}>
-                  <Text style={{ color: BRAND, fontWeight: "900" }}>Close</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => receiptPdf(open)} style={{ flex: 1, backgroundColor: BRAND, borderRadius: 12, paddingVertical: 11, flexDirection: "row", justifyContent: "center", alignItems: "center" }}>
-                  <MaterialIcons name="picture-as-pdf" size={17} color="#FFFFFF" />
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900", marginLeft: 6 }}>Download PDF</Text>
+                <TouchableOpacity onPress={() => setOpen(null)} style={{ flex: 1, backgroundColor: BRAND, borderRadius: 12, paddingVertical: 11, alignItems: "center" }}>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Close</Text>
                 </TouchableOpacity>
               </View>
             </View>

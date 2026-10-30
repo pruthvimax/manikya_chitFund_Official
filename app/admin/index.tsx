@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { USE_NEW_ADMIN_DESIGN } from "../../components/memberDesign";
 import { AdminFollowUpsSection } from "../../components/followUpDue";
+import { AdminLeaveRequestsSection, useAdminLeaveBell } from "../../components/leaveAdminDue";
 import {
   AdminAlertsSheet,
   AdminHeader,
@@ -384,6 +385,8 @@ export default function AdminIndex() {
       await AsyncStorage.removeItem("adminInfo");
       await AsyncStorage.removeItem("adminToken");
       await AsyncStorage.removeItem("adminSession");
+      await AsyncStorage.removeItem("adminName");
+      await AsyncStorage.removeItem("adminMobile");
 
       setLogoutVisible(false);
 
@@ -508,6 +511,9 @@ export default function AdminIndex() {
     setBellVisible(false);
   };
 
+  // new leave requests from employees (bell + dashboard card)
+  const leave = useAdminLeaveBell(NEW);
+
   const ScrollComp: any = NEW ? Animated.ScrollView : ScrollView;
   const newScrollProps: any = NEW
     ? {
@@ -536,8 +542,11 @@ export default function AdminIndex() {
           <AdminHeader
             scrollY={scrollY}
             onLogout={() => setLogoutVisible(true)}
-            bellCount={bellBadge}
-            onBell={openBell}
+            bellCount={bellBadge + leave.badge}
+            onBell={() => {
+              openBell();
+              leave.markSeen();
+            }}
           />
           <AdminAlertsSheet
             visible={bellVisible}
@@ -545,8 +554,12 @@ export default function AdminIndex() {
             interestedCount={bellInterested}
             vacancyCount={bellVacancy}
             contactCount={bellContact}
-            onClear={clearBell}
-            times={bellTimes}
+            leaveCount={leave.shown}
+            onClear={() => {
+              clearBell();
+              leave.clear();
+            }}
+            times={{ ...bellTimes, leave: leave.time }}
           />
         </>
       ) : (
@@ -671,6 +684,7 @@ export default function AdminIndex() {
               loading={overview.bidsLoading}
             />
             <AdminFollowUpsSection />
+            <AdminLeaveRequestsSection items={leave.items} loading={leave.loading} />
           </>
         ) : (
         <View className="items-center mt-4">

@@ -280,6 +280,22 @@ const SkeletonChitCard = () => (
   </View>
 );
 
+/* Loading indicator (same style as the Vacancy page): a spinner with a few
+   lines of text that change while the data loads. The old card-shaped
+   skeletons above are kept but no longer used. */
+const MYCHITS_LOADING_LINES = ["Loading your chits...", "Data loading...", "Processing..."];
+
+function MyChitsLoader() {
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 70 }}>
+      <ActivityIndicator size="large" color="#024e32" />
+      <Text style={{ marginTop: 16, fontSize: 15, fontWeight: "800", color: "#024e32" }}>
+        {MYCHITS_LOADING_LINES[0]}
+      </Text>
+    </View>
+  );
+}
+
 const SkeletonMyChitsScreen = () => (
   <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
     <View
@@ -303,8 +319,7 @@ const SkeletonMyChitsScreen = () => (
       showsVerticalScrollIndicator={false}
     >
       <View className="p-4">
-        <SkeletonChitCard />
-        <SkeletonChitCard />
+        <MyChitsLoader />
       </View>
     </ScrollView>
   </SafeAreaView>

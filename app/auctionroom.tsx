@@ -1,4 +1,5 @@
 import { navPad } from "../components/memberDesign";
+import MemberLoader from "../components/MemberLoader";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -674,9 +675,7 @@ export default function UserNotifications() {
         {/* CONTENT - WRAPPED WITH FOOTER AT BOTTOM */}
         {loading ? (
           <View className="flex-1 px-5 pt-6 pb-4">
-            <NotificationCardSkeleton />
-            <NotificationCardSkeleton />
-            <NotificationCardSkeleton />
+            <MemberLoader text="Loading auctions..." />
 
             <View className="mt-4 mb-6 items-center">
               <View className="w-full border-t border-gray-200 pt-4 items-center">

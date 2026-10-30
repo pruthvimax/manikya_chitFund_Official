@@ -1,6 +1,6 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "../../components/DateTimePickerCompat";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {

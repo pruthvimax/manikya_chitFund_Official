@@ -13,6 +13,7 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import BACKEND_URL from "../config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // =========================================================
 // NEW ADMIN DASHBOARD LOOK (used by app/admin/index.tsx only when
@@ -746,6 +747,7 @@ export function AdminAlertsSheet({
   interestedCount,
   vacancyCount,
   contactCount,
+  leaveCount = 0,
   onClear,
   times,
 }: {
@@ -754,9 +756,11 @@ export function AdminAlertsSheet({
   interestedCount: number;
   vacancyCount: number;
   contactCount: number;
+  /** new employee leave requests waiting */
+  leaveCount?: number;
   onClear?: () => void;
   /** when the newest waiting item of each kind came in (ISO text) */
-  times?: { interested?: string | null; vacancy?: string | null; contact?: string | null };
+  times?: { interested?: string | null; vacancy?: string | null; contact?: string | null; leave?: string | null };
 }) {
   const router = useRouter();
   // re-draw every 30 s so "2 min ago" keeps moving while the sheet is open
@@ -797,8 +801,18 @@ export function AdminAlertsSheet({
       count: contactCount,
       route: "/admin/contactRequests",
     },
+    {
+      key: "leave",
+      title: "Leave Requests",
+      sub: "New leave requests from employees",
+      icon: "beach-access",
+      color: "#0369a1",
+      soft: "#e0f2fe",
+      count: leaveCount,
+      route: "/admin/leave-requests?filter=Pending",
+    },
   ];
-  const total = interestedCount + vacancyCount + contactCount;
+  const total = interestedCount + vacancyCount + contactCount + leaveCount;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -987,6 +1001,32 @@ export function AdminHeroAndOverview({
   onRefresh: () => void;
 }) {
   const router = useRouter();
+  /* admin name = the name saved for this login number in the admins collection */
+  const [adminName, setAdminName] = useState("Admin");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem("adminName");
+        if (cached && alive) setAdminName(cached);
+        const mobile = await AsyncStorage.getItem("adminMobile");
+        if (!mobile) return;
+        const res = await fetch(`${BACKEND_URL}/admin/profile/${encodeURIComponent(mobile)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const nm = String(data?.name || "").trim();
+        if (nm && alive) {
+          setAdminName(nm);
+          AsyncStorage.setItem("adminName", nm).catch(() => {});
+        }
+      } catch {
+        // keep "Admin"
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const heroAnim = useRef(new Animated.Value(0)).current;
   const sheen = useRef(new Animated.Value(0)).current;
   const refreshSpin = useRef(new Animated.Value(0)).current;
@@ -1047,7 +1087,7 @@ export function AdminHeroAndOverview({
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <View>
                 <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }}>{greeting()},</Text>
-                <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 1 }}>Admin</Text>
+                <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 1 }}>{adminName}</Text>
               </View>
               <PressScale
                 onPress={onRefresh}
