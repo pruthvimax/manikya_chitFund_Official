@@ -20,6 +20,7 @@ import BACKEND_URL from "../config";
 import { USE_NEW_MEMBER_DESIGN } from "./memberDesign";
 import { subscribeNavCompact } from "./navScrollBus";
 import { useLiveBadges } from "./useLiveBadges";
+import { LANGUAGE_SWITCH_ENABLED, t, useLang } from "./i18n";
 
 // =========================================================
 // Floating bottom navigation for ALL member pages.
@@ -46,9 +47,10 @@ const MEMBER_ROUTES = [
   "/contact",
   "/myprofile",
   "/notifications",
+  "/language",
 ];
 
-const MORE_ROUTES = ["/myaccountcopy", "/myoutstanding", "/mynextdue", "/myreceipts", "/vacancy", "/bidroom", "/bidnow", "/contact"];
+const MORE_ROUTES = ["/myaccountcopy", "/myoutstanding", "/mynextdue", "/myreceipts", "/vacancy", "/bidroom", "/bidnow", "/contact", "/language"];
 
 type NavItem = { key: string; label: string; icon: any; route?: string };
 
@@ -68,6 +70,7 @@ const QUICK_LINKS = [
   { label: "Vacancies", icon: "event-seat", route: "/vacancy" },
   { label: "Bid Now", icon: "gavel", route: "/bidroom" },
   { label: "Contact Us", icon: "contact-mail", route: "/contact" },
+  ...(LANGUAGE_SWITCH_ENABLED ? [{ label: "Language", icon: "translate", route: "/language" }] : []),
 ];
 
 function cleanPath(p: string | null | undefined) {
@@ -77,6 +80,7 @@ function cleanPath(p: string | null | undefined) {
 }
 
 export default function MemberBottomNav() {
+  useLang();
   const pathname = cleanPath(usePathname());
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -370,7 +374,7 @@ export default function MemberBottomNav() {
                         : 1,
                   }}
                 >
-                  {item.label}
+                  {t(item.label)}
                 </Animated.Text>
                 )}
               </TouchableOpacity>
@@ -419,10 +423,8 @@ export default function MemberBottomNav() {
                   marginBottom: 14,
                 }}
               />
-              <Text style={{ color: "#ffffff", fontSize: 19, fontWeight: "800" }}>Quick Links</Text>
-              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 2, marginBottom: 14 }}>
-                Jump to any page
-              </Text>
+              <Text style={{ color: "#ffffff", fontSize: 19, fontWeight: "800" }}>{t("Quick Links")}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 2, marginBottom: 14 }}>{t("Jump to any page")}</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }}>
                 {QUICK_LINKS.map((q) => (
                   <TouchableOpacity
@@ -480,7 +482,7 @@ export default function MemberBottomNav() {
                       numberOfLines={2}
                       style={{ color: "#ffffff", fontWeight: "700", fontSize: 13, marginLeft: 10, flex: 1 }}
                     >
-                      {q.label}
+                      {t(q.label)}
                     </Text>
                   </TouchableOpacity>
                 ))}

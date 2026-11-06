@@ -561,7 +561,7 @@ export default function Ledger() {
                     </Text>
                     <Text style={{ fontSize: 12, fontWeight: "900", color: "#B91C1C" }}>{short(data.defaulters.total)}</Text>
                   </View>
-                  <Text style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>Installments past the due date, as of today</Text>
+                  <Text style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>Members with an installment past its due date · amount = their Total Due (same as My Account Copy)</Text>
 
                   {/* search by name or phone number */}
                   <View

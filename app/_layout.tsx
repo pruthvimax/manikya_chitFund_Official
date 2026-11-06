@@ -4,6 +4,7 @@ import React from "react";
 import { ScrollView, Text, TouchableOpacity } from "react-native";
 import GlobalSpinAutoOpen from "../components/spinner/GlobalSpinAutoOpen";
 import AnimatedSplash from "../components/AnimatedSplash";
+import { AppLockGate } from "../components/appLock";
 import MemberBottomNav from "../components/MemberBottomNav";
 import { Platform, View } from "react-native";
 import { navTouchHandlers } from "../components/navScrollBus";
@@ -89,6 +90,8 @@ export default function RootLayout() {
       </View>
       {/* opens the live spin by itself for members when the admin starts it */}
       <GlobalSpinAutoOpen />
+      {/* optional member PIN lock (only when the member turned it on in Profile) */}
+      <AppLockGate />
       {/* animated opening screen: shown once when the app opens, then fades away */}
       <AnimatedSplash />
     </RootErrorBoundary>

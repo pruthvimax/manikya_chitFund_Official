@@ -5,6 +5,7 @@ import { ActivityIndicator, Platform, RefreshControl, ScrollView, StatusBar, Tex
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { navPad } from "../components/memberDesign";
 import { AMBER, BRAND, GroupSummary, INK, MUTED, MemberData, OKGREEN, RED, dateText, daysFromToday, inr, loadMemberData } from "../components/memberLedgers";
+import { t, useLang } from "../components/i18n";
 
 /* MY NEXT DUE: what to pay next, how far each chit has progressed, and the total still to pay.
    Amounts use the same rule as My Account Copy. Read only: nothing is changed or saved. */
@@ -18,6 +19,7 @@ const whenText = (days: number | null) => {
 const whenColor = (days: number | null) => (days === null ? MUTED : days < 0 ? RED : days <= 3 ? AMBER : OKGREEN);
 
 export default function MyNextDue() {
+  useLang();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<MemberData | null>(null);
@@ -62,8 +64,8 @@ export default function MyNextDue() {
             <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: "#FFFFFF", fontSize: 19, fontWeight: "900" }}>My Next Due</Text>
-            <Text style={{ color: "#BFE3D1", fontSize: 12, marginTop: 1 }}>What to pay next and how your chits are going</Text>
+            <Text style={{ color: "#FFFFFF", fontSize: 19, fontWeight: "900" }}>{t("My Next Due")}</Text>
+            <Text style={{ color: "#BFE3D1", fontSize: 12, marginTop: 1 }}>{t("What to pay next and how your chits are going")}</Text>
           </View>
         </View>
       </View>
@@ -78,16 +80,16 @@ export default function MyNextDue() {
           </View>
         ) : failed && !data ? (
           <TouchableOpacity onPress={() => { setLoading(true); load(true); }} style={{ padding: 30, alignItems: "center" }}>
-            <Text style={{ color: RED, fontWeight: "800" }}>Could not load. Tap to try again.</Text>
+            <Text style={{ color: RED, fontWeight: "800" }}>{t("Could not load. Tap to try again.")}</Text>
           </TouchableOpacity>
         ) : groups.length === 0 ? (
-          <Text style={{ color: MUTED, textAlign: "center", marginTop: 50 }}>You are not in any chit group yet.</Text>
+          <Text style={{ color: MUTED, textAlign: "center", marginTop: 50 }}>{t("You are not in any chit group yet.")}</Text>
         ) : (
           <>
             {/* the most urgent payment */}
             {first ? (
               <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16, borderLeftWidth: 5, borderLeftColor: whenColor(daysFromToday(first.next!.dueDate)), shadowColor: "#000", shadowOpacity: 0.07, shadowRadius: 6, elevation: 2 }}>
-                <Text style={{ fontSize: 11, fontWeight: "800", color: MUTED, letterSpacing: 0.5 }}>NEXT PAYMENT</Text>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: MUTED, letterSpacing: 0.5 }}>{t("NEXT PAYMENT")}</Text>
                 <View style={{ flexDirection: "row", alignItems: "flex-end", flexWrap: "wrap", marginTop: 4 }}>
                   <Text style={{ fontSize: 28, fontWeight: "900", color: INK }}>{inr(first.next!.due)}</Text>
                   <Text style={{ fontSize: 13, fontWeight: "800", color: whenColor(daysFromToday(first.next!.dueDate)), marginLeft: 8, marginBottom: 4 }}>{whenText(daysFromToday(first.next!.dueDate))}</Text>
@@ -96,23 +98,23 @@ export default function MyNextDue() {
                   Group {first.groupId} · Month {first.next!.monthIndex} · due {dateText(first.next!.dueDate)}
                 </Text>
                 <TouchableOpacity onPress={() => openPayments(first)} style={{ alignSelf: "flex-start", marginTop: 12, backgroundColor: BRAND, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 }}>
-                  <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12.5 }}>Open My Live Payments</Text>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12.5 }}>{t("Open My Live Payments")}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <View style={{ backgroundColor: "#DCFCE7", borderRadius: 16, padding: 16 }}>
-                <Text style={{ color: "#166534", fontWeight: "900", fontSize: 16 }}>You are all paid up</Text>
-                <Text style={{ color: "#166534", marginTop: 3, fontSize: 12.5 }}>Nothing is pending in any of your groups.</Text>
+                <Text style={{ color: "#166534", fontWeight: "900", fontSize: 16 }}>{t("You are all paid up")}</Text>
+                <Text style={{ color: "#166534", marginTop: 3, fontSize: 12.5 }}>{t("Nothing is pending in any of your groups.")}</Text>
               </View>
             )}
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
               <View style={{ flex: 1, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 12 }}>
-                <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>TOTAL DUE (ALL GROUPS)</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>{t("TOTAL DUE (ALL GROUPS)")}</Text>
                 <Text style={{ fontSize: 20, fontWeight: "900", color: grandDue > 0 ? RED : OKGREEN, marginTop: 2 }}>{inr(grandDue)}</Text>
               </View>
               <View style={{ flex: 1, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 12 }}>
-                <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>MY GROUPS</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>{t("MY GROUPS")}</Text>
                 <Text style={{ fontSize: 20, fontWeight: "900", color: INK, marginTop: 2 }}>{groups.length}</Text>
               </View>
             </View>
@@ -136,15 +138,15 @@ export default function MyNextDue() {
                   </View>
                   <View style={{ flexDirection: "row", marginTop: 10 }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>PAID</Text>
+                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>{t("PAID")}</Text>
                       <Text style={{ fontSize: 14, fontWeight: "900", color: INK }}>{inr(g.totalPaid)}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>DIVIDEND</Text>
+                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>{t("DIVIDEND")}</Text>
                       <Text style={{ fontSize: 14, fontWeight: "900", color: INK }}>{inr(g.dividend)}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>TOTAL DUE</Text>
+                      <Text style={{ fontSize: 10.5, fontWeight: "800", color: MUTED }}>{t("TOTAL DUE")}</Text>
                       <Text style={{ fontSize: 14, fontWeight: "900", color: g.totalDue > 0 ? RED : OKGREEN }}>{inr(g.totalDue)}</Text>
                     </View>
                   </View>
@@ -161,17 +163,17 @@ export default function MyNextDue() {
                       ) : null}
                     </View>
                   ) : (
-                    <Text style={{ marginTop: 10, color: OKGREEN, fontWeight: "800", fontSize: 12.5 }}>Everything is paid in this group.</Text>
+                    <Text style={{ marginTop: 10, color: OKGREEN, fontWeight: "800", fontSize: 12.5 }}>{t("Everything is paid in this group.")}</Text>
                   )}
                   <View style={{ flexDirection: "row", gap: 16, marginTop: 10 }}>
                     <TouchableOpacity onPress={() => openPayments(g)}>
-                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>Live payments</Text>
+                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>{t("Live payments")}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => router.push("/myaccountcopy")}>
-                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>Account copy</Text>
+                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>{t("Account copy")}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => router.push("/myreceipts")}>
-                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>Receipts</Text>
+                      <Text style={{ color: BRAND, fontWeight: "800", fontSize: 12.5 }}>{t("Receipts")}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>

@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import BACKEND_URL from "../config";
 import { cacheGet, cacheSet } from "../memberCache";
+import { t, useLang } from "./i18n";
 
 /* QUICK ACTIONS (member home, new design): "Live Vacancies" in a small strip under Live Auctions.
    Every open vacancy is shown as a small card (scroll sideways); tap one, or "See all", to open the Vacancies page.
@@ -47,6 +48,7 @@ const short = (n: any) => {
 };
 
 export function QuickActionsSection({ wide }: { wide: string }) {
+  useLang();
   const router = useRouter();
   const [list, setList] = useState<any[] | null>(null);
   const [seenAt, setSeenAt] = useState<number>(0); // when the Vacancies page was last opened
@@ -93,7 +95,7 @@ export function QuickActionsSection({ wide }: { wide: string }) {
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <PulseDot />
           <MaterialIcons name="event-seat" size={18} color={BRAND} />
-          <Text style={{ color: BRAND, fontWeight: "700", fontSize: 16, marginLeft: 6 }}>Live Vacancies</Text>
+          <Text style={{ color: BRAND, fontWeight: "700", fontSize: 16, marginLeft: 6 }}>{t("Live Vacancies")}</Text>
           {newCount > 0 ? (
             <View style={{ marginLeft: 8, height: 20, borderRadius: 10, backgroundColor: GOLD, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 }}>
               <Text style={{ color: "#1F2937", fontSize: 10.5, fontWeight: "900" }}>{newCount > 99 ? "99+" : newCount} NEW</Text>
@@ -114,8 +116,8 @@ export function QuickActionsSection({ wide }: { wide: string }) {
           <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: "#eef5f1", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
             <MaterialIcons name="event-seat" size={21} color={BRAND} />
           </View>
-          <Text style={{ color: "#4b5563", fontSize: 14, fontWeight: "500" }}>No vacancies right now</Text>
-          <Text style={{ color: "#9ca3af", fontSize: 12, marginTop: 4, textAlign: "center" }}>New seats will show up here</Text>
+          <Text style={{ color: "#4b5563", fontSize: 14, fontWeight: "500" }}>{t("No vacancies right now")}</Text>
+          <Text style={{ color: "#9ca3af", fontSize: 12, marginTop: 4, textAlign: "center" }}>{t("New seats will show up here")}</Text>
         </View>
       ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 4 }}>
@@ -136,7 +138,7 @@ export function QuickActionsSection({ wide }: { wide: string }) {
                       <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12.5 }} numberOfLines={1}>{v.groupId}</Text>
                       {fresh ? (
                         <View style={{ marginLeft: 5, backgroundColor: GOLD, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
-                          <Text style={{ color: "#1F2937", fontSize: 8, fontWeight: "900" }}>NEW</Text>
+                          <Text style={{ color: "#1F2937", fontSize: 8, fontWeight: "900" }}>{t("NEW")}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -147,7 +149,7 @@ export function QuickActionsSection({ wide }: { wide: string }) {
                     </View>
                   </LinearGradient>
                   <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 10 }}>
-                    <Text style={{ color: "#94a3b8", fontSize: 9, fontWeight: "800", letterSpacing: 0.6 }}>CHIT VALUE</Text>
+                    <Text style={{ color: "#94a3b8", fontSize: 9, fontWeight: "800", letterSpacing: 0.6 }}>{t("CHIT VALUE")}</Text>
                     <Text style={{ color: "#0f172a", fontWeight: "900", fontSize: 20, marginTop: 1 }} numberOfLines={1}>{short(v.chitAmount)}</Text>
                     <View style={{ height: 1, backgroundColor: "#E2E8F0", marginVertical: 7 }} />
                     <Text style={{ color: "#334155", fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
@@ -156,7 +158,7 @@ export function QuickActionsSection({ wide }: { wide: string }) {
                     </Text>
                     {v.durationMonths ? <Text style={{ color: "#94a3b8", fontSize: 10, marginTop: 1 }} numberOfLines={1}>{v.durationMonths} months</Text> : null}
                     <View style={{ marginTop: 9, backgroundColor: BRAND, borderRadius: 999, paddingVertical: 6, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ color: "#FFFFFF", fontSize: 10.5, fontWeight: "900", letterSpacing: 0.3 }}>View vacancy</Text>
+                      <Text style={{ color: "#FFFFFF", fontSize: 10.5, fontWeight: "900", letterSpacing: 0.3 }}>{t("View vacancy")}</Text>
                       <MaterialIcons name="arrow-forward" size={12} color={GOLD} style={{ marginLeft: 4 }} />
                     </View>
                   </View>

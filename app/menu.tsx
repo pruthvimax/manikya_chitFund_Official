@@ -29,6 +29,7 @@ import { usePushNotifications } from "../components/usePushNotifications";
 import { USE_NEW_MEMBER_DESIGN } from "../components/memberDesign";
 import { HomeHero, LiveAuctionsSection, useHomeChitsData } from "../components/memberHome";
 import { QuickActionsSection } from "../components/memberQuickActions";
+import { LANGUAGE_SWITCH_ENABLED, t, useLang } from "../components/i18n";
 
 // =========================================================
 // SCREENSHOT PREVENTION (unchanged)
@@ -108,6 +109,7 @@ const WEBSITE_URL = "https://www.manikyachitsprivatelimited.com/";
 // =========================================================
 
 export default function HomeScreen() {
+  useLang();
   const router = useRouter();
   const appVersion = Constants.expoConfig?.version ?? "1.0.0";
   const [username, setUsername] = useState("Member");
@@ -901,14 +903,14 @@ export default function HomeScreen() {
                 <Text style={{ color: "#024e32", fontWeight: "900", fontSize: 15 }}>MC</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: "#ffffff", fontSize: 19, fontWeight: "800" }}>Member Portal</Text>
+                <Text style={{ color: "#ffffff", fontSize: 19, fontWeight: "800" }}>{t("Member Portal")}</Text>
                 <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>
                   {username ? `Welcome, ${username}` : "Manikya Chits"}
                 </Text>
               </View>
             </View>
           ) : (
-            <Text className="text-white text-2xl font-bold mt-1 flex-1">Member Portal</Text>
+            <Text className="text-white text-2xl font-bold mt-1 flex-1">{t("Member Portal")}</Text>
           )}
           <TouchableOpacity
             onPress={handleNotificationPress}
@@ -964,11 +966,11 @@ export default function HomeScreen() {
               <View data-dropdown="true" className="absolute right-0 top-11 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" style={{ width: 190, zIndex: 9999, elevation: 12 }}>
                 <TouchableOpacity onPress={() => { setProfileMenuVisible(false); router.push("/myprofile"); }} className="flex-row items-center px-4 py-4 border-b border-gray-100" activeOpacity={0.7}>
                   <MaterialIcons name="person" size={22} color="#024e32" />
-                  <Text className="text-gray-800 font-semibold ml-3">Profile</Text>
+                  <Text className="text-gray-800 font-semibold ml-3">{t("Profile")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={showLogoutModal} className="flex-row items-center px-4 py-4" activeOpacity={0.7}>
                   <MaterialIcons name="logout" size={22} color="#dc2626" />
-                  <Text className="text-red-600 font-semibold ml-3">Logout</Text>
+                  <Text className="text-red-600 font-semibold ml-3">{t("Logout")}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1237,9 +1239,7 @@ export default function HomeScreen() {
                                   fontSize: textSlideExploreFontSize,
                                   marginRight: 4,
                                 }}
-                              >
-                                Explore
-                              </Text>
+                              >{t("Explore")}</Text>
                               <MaterialIcons name="arrow-forward" size={textSlideExploreFontSize} color="#ffffff" />
                             </TouchableOpacity>
                           </>
@@ -1360,6 +1360,7 @@ export default function HomeScreen() {
               { title: "Bid Now", iconName: "gavel", route: "/bidroom" },
               { title: "My Next Due", iconName: "event-note", route: "/mynextdue" },
               { title: "My Receipts", iconName: "receipt-long", route: "/myreceipts" },
+              ...(LANGUAGE_SWITCH_ENABLED ? [{ title: "Language", iconName: "translate", route: "/language" }] : []),
             ].map((item, index) => (
               <MenuCard
                 key={index}
@@ -1384,15 +1385,13 @@ export default function HomeScreen() {
                 <Text className={`text-[#024e32] font-bold ${isDesktopOrLaptop ? "text-xl" : "text-lg"}`}>
                   Manikya Chits Private Limited
                 </Text>
-                <Text className={`text-gray-500 ${isDesktopOrLaptop ? "text-sm" : "text-xs"}`}>
-                  Trusted Chit Fund Company Since 2020
-                </Text>
+                <Text className={`text-gray-500 ${isDesktopOrLaptop ? "text-sm" : "text-xs"}`}>{t("Trusted Chit Fund Company Since 2020")}</Text>
               </View>
               <View className="mb-6 space-y-3">
                 <View className="flex-row items-center justify-between border-b border-gray-100 pb-2">
                   <View className="flex-row items-center">
                     <MaterialIcons name="phone" size={18} color="#024e32" />
-                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>Support:</Text>
+                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>{t("Support:")}</Text>
                   </View>
                   <TouchableOpacity onPress={() => Linking.openURL("tel:+917259201729")}>
                     <Text className="text-[#024e32] font-medium">+91 7259201729</Text>
@@ -1401,7 +1400,7 @@ export default function HomeScreen() {
                 <View className="flex-row items-center justify-between border-b border-gray-100 pb-2">
                   <View className="flex-row items-center">
                     <MaterialIcons name="email" size={18} color="#024e32" />
-                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>Email:</Text>
+                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>{t("Email:")}</Text>
                   </View>
                   <TouchableOpacity onPress={() => Linking.openURL("mailto:manikyachitsprivatelimited@gmail.com")}>
                     <Text className="text-[#024e32] font-medium text-sm">manikyachitsprivatelimited@gmail.com</Text>
@@ -1410,7 +1409,7 @@ export default function HomeScreen() {
                 <View className="flex-row items-center justify-between">
                   <View className="flex-row items-center">
                     <MaterialIcons name="access-time" size={18} color="#024e32" />
-                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>Working Hours:</Text>
+                    <Text className={`text-gray-600 ml-3 ${isDesktopOrLaptop ? "text-base" : "text-sm"}`}>{t("Working Hours:")}</Text>
                   </View>
                   <Text className="text-gray-700 font-medium text-sm">9 AM - 6 PM (Mon-Sat)</Text>
                 </View>
@@ -1424,7 +1423,7 @@ export default function HomeScreen() {
                 ].map((stat, index) => (
                   <View key={index} className="w-1/4 items-center">
                     <Text className="text-[#024e32] font-bold text-sm">{stat.value}</Text>
-                    <Text className="text-gray-500 text-[10px] mt-1 text-center">{stat.label}</Text>
+                    <Text className="text-gray-500 text-[10px] mt-1 text-center">{t(stat.label)}</Text>
                   </View>
                 ))}
               </View>
@@ -1449,24 +1448,24 @@ export default function HomeScreen() {
                 <MaterialIcons name="logout" size={40} color="#ea580c" />
               </View>
             </View>
-            <Text className="text-2xl font-bold text-center text-gray-800 mb-2">Confirm Logout</Text>
+            <Text className="text-2xl font-bold text-center text-gray-800 mb-2">{t("Confirm Logout")}</Text>
             <Text className="text-gray-600 text-center text-base leading-6 mb-6">
               Are you sure you want to logout? You will need to login again to access your account.
             </Text>
             <View className="flex-row gap-3">
               <TouchableOpacity onPress={() => setLogoutModalVisible(false)} className="flex-1 bg-gray-200 py-3.5 rounded-xl" activeOpacity={0.7}>
-                <Text className="text-gray-700 text-center font-semibold text-base">Cancel</Text>
+                <Text className="text-gray-700 text-center font-semibold text-base">{t("Cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={handleLogout} className="flex-1 bg-red-600 py-3.5 rounded-xl" activeOpacity={0.8}>
                 <View className="flex-row items-center justify-center">
                   <MaterialIcons name="logout" size={20} color="white" />
-                  <Text className="text-white text-center font-semibold text-base ml-1">Logout</Text>
+                  <Text className="text-white text-center font-semibold text-base ml-1">{t("Logout")}</Text>
                 </View>
               </TouchableOpacity>
             </View>
             <View className="mt-4 items-center flex-row justify-center">
               <MaterialIcons name="security" size={14} color="#9ca3af" />
-              <Text className="text-gray-400 text-xs ml-1">Your session will be terminated</Text>
+              <Text className="text-gray-400 text-xs ml-1">{t("Your session will be terminated")}</Text>
             </View>
           </View>
         </View>
@@ -1552,14 +1551,14 @@ function MenuCard({
         )}
       </View>
       <Text className={`text-[#024e32] font-semibold text-center ${isDesktopOrLaptop ? "text-lg" : "text-base"}`}>
-        {title}
+        {t(title)}
       </Text>
       {subtitle ? (
         <Text
           className={`text-gray-500 text-center mt-1 px-2 ${isDesktopOrLaptop ? "text-sm" : "text-xs"}`}
           numberOfLines={2}
         >
-          {subtitle}
+          {t(subtitle)}
         </Text>
       ) : null}
     </TouchableOpacity>

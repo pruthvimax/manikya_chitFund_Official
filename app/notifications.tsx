@@ -22,6 +22,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import BACKEND_URL from "../config";
 import { useLiveBadges } from "../components/useLiveBadges";
 import { isPinned, pinSpin, syncPins, unpinSpin } from "../components/spinPin";
+import { t, useLang } from "../components/i18n";
 
 // ANDROID ONLY: phones render this page too big, so sizes are trimmed (x0.86).
 // iPhone, web, laptop and desktop keep the exact same sizes as before (sz returns the number unchanged).
@@ -429,9 +430,7 @@ function SpinPinRow({ spin }: { spin: NonNullable<FeedItem["spin"]> }) {
     <View style={{ marginTop: 8, backgroundColor: "#F3E8FD", borderRadius: 14, padding: 10 }}>
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <MaterialIcons name="casino" size={16} color="#7E22CE" />
-        <Text style={{ marginLeft: 6, flex: 1, fontSize: 12, fontWeight: "700", color: "#581C87" }}>
-          Live spin starts in
-        </Text>
+        <Text style={{ marginLeft: 6, flex: 1, fontSize: 12, fontWeight: "700", color: "#581C87" }}>{t("Live spin starts in")}</Text>
         <Text style={{ fontSize: 16, fontWeight: "800", color: "#581C87" }}>{clock}</Text>
       </View>
       <TouchableOpacity
@@ -548,7 +547,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                     marginTop: 1,
                   }}
                 >
-                  <Text style={{ color: "#fff", fontSize: sz(10), fontWeight: "800", letterSpacing: 0.4 }}>NEW</Text>
+                  <Text style={{ color: "#fff", fontSize: sz(10), fontWeight: "800", letterSpacing: 0.4 }}>{t("NEW")}</Text>
                 </View>
               ) : null}
             </View>
@@ -639,6 +638,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
    MAIN COMPONENT
 ========================================================= */
 export default function UserNotifications() {
+  useLang();
   const router = useRouter();
 
   // =========================================================
@@ -1194,9 +1194,7 @@ export default function UserNotifications() {
         <Text className="text-[#024e32] font-bold text-base">
           MANIKYA CHITS PVT LTD
         </Text>
-        <Text className="text-gray-500 text-xs mt-1 text-center">
-          Member Notifications 
-        </Text>
+        <Text className="text-gray-500 text-xs mt-1 text-center">{t("Member Notifications")}</Text>
         <Text className="text-gray-400 text-xs mt-1 text-center">
           © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights reserved.
         </Text>
@@ -1229,9 +1227,7 @@ export default function UserNotifications() {
             <MaterialIcons name="arrow-back" size={26} color="white" />
           </TouchableOpacity>
 
-          <Text className="text-white text-2xl font-bold ml-4 mt-1 flex-1">
-            Notifications
-          </Text>
+          <Text className="text-white text-2xl font-bold ml-4 mt-1 flex-1">{t("Notifications")}</Text>
 
           <View className="mt-1">
             <MaterialIcons name="notifications" size={24} color="white" />
@@ -1342,9 +1338,7 @@ export default function UserNotifications() {
                     }}
                   >
                     <MaterialIcons name="delete-sweep" size={sz(18)} color="#fff" />
-                    <Text style={{ color: "#fff", fontSize: sz(12.5), fontWeight: "800", marginLeft: 5 }}>
-                      Clear
-                    </Text>
+                    <Text style={{ color: "#fff", fontSize: sz(12.5), fontWeight: "800", marginLeft: 5 }}>{t("Clear")}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -1385,7 +1379,7 @@ export default function UserNotifications() {
                     <Text
                       style={{ color: active ? "#fff" : "#374151", fontWeight: "700", fontSize: sz(13), marginLeft: 6 }}
                     >
-                      {f.label}
+                      {t(f.label)}
                     </Text>
                     <View
                       style={{
@@ -1440,9 +1434,7 @@ export default function UserNotifications() {
                 >
                   <MaterialIcons name="notifications-none" size={42} color="#024e32" />
                 </View>
-                <Text style={{ fontSize: 20, fontWeight: "800", color: "#111827" }}>
-                  No notifications
-                </Text>
+                <Text style={{ fontSize: 20, fontWeight: "800", color: "#111827" }}>{t("No notifications")}</Text>
                 <Text style={{ color: "#6B7280", textAlign: "center", marginTop: 6, lineHeight: 20 }}>
                   {counts.all === 0
                     ? "You don't have any notifications right now. New auctions, vacancies and live spin times will appear here."
@@ -1460,7 +1452,7 @@ export default function UserNotifications() {
                       paddingVertical: 10,
                     }}
                   >
-                    <Text style={{ color: "#fff", fontWeight: "800" }}>Show all</Text>
+                    <Text style={{ color: "#fff", fontWeight: "800" }}>{t("Show all")}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -1482,7 +1474,7 @@ export default function UserNotifications() {
 
             {!loading && counts.all > 0 ? (
               <View style={{ alignItems: "center", paddingVertical: 10 }}>
-                <Text style={{ color: "#9CA3AF", fontSize: 12.5 }}>Pull down to refresh</Text>
+                <Text style={{ color: "#9CA3AF", fontSize: 12.5 }}>{t("Pull down to refresh")}</Text>
               </View>
             ) : null}
           </View>

@@ -5,6 +5,7 @@ import { ActivityIndicator, Modal, Platform, RefreshControl, ScrollView, StatusB
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { navPad } from "../components/memberDesign";
 import { BRAND, INK, MUTED, MemberData, MonthRow, RED, dateText, esc, inr, loadMemberData, pdfPage, savePdf } from "../components/memberLedgers";
+import { t, useLang } from "../components/i18n";
 
 /* MY RECEIPTS: every payment the member made (all groups) with a PDF for one payment or the whole statement.
    Read only: nothing is changed or saved. */
@@ -82,24 +83,25 @@ const receiptHtml = (r: Rec, who: string) => {
 <div style="font-size:18px; font-weight:bold; letter-spacing:1px;">${esc(COMPANY)}</div>
 <div style="font-size:9px; opacity:.85; margin-top:5px; line-height:1.4;">${esc(ADDRESS)}</div>
 <div style="font-size:10px; opacity:.9; margin-top:3px;">Ph: ${esc(PHONE)}</div>
-<div style="display:inline-block; margin-top:12px; background:#D4AF37; color:#1F2937; font-size:11px; font-weight:bold; padding:4px 14px; border-radius:99px; letter-spacing:1px;">PAYMENT RECEIPT</div>
+<div style="display:inline-block; margin-top:12px; background:#D4AF37; color:#1F2937; font-size:11px; font-weight:bold; padding:4px 14px; border-radius:99px; letter-spacing:1px;">{t("PAYMENT RECEIPT")}</div>
 </div>
 <div style="text-align:center; padding:18px 16px 6px;">
 <div style="width:46px; height:46px; line-height:46px; border-radius:50%; background:#DCFCE7; color:#16A34A; font-size:26px; margin:0 auto; font-weight:bold;">&#10003;</div>
 <div style="font-size:30px; font-weight:bold; color:#0F172A; margin-top:8px;">${esc(inr(r.amount))}</div>
-<div style="font-size:12px; color:#16A34A; font-weight:bold; margin-top:2px;">Payment received</div>
+<div style="font-size:12px; color:#16A34A; font-weight:bold; margin-top:2px;">{t("Payment received")}</div>
 <div style="font-size:12px; color:#475569; margin-top:8px; font-weight:bold;">Date: ${esc(when)}</div>
 <div style="font-size:12px; color:#64748B; margin-top:2px;">${esc(who)}</div>
 </div>
 <div style="padding:4px 20px 6px;">${secs}</div>
 <div style="text-align:center; padding:12px 16px 18px; background:#F8FAFC; border-top:1px dashed #94A3B8;">
-<div style="font-size:14px; font-weight:bold; color:#024e32;">Thank you</div>
+<div style="font-size:14px; font-weight:bold; color:#024e32;">{t("Thank you")}</div>
 <div style="font-size:10px; color:#64748B; margin-top:5px;">Computer generated receipt · No signature required</div>
 </div>
 </div></body></html>`;
 };
 
 export default function MyReceipts() {
+  useLang();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<MemberData | null>(null);
@@ -182,9 +184,9 @@ export default function MyReceipts() {
       )
       .join("");
     const body = `<table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-<tr style="background:#F1F5F9; text-align:left;"><th style="padding:7px 8px;">Date</th><th style="padding:7px 8px;">Group</th><th style="padding:7px 8px;">Month</th><th style="padding:7px 8px;">Type</th><th style="padding:7px 8px;">Mode</th><th style="padding:7px 8px;">Collected by</th><th style="padding:7px 8px; text-align:right;">Amount</th></tr>
+<tr style="background:#F1F5F9; text-align:left;"><th style="padding:7px 8px;">{t("Date")}</th><th style="padding:7px 8px;">{t("Group")}</th><th style="padding:7px 8px;">{t("Month")}</th><th style="padding:7px 8px;">{t("Type")}</th><th style="padding:7px 8px;">{t("Mode")}</th><th style="padding:7px 8px;">{t("Collected by")}</th><th style="padding:7px 8px; text-align:right;">{t("Amount")}</th></tr>
 ${rows}
-<tr><td colspan="6" style="padding:10px 8px; font-weight:bold; text-align:right;">Total paid</td><td style="padding:10px 8px; font-weight:bold; text-align:right;">${esc(inr(total))}</td></tr>
+<tr><td colspan="6" style="padding:10px 8px; font-weight:bold; text-align:right;">{t("Total paid")}</td><td style="padding:10px 8px; font-weight:bold; text-align:right;">${esc(inr(total))}</td></tr>
 </table>`;
     setNote(
       (await savePdf(
@@ -203,7 +205,7 @@ ${rows}
             <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: "#FFFFFF", fontSize: 19, fontWeight: "900" }}>My Receipts</Text>
+            <Text style={{ color: "#FFFFFF", fontSize: 19, fontWeight: "900" }}>{t("My Receipts")}</Text>
             <Text style={{ color: "#BFE3D1", fontSize: 12, marginTop: 1 }}>Every payment you made, with PDF</Text>
           </View>
         </View>
@@ -219,10 +221,10 @@ ${rows}
           </View>
         ) : failed && !data ? (
           <TouchableOpacity onPress={() => { setLoading(true); load(true); }} style={{ padding: 30, alignItems: "center" }}>
-            <Text style={{ color: RED, fontWeight: "800" }}>Could not load. Tap to try again.</Text>
+            <Text style={{ color: RED, fontWeight: "800" }}>{t("Could not load. Tap to try again.")}</Text>
           </TouchableOpacity>
         ) : all.length === 0 ? (
-          <Text style={{ color: MUTED, textAlign: "center", marginTop: 50 }}>No payments are recorded yet.</Text>
+          <Text style={{ color: MUTED, textAlign: "center", marginTop: 50 }}>{t("No payments are recorded yet.")}</Text>
         ) : (
           <>
             {codes.length > 1 ? (
@@ -266,7 +268,7 @@ ${rows}
                 <View style={{ flexDirection: "row", gap: 18, marginTop: 8 }}>
                   <TouchableOpacity onPress={() => setOpen(r)} style={{ flexDirection: "row", alignItems: "center" }}>
                     <MaterialIcons name="receipt-long" size={16} color={BRAND} />
-                    <Text style={{ marginLeft: 4, color: BRAND, fontWeight: "800", fontSize: 12.5 }}>View receipt</Text>
+                    <Text style={{ marginLeft: 4, color: BRAND, fontWeight: "800", fontSize: 12.5 }}>{t("View receipt")}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -289,7 +291,7 @@ ${rows}
                   <Text style={{ color: "#CDE8DA", fontSize: 9.5, textAlign: "center", marginTop: 5, lineHeight: 14 }}>{ADDRESS}</Text>
                   <Text style={{ color: "#CDE8DA", fontSize: 10.5, marginTop: 3 }}>Ph: {PHONE}</Text>
                   <View style={{ backgroundColor: "#D4AF37", borderRadius: 99, paddingHorizontal: 14, paddingVertical: 4, marginTop: 12 }}>
-                    <Text style={{ color: "#1F2937", fontWeight: "900", fontSize: 11, letterSpacing: 1 }}>PAYMENT RECEIPT</Text>
+                    <Text style={{ color: "#1F2937", fontWeight: "900", fontSize: 11, letterSpacing: 1 }}>{t("PAYMENT RECEIPT")}</Text>
                   </View>
                 </View>
                 <View style={{ alignItems: "center", paddingTop: 18, paddingBottom: 6, paddingHorizontal: 16 }}>
@@ -297,7 +299,7 @@ ${rows}
                     <MaterialIcons name="check" size={28} color="#16A34A" />
                   </View>
                   <Text style={{ fontSize: 30, fontWeight: "900", color: INK, marginTop: 8 }}>{inr(open.amount)}</Text>
-                  <Text style={{ color: "#16A34A", fontWeight: "800", fontSize: 12.5, marginTop: 2 }}>Payment received</Text>
+                  <Text style={{ color: "#16A34A", fontWeight: "800", fontSize: 12.5, marginTop: 2 }}>{t("Payment received")}</Text>
                   <Text style={{ color: "#475569", fontWeight: "800", fontSize: 12, marginTop: 8 }}>
                     Date: {dateText(open.paidAt)}{timeText(open.paidAt) ? ` | ${timeText(open.paidAt)}` : ""}
                   </Text>
@@ -308,7 +310,7 @@ ${rows}
                     <View key={si} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#94A3B8", borderStyle: "dashed" }}>
                       {sec.map((l) => (
                         <View key={l.label} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 }}>
-                          <Text style={{ fontSize: l.strong ? 15 : 13.5, fontWeight: l.strong ? "900" : "500", color: l.strong ? BRAND : "#334155" }}>{l.label}</Text>
+                          <Text style={{ fontSize: l.strong ? 15 : 13.5, fontWeight: l.strong ? "900" : "500", color: l.strong ? BRAND : "#334155" }}>{t(l.label)}</Text>
                           <Text style={{ fontSize: l.strong ? 15 : 13.5, fontWeight: "800", color: l.strong ? BRAND : INK, maxWidth: "60%", textAlign: "right" }}>{l.value}</Text>
                         </View>
                       ))}
@@ -316,13 +318,13 @@ ${rows}
                   ))}
                 </View>
                 <View style={{ alignItems: "center", paddingVertical: 14, backgroundColor: "#F8FAFC", borderTopWidth: 1, borderTopColor: "#94A3B8", borderStyle: "dashed" }}>
-                  <Text style={{ color: BRAND, fontWeight: "900", fontSize: 14 }}>Thank you</Text>
+                  <Text style={{ color: BRAND, fontWeight: "900", fontSize: 14 }}>{t("Thank you")}</Text>
                   <Text style={{ color: MUTED, fontSize: 10.5, marginTop: 4 }}>Computer generated receipt · No signature required</Text>
                 </View>
               </ScrollView>
               <View style={{ flexDirection: "row", gap: 10, padding: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" }}>
                 <TouchableOpacity onPress={() => setOpen(null)} style={{ flex: 1, backgroundColor: BRAND, borderRadius: 12, paddingVertical: 11, alignItems: "center" }}>
-                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Close</Text>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{t("Close")}</Text>
                 </TouchableOpacity>
               </View>
             </View>

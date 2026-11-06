@@ -1,4 +1,11 @@
 import express from "express";
+import { getAuctionInsights } from "../controllers/auctionInsightsController.js";
+import {
+  getDailySummary,
+  previewDailySummary,
+  saveDailySummary,
+  sendDailySummaryNow,
+} from "../controllers/dailySummaryController.js";
 import {
   addHandover,
   deleteAnnouncement,
@@ -34,6 +41,11 @@ router.get("/member-feed", getMemberFeed);
 router.get("/reminders", getReminders);
 router.post("/reminders/send", sendReminders);
 router.get("/group-health", getGroupHealth);
+router.get("/auction-insights", getAuctionInsights);
+router.get("/daily-summary", getDailySummary);
+router.post("/daily-summary", saveDailySummary);
+router.get("/daily-summary/preview", previewDailySummary);
+router.post("/daily-summary/send", sendDailySummaryNow);
 router.get("/closing", getClosingReport);
 router.get("/activity", getActivity);
 router.get("/calendar", getCalendar);

@@ -26,6 +26,7 @@ import {
   ledgerKey,
   dividendsKey,
 } from "../memberCache";
+import { t, useLang } from "../components/i18n";
 
 /* =========================================================================
    OPTIONAL BACKEND FIELDS
@@ -307,9 +308,7 @@ const SkeletonMyChitsScreen = () => (
         <TouchableOpacity className="mt-1" disabled>
           <MaterialIcons name="arrow-back" size={T.iconBack} color="white" />
         </TouchableOpacity>
-        <Text className={`text-white ${T.header} font-bold ml-4 mt-1`}>
-          My Chits
-        </Text>
+        <Text className={`text-white ${T.header} font-bold ml-4 mt-1`}>{t("My Chits")}</Text>
       </View>
     </View>
 
@@ -352,7 +351,7 @@ function Cell({
         numberOfLines={1}
         maxFontSizeMultiplier={1.1}
       >
-        {label}
+        {t(label)}
       </Text>
 
       <View className="flex-row items-baseline mt-1" style={{ minWidth: 0 }}>
@@ -558,7 +557,7 @@ function AuctionCountdown({
         }`}
         numberOfLines={1}
       >
-        {label}
+        {t(label)}
       </Text>
     </View>
   );
@@ -569,6 +568,7 @@ function AuctionCountdown({
    ========================================================================= */
 
 export default function MyChits() {
+  useLang();
   const router = useRouter();
 
   useEffect(() => {
@@ -1314,9 +1314,7 @@ export default function MyChits() {
           <Text
             className={`text-white ${T.header} font-bold ml-4 mt-1 flex-1`}
             numberOfLines={1}
-          >
-            My Chits Details
-          </Text>
+          >{t("My Chits Details")}</Text>
 
           <TouchableOpacity
             onPress={onRefresh}
@@ -1365,12 +1363,8 @@ export default function MyChits() {
                   color="#9ca3af"
                 />
               </View>
-              <Text className={`text-gray-500 ${T.sectionTitle} font-medium text-center`}>
-                You are not enrolled in any chits
-              </Text>
-              <Text className={`text-gray-400 ${T.base} text-center mt-2`}>
-                Contact your group admin to join a chit
-              </Text>
+              <Text className={`text-gray-500 ${T.sectionTitle} font-medium text-center`}>{t("You are not enrolled in any chits")}</Text>
+              <Text className={`text-gray-400 ${T.base} text-center mt-2`}>{t("Contact your group admin to join a chit")}</Text>
             </View>
           ) : (
             chits.map((chit: any, index: number) => {
@@ -1478,9 +1472,7 @@ export default function MyChits() {
                     <View
                       className={`${T.rowPx} ${T.rowPy} border-t border-gray-100 flex-row items-center`}
                     >
-                      <Text className={`text-gray-500 ${T.cellLabel}`}>
-                        Due date
-                      </Text>
+                      <Text className={`text-gray-500 ${T.cellLabel}`}>{t("Due date")}</Text>
                       <Text
                         className={`text-gray-900 ${T.cellValue} font-bold ml-3`}
                       >
@@ -1538,9 +1530,7 @@ export default function MyChits() {
                         <Text
                           className={`text-gray-900 font-bold ${T.sectionTitle} flex-1 mr-2`}
                           numberOfLines={1}
-                        >
-                          Auction details
-                        </Text>
+                        >{t("Auction details")}</Text>
 
                         <View className="flex-row items-center">
                           <AuctionCountdown
@@ -1570,9 +1560,7 @@ export default function MyChits() {
                           <Text
                             className={`text-gray-500 ${T.cellLabel}`}
                             numberOfLines={1}
-                          >
-                            End date & time
-                          </Text>
+                          >{t("End date & time")}</Text>
                           <Text
                             className={`text-gray-900 ${T.cellValueSm} font-bold mt-1`}
                             numberOfLines={1}
@@ -1654,9 +1642,7 @@ export default function MyChits() {
                         >
                           <Text
                             className={`text-[#024e32] font-semibold ${T.base}`}
-                          >
-                            History
-                          </Text>
+                          >{t("History")}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -1666,9 +1652,7 @@ export default function MyChits() {
                             A ? "px-5 py-2" : "px-6 py-2.5"
                           }`}
                         >
-                          <Text className={`text-white font-bold ${T.base}`}>
-                            Bid Now
-                          </Text>
+                          <Text className={`text-white font-bold ${T.base}`}>{t("Bid Now")}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1685,12 +1669,8 @@ export default function MyChits() {
                     <View className="flex-1">
                       <Text
                         className={`text-gray-900 font-bold ${T.sectionTitle}`}
-                      >
-                        Account copy
-                      </Text>
-                      <Text className={`text-gray-400 ${T.sm} mt-0.5`}>
-                        View breakdown of each instalment
-                      </Text>
+                      >{t("Account copy")}</Text>
+                      <Text className={`text-gray-400 ${T.sm} mt-0.5`}>{t("View breakdown of each instalment")}</Text>
                     </View>
 
                     <MaterialIcons
@@ -1733,9 +1713,7 @@ export default function MyChits() {
                         {money(chit.dueAmount)}
                       </Text>
 
-                      <Text className={`text-gray-400 ${T.sm} mt-0.5`}>
-                        My due
-                      </Text>
+                      <Text className={`text-gray-400 ${T.sm} mt-0.5`}>{t("My due")}</Text>
 
                     </View>
 
@@ -1748,9 +1726,7 @@ export default function MyChits() {
                       <Text
                         className={`text-gray-400 font-semibold ${T.sm}`}
                         numberOfLines={1}
-                      >
-                        Pay at branch
-                      </Text>
+                      >{t("Pay at branch")}</Text>
                     </View>
                   </View>
                 </View>
@@ -1768,9 +1744,7 @@ export default function MyChits() {
               <View className="flex-row items-center justify-between">
                 <View className="flex-row items-center flex-1">
                   <MaterialIcons name="info" size={T.iconSm} color="#3b82f6" />
-                  <Text className={`text-blue-700 ${T.base} ml-2`}>
-                    Need help? Contact your group administrator
-                  </Text>
+                  <Text className={`text-blue-700 ${T.base} ml-2`}>{t("Need help? Contact your group administrator")}</Text>
                 </View>
                 <MaterialIcons
                   name="arrow-forward"
@@ -1788,9 +1762,7 @@ export default function MyChits() {
                 MANIKYA CHITS PVT LTD
               </Text>
 
-              <Text className={`text-gray-500 ${T.sm} mt-1 text-center`}>
-                My Chits
-              </Text>
+              <Text className={`text-gray-500 ${T.sm} mt-1 text-center`}>{t("My Chits")}</Text>
 
               <Text className={`text-gray-400 ${T.sm} mt-1 text-center`}>
                 © {new Date().getFullYear()} Manikya Chits Pvt Ltd. All rights
@@ -1872,9 +1844,7 @@ export default function MyChits() {
                 </View>
 
                 <View className="flex-1">
-                  <Text className={`text-white font-bold ${T.sectionTitle}`}>
-                    Auction Results
-                  </Text>
+                  <Text className={`text-white font-bold ${T.sectionTitle}`}>{t("Auction Results")}</Text>
                   <Text className={`text-green-100 ${T.sm} mt-0.5`}>
                     Group {historyChit?.groupId} ·{" "}
                     {Math.max(
@@ -1919,21 +1889,15 @@ export default function MyChits() {
                 {historyLoading ? (
                   <View className="items-center py-12">
                     <ActivityIndicator size="large" color="#024e32" />
-                    <Text className={`text-gray-500 mt-3 ${T.base}`}>
-                      Loading results...
-                    </Text>
+                    <Text className={`text-gray-500 mt-3 ${T.base}`}>{t("Loading results...")}</Text>
                   </View>
                 ) : !historyRows.length ? (
                   <View className="items-center py-12">
                     <MaterialIcons name="history" size={44} color="#d1d5db" />
-                    <Text className={`text-gray-500 mt-3 font-medium ${T.base}`}>
-                      No results yet
-                    </Text>
+                    <Text className={`text-gray-500 mt-3 font-medium ${T.base}`}>{t("No results yet")}</Text>
                     <Text
                       className={`text-gray-400 ${T.sm} mt-1 text-center px-6`}
-                    >
-                      Winners appear here once an auction is closed
-                    </Text>
+                    >{t("Winners appear here once an auction is closed")}</Text>
                   </View>
                 ) : (
                   historyRows.map((row: any, i: number) => {
@@ -1977,9 +1941,7 @@ export default function MyChits() {
                           </View>
 
                           <View className="flex-row justify-between py-0.5">
-                            <Text className={`text-gray-600 ${T.sm}`}>
-                              Group Member ID
-                            </Text>
+                            <Text className={`text-gray-600 ${T.sm}`}>{t("Group Member ID")}</Text>
                             <Text
                               className={`text-gray-900 font-semibold ${T.sm}`}
                             >
@@ -1988,9 +1950,7 @@ export default function MyChits() {
                           </View>
 
                           <View className="flex-row justify-between py-0.5">
-                            <Text className={`text-gray-600 ${T.sm}`}>
-                              Winning bid
-                            </Text>
+                            <Text className={`text-gray-600 ${T.sm}`}>{t("Winning bid")}</Text>
                             <Text
                               className={`text-amber-700 font-bold ${T.sm}`}
                             >
@@ -2000,9 +1960,7 @@ export default function MyChits() {
 
                           {historyChit?.chitValue && r.winnerBidAmount ? (
                             <View className="flex-row justify-between py-0.5">
-                              <Text className={`text-gray-600 ${T.sm}`}>
-                                Prize amount
-                              </Text>
+                              <Text className={`text-gray-600 ${T.sm}`}>{t("Prize amount")}</Text>
                               <Text
                                 className={`text-[#024e32] font-bold ${T.sm}`}
                               >
@@ -2024,9 +1982,7 @@ export default function MyChits() {
                           </Text>
 
                           {bids.length === 0 ? (
-                            <Text className={`text-gray-400 ${T.sm} py-2`}>
-                              No bids were placed in this auction
-                            </Text>
+                            <Text className={`text-gray-400 ${T.sm} py-2`}>{t("No bids were placed in this auction")}</Text>
                           ) : (
                             bids.map((b: any, bi: number) => {
                               const amount = Number(b.bidAmount || 0);
@@ -2111,9 +2067,7 @@ export default function MyChits() {
                                         className={`text-yellow-600 ${
                                           A ? "text-[8px]" : "text-[9px]"
                                         } font-bold`}
-                                      >
-                                        HIGHEST
-                                      </Text>
+                                      >{t("HIGHEST")}</Text>
                                     ) : null}
                                   </View>
                                 </View>
@@ -2136,9 +2090,7 @@ export default function MyChits() {
                 >
                   <Text
                     className={`text-gray-700 text-center font-semibold ${T.base}`}
-                  >
-                    Close
-                  </Text>
+                  >{t("Close")}</Text>
                 </TouchableOpacity>
               </View>
             </View>

@@ -34,6 +34,8 @@ import spinnerRoutes from "./routes/spinnerRoutes.js";
 import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
 import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
 import { leaveAdminPing } from "./realtime/leaveAdminPing.js";
+import { startDailySummary } from "./realtime/dailySummary.js";
+import { paymentReceivedNotify } from "./realtime/paymentReceivedNotify.js";
 import { startSpinReminders } from "./realtime/spinReminders.js";
 import { startAutoSpin } from "./realtime/autoSpin.js";
 import { startFollowUpReminders } from "./realtime/followUpReminders.js";
@@ -107,6 +109,8 @@ app.use("/api/employee-notices", employeeNoticeRoutes);
 app.use("/api/notifications", liveBadgeMiddleware("notifications"));
 app.use("/api/vacancy", liveBadgeMiddleware("vacancy"));
 app.use("/api/contact-requests", liveBadgeMiddleware("contact"));
+// employee collected a payment -> member gets a notification (listens only, no logic change)
+app.use("/api/groups", paymentReceivedNotify);
 app.use("/api/groups", groupRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/contact-requests", contactRequestRoutes);
@@ -159,6 +163,7 @@ initSocket(httpServer);
 startSpinReminders();
 startAutoSpin();
 startFollowUpReminders();
+startDailySummary();
 httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on http://${HOST}:${PORT}`);
   console.log(

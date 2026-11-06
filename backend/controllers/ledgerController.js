@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import LedgerSetting from "../models/LedgerSetting.js";
+import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
 
 /* =========================================================
    LEDGER (admin only, behind a password)
@@ -20,6 +21,7 @@ import LedgerSetting from "../models/LedgerSetting.js";
 
 const DEFAULT_PASSWORD = String(process.env.LEDGER_PASSWORD || "7259");
 const IST_MS = 5.5 * 60 * 60 * 1000;
+const num = (v) => Number(v) || 0;
 
 /* ---------- password check (+ a small brute-force lock) ---------- */
 const fails = new Map(); // ip -> { n, until }
@@ -133,8 +135,16 @@ export const getLedgerSummary = async (req, res) => {
       {},
       {
         groupId: 1,
+        // the admin plan: dividend / installment / due date per month
+        "collectionPlans.monthIndex": 1,
+        "collectionPlans.installmentAmount": 1,
+        "collectionPlans.dividend": 1,
+        "collectionPlans.endDate": 1,
         "members.memberId": 1,
         "members.groupMemberId": 1,
+        "members.collections.index": 1,
+        "members.collections.amount": 1,
+        "members.collections.penaltyWaived": 1,
         "members.collections.installmentAmount": 1,
         "members.collections.endDate": 1,
         "members.collections.payments.amount": 1,
@@ -151,13 +161,28 @@ export const getLedgerSummary = async (req, res) => {
     let paymentCount = 0;
     const days = Array.from({ length: daysInMonth }, (_, i) => ({ d: i + 1, amount: 0 }));
     const emps = new Map(); // key -> { name, empId, amount, count }
-    const overdue = new Map(); // groupId|memberId -> row
+    const overdue = new Map(); // groupId|memberId|groupMemberId -> row
     const memberIds = new Set();
 
     for (const g of groups) {
+      const planBy = {};
+      (g.collectionPlans || []).forEach((p) => {
+        planBy[Number(p.monthIndex)] = p;
+      });
+
       for (const mem of g.members || []) {
+        // SAME rule as the member's "My Account Copy" and the Group Members page:
+        //   installment still due = (installment - dividend) - installment paid
+        //   penalty still due     = the app's 6% penalty rule (computeMemberPenalty)
+        const penalty = computeMemberPenalty(mem.collections || [], g.collectionPlans || []).perMonth;
+        let memTotalDue = 0;
+        let memOverdueMonths = 0;
+        let memOldest = null;
+
         for (const col of mem.collections || []) {
-          const inst = Number(col.installmentAmount) || 0;
+          const plan = planBy[Number(col.index)] || {};
+          const rawInst = num(col.installmentAmount) || num(plan.installmentAmount);
+          const inst = Math.max(rawInst - num(plan.dividend), 0); // after dividend
           const payments = col.payments || [];
 
           // collected in the selected month (every payment, with who collected it)
@@ -179,35 +204,44 @@ export const getLedgerSummary = async (req, res) => {
             emps.set(key, e);
           }
 
-          if (!col.endDate || inst <= 0) continue;
-          const endDate = new Date(col.endDate);
+          if (rawInst <= 0) continue;
+
+          // what this month still owes = installment still unpaid (after dividend)
+          // + penalty still unpaid (exactly the "Pending" of My Account Copy)
+          const paid = payments
+            .filter((p) => p.paymentType !== "PENALTY" && p.paymentType !== "DIVIDEND")
+            .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+          const monthPending =
+            Math.max(inst - paid, 0) + num(penalty[Number(col.index)]?.pendingPenalty);
+          memTotalDue += monthPending;
+
+          const endRaw = col.endDate || plan.endDate;
+          if (!endRaw) continue;
+          const endDate = new Date(endRaw);
 
           // due in the selected month
           if (endDate >= start && endDate < end) due += inst;
 
-          // overdue right now (installment only; penalty is separate)
-          if (endDate < todayStart) {
-            const paid = payments
-              .filter((p) => p.paymentType !== "PENALTY")
-              .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-            const pending = Math.max(inst - paid, 0);
-            if (pending > 0) {
-              const key = `${g.groupId}|${mem.memberId}`;
-              const r = overdue.get(key) || {
-                groupId: String(g.groupId),
-                memberId: String(mem.memberId),
-                groupMemberId: String(mem.groupMemberId || ""),
-                pending: 0,
-                months: 0,
-                oldest: endDate,
-              };
-              r.pending += pending;
-              r.months += 1;
-              if (endDate < r.oldest) r.oldest = endDate;
-              overdue.set(key, r);
-              memberIds.add(String(mem.memberId));
-            }
+          // a month already past its due date and still unpaid
+          if (endDate < todayStart && monthPending > 0) {
+            memOverdueMonths += 1;
+            if (!memOldest || endDate < memOldest) memOldest = endDate;
           }
+        }
+
+        // A member with any past-due month is listed, and the amount shown is
+        // their TOTAL DUE - the same number My Account Copy shows for that group seat.
+        if (memOverdueMonths > 0 && memTotalDue > 0) {
+          const key = `${g.groupId}|${mem.memberId}|${mem.groupMemberId || ""}`;
+          overdue.set(key, {
+            groupId: String(g.groupId),
+            memberId: String(mem.memberId),
+            groupMemberId: String(mem.groupMemberId || ""),
+            pending: memTotalDue,
+            months: memOverdueMonths,
+            oldest: memOldest,
+          });
+          memberIds.add(String(mem.memberId));
         }
       }
     }

@@ -16,6 +16,7 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MemberLoader from "../components/MemberLoader";
+import { AppLockCard } from "../components/appLock";
 import BACKEND_URL from "../config.js";
 
 export default function MyProfile() {
@@ -91,7 +92,20 @@ export default function MyProfile() {
     let isMounted = true;
 
     const loadProfile = async () => {
+      let shownFromSaved = false;
       try {
+        // show the last saved profile at once; the fresh one replaces it below
+        try {
+          const saved = await AsyncStorage.getItem(`profileSaved_${userid}`);
+          if (saved && isMounted) {
+            setProfile(JSON.parse(saved));
+            setLoading(false);
+            shownFromSaved = true;
+          }
+        } catch {
+          // no saved copy: wait for the server as before
+        }
+
         const res = await fetch(`${BACKEND_URL}/members/${userid}`);
         const data = await res.json();
 
@@ -101,9 +115,10 @@ export default function MyProfile() {
           setProfile(data);
           setError(false);
         }
+        AsyncStorage.setItem(`profileSaved_${userid}`, JSON.stringify(data)).catch(() => {});
       } catch (err) {
         console.log("Profile error:", err);
-        if (isMounted) setError(true);
+        if (isMounted && !shownFromSaved) setError(true);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -120,11 +135,19 @@ export default function MyProfile() {
     if (!userid) return;
 
     try {
+      // last saved summary first (shown at once), fresh one replaces it
+      try {
+        const saved = await AsyncStorage.getItem(`summarySaved_${userid}`);
+        if (saved) setSummary((cur: any) => cur ?? JSON.parse(saved));
+      } catch {
+        // no saved copy
+      }
       const res = await fetch(
         `${BACKEND_URL}/member/account-summary/${userid}`
       );
       const data = await res.json();
       setSummary(data);
+      AsyncStorage.setItem(`summarySaved_${userid}`, JSON.stringify(data)).catch(() => {});
     } catch (err) {
       console.log("Account summary error:", err);
     }
@@ -414,6 +437,9 @@ export default function MyProfile() {
                 </View>
                 <MaterialIcons name="chevron-right" size={24} color="#3b82f6" />
               </TouchableOpacity>
+
+              {/* App Lock (optional) */}
+              <AppLockCard />
 
               {/* Logout Button */}
               <TouchableOpacity

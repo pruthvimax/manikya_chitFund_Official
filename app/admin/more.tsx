@@ -24,6 +24,7 @@ const SECTIONS: Section[] = [
       { title: "Daily Closing Report", sub: "Today's money, leads, enrollments", icon: "receipt-long", route: "/admin/more-closing", color: "#2563EB" },
       { title: "Group Settlement", sub: "Member-wise paid, pending, penalty", icon: "balance", route: "/admin/more-settlement", color: "#7C3AED" },
       { title: "Auction Calendar", sub: "Auctions and spins by date", icon: "event", route: "/admin/more-calendar", color: "#D97706" },
+      { title: "Auction Insights", sub: "Discount %, dividends, who never bid", icon: "insights", route: "/admin/more-auctions", color: "#0F766E" },
     ],
   },
   {
@@ -46,6 +47,7 @@ const SECTIONS: Section[] = [
     items: [
       { title: "Announcements", sub: "Push message to all / groups", icon: "campaign", route: "/admin/more-announce", color: "#EA580C" },
       { title: "Activity Log", sub: "Everything that happened lately", icon: "history", route: "/admin/more-activity", color: "#475569" },
+      { title: "Daily Summary", sub: "WhatsApp summary to admins every evening", icon: "mark-chat-read", route: "/admin/more-summary", color: "#16A34A" },
     ],
   },
 ];

@@ -16,6 +16,7 @@ import SalarySheet from "../models/SalarySheet.js";
 import AnnouncementLog from "../models/AnnouncementLog.js";
 import AnnouncementTemplate from "../models/AnnouncementTemplate.js";
 import ReminderSent from "../models/ReminderSent.js";
+import PaymentNotice from "../models/PaymentNotice.js";
 import { sendPush } from "../realtime/pushNotifier.js";
 import { emitToAll } from "../realtime/socket.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
@@ -1380,6 +1381,15 @@ export const getMemberFeed = async (req, res) => {
       .filter((l) => l.audience === "all" || (l.memberIds || []).includes(userid))
       .slice(0, 30)
       .map((l) => ({ id: String(l._id), title: l.title, body: l.body, at: l.createdAt }));
+
+    // "payment received" messages (employee collected an amount) show in the same list
+    try {
+      const paid = await PaymentNotice.find({ userid, createdAt: { $gte: since } }).sort({ createdAt: -1 }).limit(30).lean();
+      paid.forEach((p) => announcements.push({ id: `pay-${p._id}`, title: p.title, body: p.body, at: p.createdAt }));
+      announcements.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    } catch (e) {
+      // the payment messages are optional: never break the feed
+    }
 
     res.json({ success: true, dues, announcements });
   } catch (err) {
