@@ -23,6 +23,7 @@ import BACKEND_URL from "../config";
 import { useLiveBadges } from "../components/useLiveBadges";
 import { isPinned, pinSpin, syncPins, unpinSpin } from "../components/spinPin";
 import { t, useLang } from "../components/i18n";
+import { groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
 // ANDROID ONLY: phones render this page too big, so sizes are trimmed (x0.86).
 // iPhone, web, laptop and desktop keep the exact same sizes as before (sz returns the number unchanged).
@@ -468,6 +469,7 @@ function SpinPinRow({ spin }: { spin: NonNullable<FeedItem["spin"]> }) {
 }
 
 function FeedCard({ item, index }: { item: FeedItem; index: number }) {
+  useGroupLabel();
   const enter = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -620,7 +622,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
                 }}
               >
                 <Text style={{ color: "#166534", fontSize: sz(11.5), fontWeight: "800" }}>
-                  {item.kind === "notice" ? "Announcement" : `Group ${item.groupCode || "-"}`}
+                  {item.kind === "notice" ? "Announcement" : groupPrefixed("Group ", item.groupCode || "-")}
                 </Text>
               </View>
               <View style={{ flex: 1 }} />
@@ -639,6 +641,7 @@ function FeedCard({ item, index }: { item: FeedItem; index: number }) {
 ========================================================= */
 export default function UserNotifications() {
   useLang();
+  const gl = useGroupLabel();
   const router = useRouter();
 
   // =========================================================
@@ -1022,7 +1025,7 @@ export default function UserNotifications() {
         key: `a-${n._id}`,
         kind: "auction",
         createdAt: created,
-        title: `Auction notice · Group ${code}`,
+        title: `Auction notice · ${groupPrefixed("Group ", code)}`,
         message: n.message || "",
         groupCode: code,
         status: live ? "LIVE" : "ENDED",
@@ -1067,7 +1070,7 @@ export default function UserNotifications() {
         key: `v-${v._id}`,
         kind: "vacancy",
         createdAt: created,
-        title: `New vacancy · Group ${v.groupId}`,
+        title: `New vacancy · ${groupPrefixed("Group ", v.groupId, { chitAmount: chit })}`,
         message: `${seats} seat${seats === 1 ? "" : "s"} open in a ₹${chit.toLocaleString("en-IN")} chit.${
           v.details ? ` ${v.details}` : ""
         }`,
@@ -1089,7 +1092,7 @@ export default function UserNotifications() {
         key: `s-${s.id}`,
         kind: "spin",
         createdAt: created,
-        title: `Live spin scheduled · Group ${s.groupCode}`,
+        title: `Live spin scheduled · ${groupPrefixed("Group ", s.groupCode)}`,
         message: `The live spin will start on ${s.spinDateText} at ${s.spinTimeText}. Be ready!`,
         groupCode: String(s.groupCode || ""),
         status: upcoming ? "UPCOMING" : "DONE",
@@ -1131,7 +1134,7 @@ export default function UserNotifications() {
         key: `p-${d.key}`,
         kind: "payment",
         createdAt: created,
-        title: overdue ? `Payment overdue · Group ${d.groupId}` : `Payment due soon · Group ${d.groupId}`,
+        title: overdue ? `Payment overdue · ${groupPrefixed("Group ", d.groupId)}` : `Payment due soon · ${groupPrefixed("Group ", d.groupId)}`,
         message: String(d.sentence || ""),
         groupCode: String(d.groupId || ""),
         status: overdue ? "OVERDUE" : "DUE SOON",
@@ -1164,7 +1167,7 @@ export default function UserNotifications() {
     return out
       .filter((it) => it.createdAt > clearedAt)
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [notifications, vacancies, spins, moreFeed, prevOpenedAt, clearedAt, userid, router]);
+  }, [notifications, vacancies, spins, moreFeed, prevOpenedAt, clearedAt, userid, router, gl]);
 
   const counts = {
     all: feed.length,

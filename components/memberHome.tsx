@@ -4,6 +4,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BACKEND_URL from "../config";
+import { memberRowDividend } from "./memberDividend";
+import { groupLabel, useGroupLabel } from "./groupLabel";
 
 // =========================================================
 // NEW MENU-PAGE PARTS (hero, stat cards, live auctions).
@@ -158,7 +160,7 @@ export function useHomeChitsData(userid: string | null, enabled: boolean) {
                     const pRes = await fetch(`${BACKEND_URL}/groups/${groupId}/collection-plan/${r.monthIndex}`);
                     if (!pRes.ok) return 0;
                     const plan = await pRes.json();
-                    return Number(plan?.dividend || 0);
+                    return memberRowDividend(r, plan);
                   } catch {
                     return 0;
                   }
@@ -591,6 +593,7 @@ export function LiveAuctionsSection({
   wide: string;
   desktop: boolean;
 }) {
+  useGroupLabel();
   const router = useRouter();
 
   const openBidNow = (a: any) =>
@@ -681,7 +684,7 @@ export function LiveAuctionsSection({
                       letterSpacing: 1,
                     }}
                   >
-                    {a.groupId}
+                    {groupLabel(a.groupId)}
                   </Text>
                 </View>
                 <View style={{ width: 1 }}>

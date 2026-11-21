@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import GroupIdToggleCard from "./GroupIdToggleCard";
 
 /* =========================================================
    ADMIN "CHIT SCHEMES" - NEW DESIGN
@@ -348,6 +349,9 @@ export default function AdminSchemesView(p: Props) {
       >
 
         <View style={{ width: "100%", maxWidth: 1200, alignSelf: "center", paddingHorizontal: 14 }}>
+          {/* ---------- SHOW GROUP ID TO MEMBERS (switch) ---------- */}
+          <GroupIdToggleCard />
+
           {/* ---------- MESSAGES ---------- */}
           {p.message ? (
             <View

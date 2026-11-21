@@ -6,6 +6,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { navPad } from "../components/memberDesign";
 import { AMBER, BRAND, GroupSummary, INK, MUTED, MemberData, OKGREEN, RED, dateText, daysFromToday, inr, loadMemberData } from "../components/memberLedgers";
 import { t, useLang } from "../components/i18n";
+import MyAdvanceNote from "../components/MyAdvanceNote";
+import { groupPrefixed, useGroupLabel } from "../components/groupLabel";
+import PageFooter from "../components/PageFooter";
 
 /* MY NEXT DUE: what to pay next, how far each chit has progressed, and the total still to pay.
    Amounts use the same rule as My Account Copy. Read only: nothing is changed or saved. */
@@ -20,6 +23,7 @@ const whenColor = (days: number | null) => (days === null ? MUTED : days < 0 ? R
 
 export default function MyNextDue() {
   useLang();
+  useGroupLabel();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<MemberData | null>(null);
@@ -95,7 +99,7 @@ export default function MyNextDue() {
                   <Text style={{ fontSize: 13, fontWeight: "800", color: whenColor(daysFromToday(first.next!.dueDate)), marginLeft: 8, marginBottom: 4 }}>{whenText(daysFromToday(first.next!.dueDate))}</Text>
                 </View>
                 <Text style={{ color: MUTED, fontSize: 12.5, marginTop: 3 }}>
-                  Group {first.groupId} · Month {first.next!.monthIndex} · due {dateText(first.next!.dueDate)}
+                  {groupPrefixed("Group ", first.groupId, { chitId: first.chitId })} · Month {first.next!.monthIndex} · due {dateText(first.next!.dueDate)}
                 </Text>
                 <TouchableOpacity onPress={() => openPayments(first)} style={{ alignSelf: "flex-start", marginTop: 12, backgroundColor: BRAND, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 }}>
                   <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 12.5 }}>{t("Open My Live Payments")}</Text>
@@ -127,7 +131,7 @@ export default function MyNextDue() {
               return (
                 <View key={`${g.groupId}_${g.groupMemberId}`} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 14, marginTop: 12 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ fontSize: 15, fontWeight: "900", color: INK }}>Group {g.groupId}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: "900", color: INK }}>{groupPrefixed("Group ", g.groupId, { chitId: g.chitId })}</Text>
                     <View style={{ backgroundColor: "#FFF8E1", borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3 }}>
                       <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 11 }}>{g.paidMonths} of {g.totalMonths} months paid</Text>
                     </View>
@@ -150,6 +154,7 @@ export default function MyNextDue() {
                       <Text style={{ fontSize: 14, fontWeight: "900", color: g.totalDue > 0 ? RED : OKGREEN }}>{inr(g.totalDue)}</Text>
                     </View>
                   </View>
+                  <MyAdvanceNote userid={data?.userid || ""} groupId={g.groupId} />
                   {g.next ? (
                     <View style={{ marginTop: 10, backgroundColor: "#F8FAFC", borderRadius: 10, padding: 10 }}>
                       <Text style={{ fontSize: 12.5, color: INK }}>
@@ -181,6 +186,7 @@ export default function MyNextDue() {
             })}
           </>
         )}
+        <PageFooter note="My Next Due - what to pay next" />
       </ScrollView>
     </View>
   );

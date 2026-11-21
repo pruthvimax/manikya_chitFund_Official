@@ -21,6 +21,8 @@ import {
 } from "react-native";
 import BACKEND_URL from "../../config";
 import { logPenaltyMismatch } from "../../components/penaltyCheck";
+import { memberDividend } from "../../components/memberDividend";
+import DividendEditModal, { DividendEditInfo } from "../../components/DividendEditModal";
 
 // ============ HELPER FUNCTION TO EXTRACT NUMERIC VALUE FROM ID ============
 const extractNumberFromId = (id: string) => {
@@ -217,6 +219,11 @@ export default function GroupMembers() {
   const [editPaymentModal, setEditPaymentModal] = useState(false);
   const [editPaymentAmount, setEditPaymentAmount] = useState("");
   const [editPaymentDate, setEditPaymentDate] = useState(new Date());
+  // edit dividend (one member, one month)
+  const [divEdit, setDivEdit] = useState<DividendEditInfo | null>(null);
+  const [divEditVisible, setDivEditVisible] = useState(false);
+  const [divBusy, setDivBusy] = useState(false);
+  const [divError, setDivError] = useState("");
   const [showPaymentDatePicker, setShowPaymentDatePicker] = useState(false);
 
   // Admin table updates tracking
@@ -296,7 +303,7 @@ export default function GroupMembers() {
     // the live "Pending Installment" display, never for penalty carry).
     const pendingAsOfDate = (collection: any, cutoffDate: any) => {
       const installment = collection.installmentAmount || 0;
-      const dividend = Number(monthPlansMap[collection.index]?.dividend || 0);
+      const dividend = memberDividend(collection, monthPlansMap[collection.index]?.dividend);
       const effectiveInstallment = Math.max(installment - dividend, 0);
       const payments = Array.isArray(collection.payments)
         ? collection.payments
@@ -993,6 +1000,96 @@ export default function GroupMembers() {
     }
   };
 
+  // EDIT DIVIDEND: admin changes ONE member's dividend for ONE month (others keep the group's).
+  const openDividendEdit = (c: any) => {
+    if (!historyMember) return;
+    const installment = Number(
+      plansMap[c?.index]?.installmentAmount ?? c?.installmentAmount ?? 0,
+    );
+    const paid = (c?.payments || [])
+      .filter(
+        (p: any) => p.paymentType !== "PENALTY" && p.paymentType !== "DIVIDEND",
+      )
+      .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+
+    setDivError("");
+    setDivEdit({
+      memberName: historyMember.memberName || "Member",
+      monthIndex: c.index,
+      installment,
+      paid,
+      groupDividend: Number(plansMap[c?.index]?.dividend || 0),
+      current: memberDividend(c, plansMap[c?.index]?.dividend),
+      edited: typeof c?.dividendOverride === "number",
+    });
+    setHistoryVisible(false);
+    setTimeout(() => {
+      setDivEditVisible(true);
+    }, 250);
+  };
+
+  const closeDividendEdit = () => {
+    setDivEditVisible(false);
+    setTimeout(() => {
+      setHistoryVisible(true);
+    }, 250);
+  };
+
+  const saveMemberDividend = async (value: number) => {
+    if (!divEdit || !historyMember) return;
+    setDivBusy(true);
+    setDivError("");
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/groups/${groupId}/members/${historyMember.groupMemberId}/dividend/${divEdit.monthIndex}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dividend: value, by: "Admin" }),
+        },
+      );
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json) {
+        setDivError(
+          json?.message ||
+            (res.status === 404
+              ? "This is not on the server yet. Copy the new backend files and redeploy."
+              : "Could not change the dividend. Please try again."),
+        );
+        return;
+      }
+
+      const own = json.overridden === true ? Number(json.dividend) : null;
+      const apply = (col: any) =>
+        col.index === divEdit.monthIndex ? { ...col, dividendOverride: own } : col;
+
+      setHistoryMember((prev: any) => ({
+        ...prev,
+        collections: (prev?.collections || []).map(apply),
+      }));
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.groupMemberId !== historyMember.groupMemberId
+            ? m
+            : { ...m, collections: (m.collections || []).map(apply) },
+        ),
+      );
+
+      setDivEditVisible(false);
+      setTimeout(() => {
+        setHistoryVisible(true);
+      }, 250);
+      setTimeout(() => {
+        fetchMembers();
+      }, 300);
+    } catch {
+      setDivError("Could not change the dividend. Please try again.");
+    } finally {
+      setDivBusy(false);
+    }
+  };
+
   // PENALTY WAIVER: admin switches the penalty OFF / ON for one month.
   const applyPenaltyWaiver = async (monthIndex: number, waived: boolean) => {
     try {
@@ -1173,7 +1270,7 @@ export default function GroupMembers() {
           .filter((p) => p.paymentType !== "PENALTY")
           .reduce((s, p) => s + (p.amount || 0), 0);
 
-        const dividend = Number(plansMap[c.index]?.dividend || 0);
+        const dividend = memberDividend(c, plansMap[c.index]?.dividend);
         const totalPaid = dividend + installmentPaid;
         const installmentAmount = c.installmentAmount || 0;
 
@@ -1271,7 +1368,7 @@ export default function GroupMembers() {
       const installmentPaid = (c.payments || [])
         .filter((p: any) => p.paymentType !== "PENALTY")
         .reduce((s: number, p: any) => s + (p.amount || 0), 0);
-      const dividend = Number(plansMap[c?.index]?.dividend || 0);
+      const dividend = memberDividend(c, plansMap[c?.index]?.dividend);
       const displayPaid = dividend + installmentPaid;
 
       totalInstallment += installmentAmount;
@@ -2046,8 +2143,9 @@ export default function GroupMembers() {
                                 const totalPaid = (c?.payments || [])
                                   .filter((p) => p.paymentType !== "PENALTY")
                                   .reduce((s, p) => s + (p.amount || 0), 0);
-                                const monthDividend = Number(
-                                  plansMap[c?.index]?.dividend || 0,
+                                const monthDividend = memberDividend(
+                                  c,
+                                  plansMap[c?.index]?.dividend,
                                 );
                                 const displayPaid = monthDividend + totalPaid;
 
@@ -2522,7 +2620,7 @@ export default function GroupMembers() {
                   const installmentPaid = (c.payments || [])
                     .filter((p: any) => p.paymentType !== "PENALTY")
                     .reduce((s: number, p: any) => s + (p.amount || 0), 0);
-                  const dividend = Number(plansMap[c?.index]?.dividend || 0);
+                  const dividend = memberDividend(c, plansMap[c?.index]?.dividend);
                   const displayPaid = dividend + installmentPaid;
                   const progressRatio =
                     installmentAmount > 0
@@ -2541,6 +2639,7 @@ export default function GroupMembers() {
                             paidAt: c.startDate || new Date(),
                             paymentType: "DIVIDEND",
                             collectedBy: "System",
+                            edited: typeof c?.dividendOverride === "number",
                           },
                         ]
                       : [];
@@ -2716,6 +2815,26 @@ export default function GroupMembers() {
                         </View>
                       )}
 
+                      {/* Add dividend (only when this member has none this month) */}
+                      {dividend <= 0 && (
+                        <View className="px-4 mt-2 items-end">
+                          <TouchableOpacity
+                            onPress={() => openDividendEdit(c)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Text
+                              style={{
+                                color: "#2563eb",
+                                fontSize: 12,
+                                fontWeight: "700",
+                              }}
+                            >
+                              + Add dividend
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
                       {/* Payments */}
                       <View className="px-4 mt-3">
                         {allPayments.length === 0 ? (
@@ -2789,6 +2908,7 @@ export default function GroupMembers() {
                                         style={{ color: typeStyle.fg }}
                                       >
                                         {paymentType}
+                                        {p?.edited ? " · edited" : ""}
                                       </Text>
                                     </View>
                                     <Text className="text-gray-400 text-xs mt-0.5">
@@ -2800,6 +2920,17 @@ export default function GroupMembers() {
                                     </Text>
                                   </View>
                                 </View>
+                                {isDividend && (
+                                  <TouchableOpacity
+                                    onPress={() => openDividendEdit(c)}
+                                  >
+                                    <MaterialIcons
+                                      name="edit"
+                                      size={18}
+                                      color="#2563eb"
+                                    />
+                                  </TouchableOpacity>
+                                )}
                                 {!isDividend && (
                                   <View
                                     className="flex-row"
@@ -2874,6 +3005,16 @@ export default function GroupMembers() {
           </View>
         </View>
       </Modal>
+
+      {/* EDIT DIVIDEND MODAL */}
+      <DividendEditModal
+        visible={divEditVisible}
+        info={divEdit}
+        busy={divBusy}
+        error={divError}
+        onSave={saveMemberDividend}
+        onClose={closeDividendEdit}
+      />
 
       {/* EDIT PAYMENT MODAL */}
       <Modal visible={editPaymentModal} transparent animationType="slide">

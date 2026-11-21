@@ -21,6 +21,7 @@ import BACKEND_URL from "../config";
 import { logPenaltyMismatch } from "../components/penaltyCheck";
 import { cacheGet, cacheSet, groupsKey, ledgerKey } from "../memberCache";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
 // =========================================================
 // SCREENSHOT PREVENTION FOR ALL PLATFORMS
@@ -236,6 +237,7 @@ function OutstandingSkeleton() {
 /* ================= MAIN COMPONENT ================= */
 
 export default function MyOutstanding() {
+  useGroupLabel();
   const router = useRouter();
 
   /*
@@ -1385,7 +1387,7 @@ export default function MyOutstanding() {
             </View>
 
             <Text className="text-gray-500 text-sm ml-7">
-              Group ID: {month.groupId}
+              {groupPrefixed("Group ID: ", month.groupId)}
             </Text>
 
             <Text className="text-gray-500 text-sm ml-7">
@@ -1736,8 +1738,8 @@ export default function MyOutstanding() {
                     </Text>
 
                     <Text className="text-gray-400 text-sm">
-                      {pendingCount} pending • ID:{" "}
-                      {item.groupId}
+                      {pendingCount} pending • {HIDE_GROUP_ID ? "" : "ID: "}
+                      {groupLabel(item.groupId)}
                     </Text>
                   </View>
 

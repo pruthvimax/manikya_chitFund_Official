@@ -25,6 +25,7 @@ const SECTIONS: Section[] = [
       { title: "Group Settlement", sub: "Member-wise paid, pending, penalty", icon: "balance", route: "/admin/more-settlement", color: "#7C3AED" },
       { title: "Auction Calendar", sub: "Auctions and spins by date", icon: "event", route: "/admin/more-calendar", color: "#D97706" },
       { title: "Auction Insights", sub: "Discount %, dividends, who never bid", icon: "insights", route: "/admin/more-auctions", color: "#0F766E" },
+      { title: "Advance Amount", sub: "Extra amounts paid by members", icon: "savings", route: "/admin/more-advance", color: "#B45309" },
     ],
   },
   {

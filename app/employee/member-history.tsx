@@ -489,7 +489,7 @@ export default function EmployeeMemberHistoryScreen() {
                         selectedGroupIndex === index ? "text-white" : "text-gray-700"
                       }`}
                     >
-                      {group.groupName || group.groupId}
+                      {group.groupId}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -504,7 +504,7 @@ export default function EmployeeMemberHistoryScreen() {
               <View className="flex-row items-center mb-4">
                 <MaterialIcons name="receipt-long" size={24} color="#024e32" />
                 <Text className="text-[#024e32] font-bold text-lg ml-2">
-                  {selectedGroup.groupName || selectedGroup.groupId}
+                  {selectedGroup.groupId}
                 </Text>
               </View>
               

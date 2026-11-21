@@ -21,6 +21,7 @@ import { USE_NEW_MEMBER_DESIGN } from "./memberDesign";
 import { subscribeNavCompact } from "./navScrollBus";
 import { useLiveBadges } from "./useLiveBadges";
 import { LANGUAGE_SWITCH_ENABLED, t, useLang } from "./i18n";
+import { isBidNowCover, subscribeBidNowCover } from "./bidNowCover";
 
 // =========================================================
 // Floating bottom navigation for ALL member pages.
@@ -73,6 +74,9 @@ const QUICK_LINKS = [
   ...(LANGUAGE_SWITCH_ENABLED ? [{ label: "Language", icon: "translate", route: "/language" }] : []),
 ];
 
+// the Quick Links card of the page the member is on now (Bid Now cover counts as the Bid Now card)
+const isHere = (route: string, path: string) => path === route || (route === "/bidroom" && path === "/bidnow");
+
 function cleanPath(p: string | null | undefined) {
   if (!p) return "/";
   const x = p.split("?")[0];
@@ -94,7 +98,11 @@ export default function MemberBottomNav() {
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const lastVacancyFetch = useRef(0);
 
-  const visible = USE_NEW_MEMBER_DESIGN && MEMBER_ROUTES.includes(pathname);
+  // true while the "Live video auction" cover is open on the Bid Now page (admin switched Bid Now OFF)
+  const [coverOn, setCoverOn] = useState(isBidNowCover());
+  useEffect(() => subscribeBidNowCover(setCoverOn), []);
+
+  const visible = USE_NEW_MEMBER_DESIGN && (MEMBER_ROUTES.includes(pathname) || (pathname === "/bidnow" && coverOn));
 
   // hide while the keyboard is open (so it never sits on top of inputs)
   useEffect(() => {
@@ -243,7 +251,7 @@ export default function MemberBottomNav() {
     return item.route === pathname;
   };
 
-  const floating = pathname !== "/bidnow";
+  const floating = pathname !== "/bidnow" || coverOn;
   const layoutCompact = Platform.OS === "ios" ? compact : false;
   const bottomPad = layoutCompact ? Math.max(insets.bottom, 4) : Math.max(insets.bottom, Platform.OS === "ios" ? 10 : 8);
 
@@ -255,6 +263,8 @@ export default function MemberBottomNav() {
           // floats OVER the page (pages leave room for it with navPad); the Bid Now
           // page has its own bottom bar, so there the bar stays below the page
           ...(floating ? { position: "absolute" as const, left: 0, right: 0, bottom: 0 } : {}),
+          // above the "Live video auction" cover
+          ...(pathname === "/bidnow" && coverOn ? { zIndex: 10000, elevation: 60 } : {}),
           backgroundColor: "transparent",
           paddingHorizontal: 14,
           paddingTop: layoutCompact ? 3 : 6,
@@ -438,12 +448,16 @@ export default function MemberBottomNav() {
                       width: "48.5%",
                       flexDirection: "row",
                       alignItems: "center",
-                      backgroundColor: "rgba(255,255,255,0.14)",
-                      borderWidth: 1,
-                      borderColor: "rgba(255,255,255,0.22)",
+                      backgroundColor: isHere(q.route, pathname) ? "rgba(245,200,75,0.16)" : "rgba(255,255,255,0.14)",
+                      borderWidth: isHere(q.route, pathname) ? 1.5 : 1,
+                      borderColor: isHere(q.route, pathname) ? "#F5C84B" : "rgba(255,255,255,0.22)",
                       borderRadius: 18,
                       padding: 12,
                       marginBottom: 10,
+                      // the page the member is on: gold ring + soft glow
+                      ...(isHere(q.route, pathname)
+                        ? { shadowColor: "#F5C84B", shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 }
+                        : {}),
                     }}
                   >
                     <View
@@ -451,12 +465,12 @@ export default function MemberBottomNav() {
                         width: 38,
                         height: 38,
                         borderRadius: 12,
-                        backgroundColor: "#ffffff",
+                        backgroundColor: isHere(q.route, pathname) ? "#F5C84B" : "#ffffff",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <MaterialIcons name={q.icon as any} size={21} color={BRAND} />
+                      <MaterialIcons name={q.icon as any} size={21} color={isHere(q.route, pathname) ? "#4A3300" : BRAND} />
                       {q.route === "/vacancy" && vacancyCount > 0 && (
                         <View
                           style={{

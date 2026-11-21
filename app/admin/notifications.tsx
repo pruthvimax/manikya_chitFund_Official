@@ -12,6 +12,7 @@ import {
   Animated,
   ActivityIndicator,
   Platform,
+  Switch,
   Modal,
   Keyboard,
   KeyboardAvoidingView,
@@ -34,6 +35,8 @@ export default function AdminNotification() {
   const [minBidAmount, setMinBidAmount] = useState("");
   const [maxBidAmount, setMaxBidAmount] = useState("");
   const [message, setMessage] = useState("");
+  // Bid Now page switch for the notification being added / edited (ON = members can bid)
+  const [bidNowEnabled, setBidNowEnabled] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
 
   // =========================================================
@@ -339,6 +342,7 @@ export default function AdminNotification() {
           minBidAmount: minBid,
           maxBidAmount: maxBid,
           message: message.trim(),
+          bidNowEnabled,
           winnerName: winnerName.trim(),
           winnerGroupId: winnerGroupId.trim(),
           winnerBidAmount: winnerBidAmount ? Number(winnerBidAmount) : 0,
@@ -424,6 +428,7 @@ export default function AdminNotification() {
         setMinBidAmount("");
         setMaxBidAmount("");
         setMessage("");
+        setBidNowEnabled(true);
         setWinnerName("");
         setWinnerGroupId("");
         setWinnerBidAmount("");
@@ -470,6 +475,56 @@ export default function AdminNotification() {
     "Cancel"
   );
 };
+
+  /* ================= BID NOW PAGE SWITCH (one auction) ================= */
+  const toggleBidNow = (item: any, value: boolean) => {
+    const code = item.groupId?.groupId || "";
+    showPopup(
+      "confirm",
+      value ? "Turn Bid Now ON?" : "Turn Bid Now OFF?",
+      value
+        ? `Members of Group ${code} can bid in the app for this auction.`
+        : `The Bid Now page will be closed for Group ${code}. Members will see the video link from the message instead.`,
+      async () => {
+        setPopupVisible(false);
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/notifications/${item._id}/bid-now`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: value }),
+            }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(
+              data?.message ||
+                (res.status === 404
+                  ? "This is not on the server yet. Copy the new backend files and redeploy."
+                  : `Server returned ${res.status}`)
+            );
+          }
+          setNotifications((prev: any[]) =>
+            prev.map((n: any) =>
+              n._id === item._id ? { ...n, bidNowEnabled: value } : n
+            )
+          );
+        } catch (err: any) {
+          showPopup(
+            "error",
+            "Could not change",
+            err?.message || "Please try again."
+          );
+        }
+      },
+      () => {
+        setPopupVisible(false);
+      },
+      value ? "Turn ON" : "Turn OFF",
+      "Cancel"
+    );
+  };
 
   /* ================= DELETE ================= */
 
@@ -2002,6 +2057,26 @@ const handleSelectGroup = (group: any) => {
                 />
               </View>
 
+              {/* BID NOW PAGE SWITCH */}
+              <View className="mb-4 flex-row items-center justify-between border border-gray-300 rounded-xl bg-white px-4 py-3">
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text className="text-gray-700 font-medium">
+                    Bid Now page for members
+                  </Text>
+                  <Text className="text-gray-400 text-xs mt-1">
+                    {bidNowEnabled
+                      ? "ON: members can bid in the app."
+                      : "OFF: the Bid Now page is closed. Members see the video link from the message, so add the Google Meet / Zoom link in the message above."}
+                  </Text>
+                </View>
+                <Switch
+                  value={bidNowEnabled}
+                  onValueChange={setBidNowEnabled}
+                  trackColor={{ false: "#d1d5db", true: "#024e32" }}
+                  thumbColor="#ffffff"
+                />
+              </View>
+
               {/* SUBMIT BUTTON */}
               <TouchableOpacity
                 onPress={saveNotification}
@@ -2026,6 +2101,7 @@ const handleSelectGroup = (group: any) => {
                     setMinBidAmount("");
                     setMaxBidAmount("");
                     setMessage("");
+                    setBidNowEnabled(true);
                     setWinnerName("");
                     setWinnerGroupId("");
                     setWinnerBidAmount("");
@@ -2181,6 +2257,30 @@ const handleSelectGroup = (group: any) => {
                         </Text>
                       </View>
 
+                      {/* BID NOW PAGE SWITCH */}
+                      <View
+                        className="flex-row items-center justify-between mb-2 rounded-xl px-3 py-2"
+                        style={{
+                          backgroundColor: item.bidNowEnabled === false ? "#fef2f2" : "#f0fdf4",
+                          borderWidth: 1,
+                          borderColor: item.bidNowEnabled === false ? "#fecaca" : "#bbf7d0",
+                        }}
+                      >
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <Text
+                            className="text-xs font-semibold"
+                            style={{ color: item.bidNowEnabled === false ? "#b91c1c" : "#166534" }}
+                          >
+                            Bid Now page: {item.bidNowEnabled === false ? "OFF (video auction)" : "ON"}
+                          </Text>
+                        </View>
+                        <Switch
+                          value={item.bidNowEnabled !== false}
+                          onValueChange={(v) => toggleBidNow(item, v)}
+                          trackColor={{ false: "#d1d5db", true: "#024e32" }}
+                          thumbColor="#ffffff"
+                        />
+                      </View>
                       {/* WINNER DETAILS */}
                       {!!item.winnerName && (
                         <View className="mt-2 bg-amber-50 rounded-xl p-3 border border-amber-200">
@@ -2300,6 +2400,7 @@ const handleSelectGroup = (group: any) => {
                             setMinBidAmount(item.minBidAmount != null ? String(item.minBidAmount) : "");
                             setMaxBidAmount(item.maxBidAmount != null ? String(item.maxBidAmount) : "");
                             setMessage(item.message);
+                            setBidNowEnabled(item.bidNowEnabled !== false);
                             setWinnerName(item.winnerName || "");
                             setWinnerGroupId(item.winnerGroupId || "");
                             setWinnerBidAmount(item.winnerBidAmount ? String(item.winnerBidAmount) : "");

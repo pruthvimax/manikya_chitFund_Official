@@ -33,6 +33,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
   import BACKEND_URL from "../config";
 import SpinnerAutoOpen from "../components/spinner/SpinnerAutoOpen";
 import { AppState } from "react-native";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
   const { width } = Dimensions.get("window");
 
@@ -587,6 +588,7 @@ import { AppState } from "react-native";
     };
 
   export default function CustomerBidRoom() {
+    const gl = useGroupLabel();
     const router = useRouter();
 
     /* real device safe-area insets - replaces the hardcoded
@@ -2001,7 +2003,7 @@ const body = {
                     marginTop: 1,
                   }}
                 >
-                  Group {groupCode || groupId}
+                  {groupPrefixed("Group ", groupCode || groupId)}
                 </Text>
               </View>
 

@@ -27,6 +27,8 @@ import {
   dividendsKey,
 } from "../memberCache";
 import { t, useLang } from "../components/i18n";
+import { memberRowDividend } from "../components/memberDividend";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
 /* =========================================================================
    OPTIONAL BACKEND FIELDS
@@ -569,6 +571,7 @@ function AuctionCountdown({
 
 export default function MyChits() {
   useLang();
+  const gl = useGroupLabel();
   const router = useRouter();
 
   useEffect(() => {
@@ -819,7 +822,7 @@ export default function MyChits() {
             `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
           );
           const plan = await res.json();
-          map[row.monthIndex] = plan?.dividend || 0;
+          map[row.monthIndex] = memberRowDividend(row, plan);
         } catch (err) {
           console.log("Dividend fetch error for month", row.monthIndex);
           map[row.monthIndex] = 0;
@@ -1397,8 +1400,8 @@ export default function MyChits() {
                           className={`text-[#024e32] ${T.cardTitle} font-bold`}
                           numberOfLines={1}
                         >
-                          {chit.groupId}
-                          {chit.groupMemberId ? `-${chit.groupMemberId}` : ""}
+                          {HIDE_GROUP_ID ? gl(chit.groupId, { chitAmount: chit.chitValue, chitId: chit.chitId }) : chit.groupId}
+                          {!HIDE_GROUP_ID && chit.groupMemberId ? `-${chit.groupMemberId}` : ""}
                         </Text>
 
                         <Text
@@ -1406,7 +1409,7 @@ export default function MyChits() {
                           numberOfLines={1}
                         >
                           {chit.memberName ||
-                            `Chit: ${chit.chitId || chit.groupId}`}
+                            `Chit: ${chit.chitId || gl(chit.groupId, { chitAmount: chit.chitValue })}`}
                         </Text>
                       </View>
 
@@ -1578,8 +1581,8 @@ export default function MyChits() {
                         </View>
 
                         <Cell
-                          label="Group"
-                          value={a.groupId?.groupId || chit.groupId}
+                          label={HIDE_GROUP_ID ? "Chit Value" : "Group"}
+                          value={gl(a.groupId?.groupId || chit.groupId, { chitAmount: chit.chitValue, chitId: chit.chitId })}
                           small
                         />
                       </View>
@@ -1846,7 +1849,7 @@ export default function MyChits() {
                 <View className="flex-1">
                   <Text className={`text-white font-bold ${T.sectionTitle}`}>{t("Auction Results")}</Text>
                   <Text className={`text-green-100 ${T.sm} mt-0.5`}>
-                    Group {historyChit?.groupId} ·{" "}
+                    {groupPrefixed("Group ", historyChit?.groupId, { chitAmount: historyChit?.chitValue, chitId: historyChit?.chitId })} ·{" "}
                     {Math.max(
                       historyRows.length,
                       historyChit?.resultHistory?.length || 0

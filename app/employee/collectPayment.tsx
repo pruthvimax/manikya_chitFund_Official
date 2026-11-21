@@ -20,6 +20,8 @@ import {
 
 import BACKEND_URL from "../../config";
 import { logPenaltyMismatch } from "../../components/penaltyCheck";
+import { memberDividend } from "../../components/memberDividend";
+import ExtraAmountModal, { EXTRA_AMOUNT_ADVANCE } from "../../components/ExtraAmountModal";
 
 const PENALTY_PERCENT = 6;
 
@@ -224,6 +226,13 @@ export default function CollectPayment() {
   const [submitting, setSubmitting] =
     useState<Record<string, boolean>>({});
 
+  // Extra-amount popup (advance): set when the typed amount is more than the pending installment
+  const [extraAsk, setExtraAsk] = useState<{
+    monthIndex: number;
+    amount: number;
+    pending: number;
+  } | null>(null);
+
   /* =====================================================
      LOAD MEMBER & COLLECTION PLANS
   ===================================================== */
@@ -292,8 +301,14 @@ export default function CollectPayment() {
             installment:
               plan.installmentAmount || 0,
 
-            dividend:
-              plan.dividend || 0,
+            dividend: memberDividend(
+              resolvedCollections.find(
+                (cc: any) =>
+                  cc.index ===
+                  plan.monthIndex
+              ),
+              plan.dividend
+            ),
           };
 
           if (plan.endDate) {
@@ -567,6 +582,20 @@ export default function CollectPayment() {
         );
 
       if (
+        EXTRA_AMOUNT_ADVANCE &&
+        pendingInstallment > 0 &&
+        amount >
+        pendingInstallment
+      ) {
+        setExtraAsk({
+          monthIndex,
+          amount,
+          pending: pendingInstallment,
+        });
+        return;
+      }
+
+      if (
         amount >
         pendingInstallment
       ) {
@@ -667,7 +696,8 @@ export default function CollectPayment() {
     paymentType:
       | "INSTALLMENT"
       | "PENALTY",
-    key: string
+    key: string,
+    extraAdvance: number = 0
   ) => {
     try {
       // FIXED: this was reading the AsyncStorage key "employeeInfo",
@@ -692,7 +722,7 @@ export default function CollectPayment() {
 
       const backendPaymentMode = selectedMode;
 
-      await fetch(
+      const payRes = await fetch(
         `${BACKEND_URL}/groups/${groupId}/members/${groupMemberId}/payments`,
         {
           method: "POST",
@@ -717,6 +747,46 @@ export default function CollectPayment() {
           }),
         }
       );
+
+      /* EXTRA AMOUNT -> ADVANCE (this group only) */
+
+      let advanceSaved = 0;
+
+      if (extraAdvance > 0 && payRes.ok) {
+        try {
+          const advRes = await fetch(
+            `${BACKEND_URL}/advance`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                groupId,
+                groupMemberId,
+                monthIndex,
+                amount: extraAdvance,
+                paymentMode:
+                  backendPaymentMode,
+                employeeId:
+                  employeeInfo.emp_id,
+                employeeName:
+                  employeeInfo.name,
+                employeePhone:
+                  employeeInfo.phone,
+                memberName,
+              }),
+            }
+          );
+
+          if (advRes.ok) {
+            advanceSaved = extraAdvance;
+          }
+        } catch {
+          advanceSaved = 0;
+        }
+      }
 
       /* REFRESH */
 
@@ -768,8 +838,14 @@ export default function CollectPayment() {
               plan.installmentAmount ||
               0,
 
-            dividend:
-              plan.dividend || 0,
+            dividend: memberDividend(
+              resolvedCollections.find(
+                (cc: any) =>
+                  cc.index ===
+                  plan.monthIndex
+              ),
+              plan.dividend
+            ),
           };
 
           if (plan.endDate) {
@@ -836,10 +912,19 @@ export default function CollectPayment() {
         })
       );
 
-      Alert.alert(
-        "Success",
-        `${paymentType} payment added`
-      );
+      if (extraAdvance > 0 && payRes.ok && advanceSaved === 0) {
+        Alert.alert(
+          "Warning",
+          `${paymentType} payment added, but the extra ₹${extraAdvance} could NOT be saved as advance. Please inform admin and keep that ₹${extraAdvance} safe.`
+        );
+      } else {
+        Alert.alert(
+          "Success",
+          advanceSaved > 0
+            ? `${paymentType} payment added. ₹${advanceSaved} saved as advance`
+            : `${paymentType} payment added`
+        );
+      }
     } catch {
       Alert.alert(
         "Error",
@@ -1932,6 +2017,40 @@ export default function CollectPayment() {
         </ScrollView>
 
       </SafeAreaView>
+
+      <ExtraAmountModal
+        visible={!!extraAsk}
+        memberName={memberName}
+        groupCode={groupId}
+        monthIndex={extraAsk?.monthIndex || 0}
+        pending={extraAsk?.pending || 0}
+        amount={extraAsk?.amount || 0}
+        onClose={() => setExtraAsk(null)}
+        onYes={() => {
+          const a = extraAsk;
+          setExtraAsk(null);
+          if (!a) return;
+          const key = `${a.monthIndex}_INSTALLMENT`;
+          if (submitting[key]) return;
+          setSubmitting((prev) => ({ ...prev, [key]: true }));
+          addPayment(
+            a.monthIndex,
+            a.pending,
+            "INSTALLMENT",
+            key,
+            Math.round((a.amount - a.pending) * 100) / 100
+          );
+        }}
+        onNo={() => {
+          const a = extraAsk;
+          setExtraAsk(null);
+          if (!a) return;
+          const key = `${a.monthIndex}_INSTALLMENT`;
+          if (submitting[key]) return;
+          setSubmitting((prev) => ({ ...prev, [key]: true }));
+          addPayment(a.monthIndex, a.pending, "INSTALLMENT", key, 0);
+        }}
+      />
 
     </KeyboardAvoidingView>
   );

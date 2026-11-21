@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BACKEND_URL from "../config";
+import PageFooter from "./PageFooter";
 
 /* =========================================================
    SHARED PIECES for the admin "More" screens (app/admin/more*.tsx).
@@ -299,6 +300,7 @@ export function MoreScreen({
           contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 40, width: "100%", maxWidth: 900, alignSelf: "center" }}
         >
           {children}
+          <PageFooter note={title} />
         </ScrollView>
       </KeyboardAvoidingView>
       <DoneBar />

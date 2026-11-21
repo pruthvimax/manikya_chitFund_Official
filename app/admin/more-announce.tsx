@@ -57,7 +57,7 @@ export default function Announce() {
       setBusy(true);
       try {
         const r = await api("/more/announce", "POST", { title: title.trim(), body: body.trim(), audience, groupIds: ids });
-        say("Sent", `${r.sent} phone(s) notified (${r.members} members in the audience).`);
+        say("Sent", `${r.sent} phone(s) notified (${r.members} members in the audience).${r.employees ? ` Employees: ${r.employees} (${r.employeesSent || 0} phone(s) notified).` : ""}`);
         setTitle("");
         setBody("");
         setEditId("");
@@ -205,7 +205,7 @@ export default function Announce() {
         <View style={{ marginTop: 10 }}>
           <Btn label={`Send to ${who}`} icon="send" onPress={send} busy={busy} disabled={!title.trim() || !body.trim()} />
         </View>
-        <Text style={{ color: MUTED, fontSize: 11, marginTop: 8 }}>Members get it in the phone's notification bar and also see it in the Notices tab of their app's notification page.</Text>
+        <Text style={{ color: MUTED, fontSize: 11, marginTop: 8 }}>Members get it in the phone's notification bar and also see it in the Notices tab of their app's notification page. "All members" also goes to all employees (notification bar + their bell).</Text>
       </Card>
 
       <SectionTitle>My saved messages</SectionTitle>

@@ -6,6 +6,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { navPad } from "../components/memberDesign";
 import { BRAND, INK, MUTED, MemberData, MonthRow, RED, dateText, esc, inr, loadMemberData, pdfPage, savePdf } from "../components/memberLedgers";
 import { t, useLang } from "../components/i18n";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
+import PageFooter from "../components/PageFooter";
+import ReceiptCalendar, { dayKey } from "../components/ReceiptCalendar";
 
 /* MY RECEIPTS: every payment the member made (all groups) with a PDF for one payment or the whole statement.
    Read only: nothing is changed or saved. */
@@ -49,7 +52,7 @@ const receiptSections = (r: Rec): Line[][] => {
   return [
     [
       { label: "Member ID", value: r.groupMemberId || "-" },
-      { label: "Group", value: r.groupId },
+      { label: HIDE_GROUP_ID ? "Chit Value" : "Group", value: groupLabel(r.groupId) },
       { label: "Month", value: `M${r.month}` },
       { label: "Due Date", value: dateText(m.dueDate) },
     ],
@@ -102,6 +105,7 @@ const receiptHtml = (r: Rec, who: string) => {
 
 export default function MyReceipts() {
   useLang();
+  useGroupLabel();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<MemberData | null>(null);
@@ -111,6 +115,8 @@ export default function MyReceipts() {
   const [group, setGroup] = useState("ALL");
   const [shown, setShown] = useState(PAGE);
   const [note, setNote] = useState("");
+  const [calOpen, setCalOpen] = useState(false);
+  const [day, setDay] = useState(""); // "" = all days; otherwise one day (from the calendar)
 
   const load = useCallback(async (force = false) => {
     try {
@@ -159,7 +165,8 @@ export default function MyReceipts() {
   }, [data]);
 
   const codes = useMemo(() => Array.from(new Set((data?.groups || []).map((g) => g.groupId))), [data]);
-  const list = group === "ALL" ? all : all.filter((r) => r.groupId === group);
+  const groupList = group === "ALL" ? all : all.filter((r) => r.groupId === group);
+  const list = day ? groupList.filter((r) => dayKey(r.paidAt) === day) : groupList;
   const total = list.reduce((s, r) => s + r.amount, 0);
 
   const who = data?.name || "";
@@ -167,7 +174,7 @@ export default function MyReceipts() {
   const [open, setOpen] = useState<Rec | null>(null);
 
   const receiptPdf = async (r: Rec) => {
-    setNote((await savePdf(receiptHtml(r, who), `Receipt ${r.groupId} month ${r.month}`)) || "");
+    setNote((await savePdf(receiptHtml(r, who), `Receipt ${HIDE_GROUP_ID ? "" : r.groupId + " "}month ${r.month}`)) || "");
   };
 
   const statementPdf = async () => {
@@ -175,7 +182,7 @@ export default function MyReceipts() {
       .map(
         (r) => `<tr>
 <td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${esc(dateText(r.paidAt))}</td>
-<td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${esc(r.groupId)}</td>
+<td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${esc(groupLabel(r.groupId))}</td>
 <td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${r.month}</td>
 <td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${esc(r.type)}</td>
 <td style="padding:6px 8px; border-bottom:1px solid #E2E8F0;">${esc(r.mode || "-")}</td>
@@ -184,13 +191,13 @@ export default function MyReceipts() {
       )
       .join("");
     const body = `<table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-<tr style="background:#F1F5F9; text-align:left;"><th style="padding:7px 8px;">{t("Date")}</th><th style="padding:7px 8px;">{t("Group")}</th><th style="padding:7px 8px;">{t("Month")}</th><th style="padding:7px 8px;">{t("Type")}</th><th style="padding:7px 8px;">{t("Mode")}</th><th style="padding:7px 8px;">{t("Collected by")}</th><th style="padding:7px 8px; text-align:right;">{t("Amount")}</th></tr>
+<tr style="background:#F1F5F9; text-align:left;"><th style="padding:7px 8px;">{t("Date")}</th><th style="padding:7px 8px;">${HIDE_GROUP_ID ? "Chit Value" : "Group"}</th><th style="padding:7px 8px;">{t("Month")}</th><th style="padding:7px 8px;">{t("Type")}</th><th style="padding:7px 8px;">{t("Mode")}</th><th style="padding:7px 8px;">{t("Collected by")}</th><th style="padding:7px 8px; text-align:right;">{t("Amount")}</th></tr>
 ${rows}
 <tr><td colspan="6" style="padding:10px 8px; font-weight:bold; text-align:right;">{t("Total paid")}</td><td style="padding:10px 8px; font-weight:bold; text-align:right;">${esc(inr(total))}</td></tr>
 </table>`;
     setNote(
       (await savePdf(
-        pdfPage("Payment Statement", `${who}${group === "ALL" ? " · all groups" : " · Group " + group}`, body),
+        pdfPage("Payment Statement", `${who}${group === "ALL" ? " · all groups" : " · " + groupPrefixed("Group ", group)}`, body),
         "Payment statement"
       )) || ""
     );
@@ -208,6 +215,16 @@ ${rows}
             <Text style={{ color: "#FFFFFF", fontSize: 19, fontWeight: "900" }}>{t("My Receipts")}</Text>
             <Text style={{ color: "#BFE3D1", fontSize: 12, marginTop: 1 }}>Every payment you made, with PDF</Text>
           </View>
+          {all.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setCalOpen(true)}
+              activeOpacity={0.8}
+              style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" }}
+            >
+              <MaterialIcons name="calendar-month" size={23} color="#FFFFFF" />
+              {day ? <View style={{ position: "absolute", top: 7, right: 7, width: 9, height: 9, borderRadius: 5, backgroundColor: "#F5C84B" }} /> : null}
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -237,11 +254,23 @@ ${rows}
                       onPress={() => { setGroup(c); setShown(PAGE); }}
                       style={{ paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, marginRight: 8, backgroundColor: on ? BRAND : "#FFFFFF", borderWidth: 1, borderColor: on ? BRAND : "#DDE5E0" }}
                     >
-                      <Text style={{ fontWeight: "800", fontSize: 12.5, color: on ? "#FFFFFF" : INK }}>{c === "ALL" ? "All groups" : c}</Text>
+                      <Text style={{ fontWeight: "800", fontSize: 12.5, color: on ? "#FFFFFF" : INK }}>{c === "ALL" ? "All groups" : groupLabel(c)}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </ScrollView>
+            ) : null}
+
+            {day ? (
+              <TouchableOpacity
+                onPress={() => { setDay(""); setShown(PAGE); }}
+                activeOpacity={0.8}
+                style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", backgroundColor: "#FFF8E1", borderWidth: 1, borderColor: "#F5C84B", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 10 }}
+              >
+                <MaterialIcons name="event" size={15} color="#92400E" />
+                <Text style={{ color: "#92400E", fontWeight: "900", fontSize: 12.5, marginLeft: 6 }}>{dateText(`${day}T00:00:00`)}</Text>
+                <MaterialIcons name="close" size={15} color="#92400E" style={{ marginLeft: 8 }} />
+              </TouchableOpacity>
             ) : null}
 
             <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center" }}>
@@ -255,7 +284,7 @@ ${rows}
             {list.slice(0, shown).map((r) => (
               <View key={r.key} style={{ backgroundColor: "#FFFFFF", borderRadius: 14, padding: 13, marginTop: 10 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={{ fontWeight: "900", color: INK, fontSize: 14 }}>Group {r.groupId} · Month {r.month}</Text>
+                  <Text style={{ fontWeight: "900", color: INK, fontSize: 14 }}>{groupPrefixed("Group ", r.groupId)} · Month {r.month}</Text>
                   <View style={{ backgroundColor: r.type === "Penalty" ? "#FEF3C7" : "#DCFCE7", borderRadius: 99, paddingHorizontal: 9, paddingVertical: 3 }}>
                     <Text style={{ fontWeight: "900", fontSize: 12, color: r.type === "Penalty" ? "#92400E" : "#166534" }}>{inr(r.amount)}</Text>
                   </View>
@@ -280,7 +309,15 @@ ${rows}
             ) : null}
           </>
         )}
+        <PageFooter note="My Receipts - payment receipts" />
       </ScrollView>
+      <ReceiptCalendar
+        visible={calOpen}
+        items={groupList}
+        selected={day}
+        onPick={(d) => { setDay(d); setShown(PAGE); if (d) setCalOpen(false); }}
+        onClose={() => setCalOpen(false)}
+      />
       <Modal visible={!!open} transparent animationType="slide" onRequestClose={() => setOpen(null)}>
         <View style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.55)", justifyContent: "center", padding: 16 }}>
           {open ? (

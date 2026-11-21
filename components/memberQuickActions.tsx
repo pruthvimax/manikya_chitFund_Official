@@ -7,6 +7,7 @@ import { Animated, Easing, ScrollView, Text, TouchableOpacity, View } from "reac
 import BACKEND_URL from "../config";
 import { cacheGet, cacheSet } from "../memberCache";
 import { t, useLang } from "./i18n";
+import { HIDE_GROUP_ID, useGroupLabel } from "./groupLabel";
 
 /* QUICK ACTIONS (member home, new design): "Live Vacancies" in a small strip under Live Auctions.
    Every open vacancy is shown as a small card (scroll sideways); tap one, or "See all", to open the Vacancies page.
@@ -49,6 +50,7 @@ const short = (n: any) => {
 
 export function QuickActionsSection({ wide }: { wide: string }) {
   useLang();
+  useGroupLabel();
   const router = useRouter();
   const [list, setList] = useState<any[] | null>(null);
   const [seenAt, setSeenAt] = useState<number>(0); // when the Vacancies page was last opened
@@ -135,7 +137,7 @@ export function QuickActionsSection({ wide }: { wide: string }) {
                 >
                   <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}>
-                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12.5 }} numberOfLines={1}>{v.groupId}</Text>
+                      <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 12.5 }} numberOfLines={1}>{HIDE_GROUP_ID ? "Vacancy" : v.groupId}</Text>
                       {fresh ? (
                         <View style={{ marginLeft: 5, backgroundColor: GOLD, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
                           <Text style={{ color: "#1F2937", fontSize: 8, fontWeight: "900" }}>{t("NEW")}</Text>

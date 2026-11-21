@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import BACKEND_URL from "../../config";
+import { FollowTarget, FollowUpLine, FollowUpModal, useFollowUps } from "../../components/CallFollowUp";
 
 /* =========================================================
    LEDGER  (route: /admin/ledger)
@@ -141,6 +142,10 @@ export default function Ledger() {
   // search inside the Overdue list (name or phone)
   const [q, setQ] = useState("");
   const [showAll, setShowAll] = useState(false);
+
+  // "call this member on this day" (saved on the server)
+  const followUps = useFollowUps(unlocked, data);
+  const [fuTarget, setFuTarget] = useState<FollowTarget | null>(null);
 
   // month + year picker (tap the month name)
   const [pickOpen, setPickOpen] = useState(false);
@@ -621,6 +626,10 @@ export default function Ledger() {
                             Group {r.groupId}
                             {r.groupMemberId ? ` · No. ${r.groupMemberId}` : ""}
                           </Text>
+                          <FollowUpLine
+                            fu={followUps.get(r.groupId, r.groupMemberId)}
+                            onPress={() => setFuTarget({ groupId: r.groupId, groupMemberId: r.groupMemberId, memberName: r.memberName, pending: r.pending })}
+                          />
                         </View>
                         {r.phone ? (
                           <TouchableOpacity
@@ -653,6 +662,15 @@ export default function Ledger() {
           </View>
         </View>
       </ScrollView>
+
+      {/* ---------- call date for an overdue member ---------- */}
+      <FollowUpModal
+        target={fuTarget}
+        existing={fuTarget ? followUps.get(fuTarget.groupId, fuTarget.groupMemberId) : undefined}
+        onSave={followUps.save}
+        onRemove={followUps.remove}
+        onClose={() => setFuTarget(null)}
+      />
 
       {/* ---------- pick month + year ---------- */}
       <Modal visible={pickOpen} transparent animationType="fade" onRequestClose={() => setPickOpen(false)}>

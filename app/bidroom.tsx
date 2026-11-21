@@ -1,6 +1,7 @@
 import { navPad } from "../components/memberDesign";
 import MemberLoader from "../components/MemberLoader";
 import { useEffect, useRef, useState } from "react";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
   import {
     View,
@@ -478,6 +479,7 @@ import { useEffect, useRef, useState } from "react";
     }
   };
   export default function UserNotifications() {
+    const gl = useGroupLabel();
     const router = useRouter();
 
     // =========================================================
@@ -1277,7 +1279,7 @@ import { useEffect, useRef, useState } from "react";
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 16, fontWeight: "800", color: "#1f2937" }}>Auction Notice</Text>
                         <Text style={{ fontSize: 13, fontWeight: "800", color: accent.main, marginTop: 1 }}>
-                          Group: {getGroupCode(item)}
+                          {groupPrefixed("Group: ", getGroupCode(item))}
                         </Text>
                       </View>
                       <View
@@ -1480,7 +1482,7 @@ import { useEffect, useRef, useState } from "react";
                             */}
                             <View className="flex-row mt-0.5">
                               <Text className="text-gray-700 flex-1 text-xs">
-                                <Text className="font-medium">Group ID:</Text> {getGroupCode(item)}
+                                <Text className="font-medium">{HIDE_GROUP_ID ? "Chit Value:" : "Group ID:"}</Text> {gl(getGroupCode(item))}
                               </Text>
                             </View>
 
@@ -1544,7 +1546,7 @@ import { useEffect, useRef, useState } from "react";
                     Auction Results
                   </Text>
                   <Text className="text-gray-500 text-xs">
-                    Group: {getGroupCode(endedPopupData)} •{" "}
+                    {groupPrefixed("Group: ", getGroupCode(endedPopupData))} •{" "}
                     {endedPopupData?.auctionEndDate || "-"}
                   </Text>
                 </View>
@@ -1607,9 +1609,9 @@ import { useEffect, useRef, useState } from "react";
                       group always matches the auction's group.
                     */}
                     <View className="flex-row justify-between mt-1">
-                      <Text className="text-gray-500 text-xs">Group ID</Text>
+                      <Text className="text-gray-500 text-xs">{HIDE_GROUP_ID ? "Chit Value" : "Group ID"}</Text>
                       <Text className="text-gray-800 font-semibold text-xs">
-                        {getGroupCode(endedPopupData)}
+                        {gl(getGroupCode(endedPopupData))}
                       </Text>
                     </View>
 
@@ -1712,7 +1714,7 @@ import { useEffect, useRef, useState } from "react";
                     <MaterialIcons name="event" size={13} color="#024e32" />
                     <Text className="text-gray-700 text-xs font-semibold ml-1.5">
                       {endedPopupData?.groupId?.groupId
-                        ? `Group ${endedPopupData.groupId.groupId}  •  `
+                        ? `${groupPrefixed("Group ", endedPopupData.groupId.groupId)}  •  `
                         : ""}
                       {endedPopupData?.auctionEndDate || "-"}
                       {endedPopupData?.auctionEndTime

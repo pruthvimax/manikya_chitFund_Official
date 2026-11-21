@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LiveSpinnerView from "../components/spinner/LiveSpinnerView";
 import { useSpinnerSession } from "../components/spinner/useSpinnerSession";
+import { groupPrefixed, useGroupLabel } from "../components/groupLabel";
 
 /* =========================================================
    MEMBER LIVE SPINNER SCREEN   (route: /spinnerLive)
@@ -23,6 +24,7 @@ import { useSpinnerSession } from "../components/spinner/useSpinnerSession";
 ========================================================= */
 
 export default function SpinnerLive() {
+  useGroupLabel();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -116,7 +118,7 @@ export default function SpinnerLive() {
                 marginTop: 2,
               }}
             >
-              Group {String(params.groupCode || params.groupId || "-")}
+              {groupPrefixed("Group ", String(params.groupCode || params.groupId || "-"))}
             </Text>
           </View>
 

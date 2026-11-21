@@ -13,6 +13,8 @@ import {
   Alert,
 } from "react-native";
 import BACKEND_URL from "../../config";
+import { memberDividend } from "../../components/memberDividend";
+import ReceiptCalendar, { dayKey } from "../../components/ReceiptCalendar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /* =========================================================
@@ -304,6 +306,8 @@ export default function PaymentHistory() {
   const [loading, setLoading] = useState(true);
   const [groupName, setGroupName] = useState<string>("");
   const [memberName, setMemberName] = useState<string>("");
+  const [calOpen, setCalOpen] = useState(false);
+  const [day, setDay] = useState(""); // "" = all days; otherwise one day picked in the calendar
 
   /* =========================================================
      FEATURE ACCESS GUARD
@@ -528,7 +532,7 @@ export default function PaymentHistory() {
           );
 
         const dividend =
-          Number(plan?.dividend || 0);
+          memberDividend(month, plan?.dividend);
 
         const dividendPayment =
           dividend > 0
@@ -665,7 +669,7 @@ export default function PaymentHistory() {
           plan?.installmentAmount || 0;
 
         const dividend =
-          plan?.dividend || 0;
+          memberDividend(collection, plan?.dividend);
 
         const effectivePaid =
           installmentPaid + dividend;
@@ -1604,7 +1608,27 @@ export default function PaymentHistory() {
       isMobile={isMobile}
       isTablet={isTablet}
       isDesktop={isDesktop}
+      right={
+        payments.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => setCalOpen(true)}
+            activeOpacity={0.8}
+            style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center", marginTop: 2 }}
+          >
+            <MaterialIcons name="calendar-month" size={24} color="#FFFFFF" />
+            {day ? <View style={{ position: "absolute", top: 8, right: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: "#F5C84B" }} /> : null}
+          </TouchableOpacity>
+        ) : null
+      }
     >
+
+      <ReceiptCalendar
+        visible={calOpen}
+        items={payments.map((p: any) => ({ paidAt: p.paidAt, type: p.paymentType === "PENALTY" ? "Penalty" : "Installment" }))}
+        selected={day}
+        onPick={(d) => { setDay(d); if (d) setCalOpen(false); }}
+        onClose={() => setCalOpen(false)}
+      />
 
       {payments.length === 0 ? (
 
@@ -1799,6 +1823,20 @@ export default function PaymentHistory() {
 
                 </View>
 
+                {day ? (
+                  <TouchableOpacity
+                    onPress={() => setDay("")}
+                    activeOpacity={0.8}
+                    style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#FFF8E1", borderWidth: 1, borderColor: "#F5C84B", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 }}
+                  >
+                    <MaterialIcons name="event" size={14} color="#92400E" />
+                    <Text style={{ color: "#92400E", fontWeight: "800", fontSize: 11.5, marginLeft: 4 }}>
+                      {new Date(`${day}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </Text>
+                    <MaterialIcons name="close" size={14} color="#92400E" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
+                ) : null}
+
               </View>
 
               <View
@@ -1817,6 +1855,9 @@ export default function PaymentHistory() {
 
                     const paymentId =
                       `${groupId}_${memberId}_${monthIndex}_${i}`;
+
+                    // a day was picked in the calendar: show only that day's payments
+                    if (day && dayKey(p.paidAt) !== day) return null;
 
                     return (
 
@@ -2090,6 +2131,7 @@ function Wrapper({
   isMobile,
   isTablet,
   isDesktop,
+  right,
 }: any) {
 
   return (
@@ -2148,6 +2190,8 @@ function Wrapper({
             )}
 
           </View>
+
+          {right}
 
         </View>
 

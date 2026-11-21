@@ -5,9 +5,11 @@ import { ScrollView, Text, TouchableOpacity } from "react-native";
 import GlobalSpinAutoOpen from "../components/spinner/GlobalSpinAutoOpen";
 import AnimatedSplash from "../components/AnimatedSplash";
 import { AppLockGate } from "../components/appLock";
+import BidNowGate from "../components/BidNowGate";
 import MemberBottomNav from "../components/MemberBottomNav";
 import { Platform, View } from "react-native";
 import { navTouchHandlers } from "../components/navScrollBus";
+import { memberScreenLayout } from "../components/PageTransition";
 
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -65,7 +67,7 @@ export default function RootLayout() {
       {/* the Stack fills the screen; the member bottom navigation (when shown) sits under it */}
       <View style={{ flex: 1 }} {...navTouchHandlers}>
         <View style={{ flex: 1 }}>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false }} screenLayout={memberScreenLayout}>
             {/* Android only: quick fade between the member pages (smooth like iPhone).
                 iPhone keeps its normal slide. Other pages are not touched. */}
             {Platform.OS === "android" &&
@@ -77,16 +79,21 @@ export default function RootLayout() {
                 "bidroom",
                 "myaccountcopy",
                 "myoutstanding",
+                "mynextdue",
+                "myreceipts",
                 "vacancy",
                 "contact",
                 "notifications",
                 "myprofile",
+                "language",
               ].map((name) => (
                 <Stack.Screen key={name} name={name} options={{ animation: "fade", animationDuration: 180 }} />
               ))}
           </Stack>
         </View>
         <MemberBottomNav />
+        {/* closes the Bid Now page and shows the live video link when admin switched Bid Now OFF */}
+        <BidNowGate />
       </View>
       {/* opens the live spin by itself for members when the admin starts it */}
       <GlobalSpinAutoOpen />

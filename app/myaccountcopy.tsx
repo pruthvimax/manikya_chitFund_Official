@@ -19,6 +19,8 @@ import {
 } from "react-native";
 import BACKEND_URL from "../config";
 import { logPenaltyMismatch } from "../components/penaltyCheck";
+import { memberRowDividend } from "../components/memberDividend";
+import { HIDE_GROUP_ID, groupLabel, groupPrefixed, useGroupLabel } from "../components/groupLabel";
 import {
   cacheGet,
   cacheSet,
@@ -437,7 +439,7 @@ const fetchDividendMap = async (
           `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
         );
         const plan = await res.json();
-        map[row.monthIndex] = plan?.dividend || 0;
+        map[row.monthIndex] = memberRowDividend(row, plan);
       } catch (err) {
         map[row.monthIndex] = 0;
       }
@@ -447,6 +449,7 @@ const fetchDividendMap = async (
 };
 
 export default function MyAccountCopy() {
+  const gl = useGroupLabel();
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const isDesktopOrLaptop = width >= 768;
@@ -764,7 +767,7 @@ export default function MyAccountCopy() {
               `${BACKEND_URL}/groups/${groupId}/collection-plan/${row.monthIndex}`
             );
             const plan = await res.json();
-            map[row.monthIndex] = plan?.dividend || 0;
+            map[row.monthIndex] = memberRowDividend(row, plan);
           } catch (err) {
             console.log("Dividend fetch error for month", row.monthIndex);
             map[row.monthIndex] = 0;
@@ -1155,8 +1158,12 @@ export default function MyAccountCopy() {
     return isDesktopOrLaptop ? 120 : 90;
   };
 
+  // Group ID hidden: show the chit value (and the member id) instead
+  const hiddenLabel = (g: any) =>
+    `${gl(g.groupId, { chitId: g.chitId })}${g.groupMemberId ? ` (Member: ${g.groupMemberId})` : ""}`;
+
   const selectedLabel =
-    selectedGroupData?.displayLabel ||
+    (HIDE_GROUP_ID && selectedGroupData ? hiddenLabel(selectedGroupData) : selectedGroupData?.displayLabel) ||
     (selectedGroupData ? `${selectedGroupData.groupId} - ${selectedGroupData.chitId}` : "Select a group");
 
   /* Dropdown sizing - centered card on laptop/tablet,
@@ -1355,7 +1362,7 @@ export default function MyAccountCopy() {
                           const isSelected = g.uniqueKey === selectedGroupKey;
 
                           const label =
-                            g.displayLabel || `${g.groupId} - ${g.chitId}`;
+                            (HIDE_GROUP_ID ? hiddenLabel(g) : g.displayLabel) || `${g.groupId} - ${g.chitId}`;
 
                           return (
                             <TouchableOpacity
@@ -1383,7 +1390,7 @@ export default function MyAccountCopy() {
                                   }`}
                                   maxFontSizeMultiplier={1.2}
                                 >
-                                  {String(g.groupId || "G").charAt(0).toUpperCase()}
+                                  {HIDE_GROUP_ID ? "₹" : String(g.groupId || "G").charAt(0).toUpperCase()}
                                 </Text>
                               </View>
 
@@ -1457,7 +1464,7 @@ export default function MyAccountCopy() {
             {selectedGroupData && (
               <View className="mt-3 bg-blue-50 rounded-xl p-3">
                 <Text className="text-blue-700 text-sm">
-                  <Text className="font-semibold">Group:</Text> {selectedGroupData.groupId}
+                  <Text className="font-semibold">{HIDE_GROUP_ID ? "Chit Value:" : "Group:"}</Text> {gl(selectedGroupData.groupId, { chitId: selectedGroupData.chitId })}
                 </Text>
                 <Text className="text-blue-700 text-sm mt-1">
                   <Text className="font-semibold">Member ID:</Text> {selectedGroupData.groupMemberId || "N/A"}

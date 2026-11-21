@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import BACKEND_URL from "../config";
 import { cacheGet, cacheSet } from "../memberCache";
+import { HIDE_GROUP_ID, useGroupLabel } from "../components/groupLabel";
 
 /* =========================================================
    MEMBER - VACANCIES
@@ -383,6 +384,7 @@ function VacancyLoader() {
 
 /* ================= MAIN ================= */
 export default function MemberVacancy() {
+  useGroupLabel();
   const router = useRouter();
   const { width, height: screenHeight } = useWindowDimensions();
   const isWide = width >= 768;
@@ -772,7 +774,7 @@ export default function MemberVacancy() {
               </Text>
 
               <Text className="text-green-100 text-xs mt-1 text-center">
-                Group {confirmTarget?.groupId} ·{" "}
+                {HIDE_GROUP_ID ? "" : `Group ${confirmTarget?.groupId} · `}
                 {confirmTarget?.availableSeats} seat
                 {confirmTarget?.availableSeats === 1 ? "" : "s"} left
               </Text>
@@ -1000,7 +1002,7 @@ function VacancyCard({
 
           {/* CHIPS */}
           <View className="flex-row flex-wrap mt-2">
-            <Chip text={vacancy.groupId} />
+            {HIDE_GROUP_ID ? null : <Chip text={vacancy.groupId} />}
             <Chip text={`Max bid ${vacancy.maxBidPercent}%`} />
             <Chip text={vacancy.frequency} />
           </View>

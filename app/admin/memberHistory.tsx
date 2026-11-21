@@ -761,8 +761,7 @@ export default function MemberHistory() {
                             : "text-gray-700"
                         }`}
                       >
-                        {group.groupName ||
-                          group.groupId}
+                        {group.groupId}
                       </Text>
 
                     </TouchableOpacity>
@@ -780,8 +779,7 @@ export default function MemberHistory() {
                 <View className="mt-4 bg-white rounded-2xl border border-gray-200 p-4">
 
                   <Text className="text-[#024e32] font-bold text-lg mb-2">
-                    {selectedGroup.groupName ||
-                      selectedGroup.groupId}
+                    {selectedGroup.groupId}
                   </Text>
 
                   <Text className="text-gray-600 mb-4">
