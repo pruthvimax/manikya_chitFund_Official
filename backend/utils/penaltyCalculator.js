@@ -11,6 +11,8 @@
  * Pure functions - no database access.
  */
 
+import { memberDividend } from "./memberDividend.js";
+
 export const PENALTY_PERCENT = 6;
 
 const endOfDay = (d) => {
@@ -43,7 +45,7 @@ export const computeMemberPenalty = (collections = [], plans = [], now = new Dat
     .map((c) => {
       const plan = planByMonth[Number(c.index)] || {};
       const installment = Number(plan.installmentAmount ?? c.installmentAmount ?? c.amount ?? 0);
-      const dividend = Number(plan.dividend || 0);
+      const dividend = memberDividend(c, plan);
       const endDate = plan.endDate || c.endDate || null;
       const payments = Array.isArray(c.payments) ? c.payments : [];
       return { c, index: Number(c.index), installment, dividend, endDate, payments };

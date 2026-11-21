@@ -47,6 +47,9 @@ export const addNotification = async (req, res) => {
       winnerId,
       winnerGroupId,
       winnerBidAmount,
+
+      // Bid Now page switch (default ON)
+      bidNowEnabled,
     } = req.body;
 
     console.log("========== ADD NOTIFICATION ==========");
@@ -154,6 +157,8 @@ export const addNotification = async (req, res) => {
 
       status: "active",
 
+      bidNowEnabled: !(bidNowEnabled === false || bidNowEnabled === "false"),
+
       winnerName: winnerName ? String(winnerName).trim() : "",
 
       winnerId: winnerId ? String(winnerId).trim() : "",
@@ -204,6 +209,8 @@ export const addNotification = async (req, res) => {
         message: notification.message,
 
         status: notification.status,
+
+        bidNowEnabled: notification.bidNowEnabled !== false,
 
         winnerName: notification.winnerName,
 
@@ -275,6 +282,9 @@ export const getNotifications = async (req, res) => {
         status:
           notification.status,
 
+        bidNowEnabled:
+          notification.bidNowEnabled !== false,
+
         winnerName:
           notification.winnerName,
 
@@ -335,6 +345,9 @@ export const updateNotification = async (
       winnerId,
       winnerGroupId,
       winnerBidAmount,
+
+      // Bid Now page switch: only changed when it is sent
+      bidNowEnabled,
     } = req.body;
 
     console.log(
@@ -512,6 +525,15 @@ export const updateNotification = async (
           status:
             status || "active",
 
+          ...(bidNowEnabled !== undefined
+            ? {
+                bidNowEnabled: !(
+                  bidNowEnabled === false ||
+                  bidNowEnabled === "false"
+                ),
+              }
+            : {}),
+
           winnerName:
             winnerName !== undefined
               ? String(winnerName).trim()
@@ -681,6 +703,8 @@ export const updateNotification = async (
 
         status:
           updated.status,
+        bidNowEnabled:
+          updated.bidNowEnabled !== false,
 
         winnerName:
           updated.winnerName,
@@ -933,6 +957,9 @@ export const getUserNotifications = async (
 
         status:
           notification.status,
+
+        bidNowEnabled:
+          notification.bidNowEnabled !== false,
 
         winnerName:
           notification.winnerName,

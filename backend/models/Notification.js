@@ -50,6 +50,15 @@ const notificationSchema = new mongoose.Schema(
       default: "active",
     },
 
+    // BID NOW PAGE SWITCH (admin).
+    // true  = members can bid in the app (the Bid Now page works as always)
+    // false = the Bid Now page is closed for this auction; members see the
+    //         live video link (Google Meet / Zoom ... from the message) instead.
+    bidNowEnabled: {
+      type: Boolean,
+      default: true,
+    },
+
     // =========================================================
     // WINNER DETAILS (Admin manually enters after auction ends)
     // =========================================================

@@ -60,6 +60,24 @@ const collectionSchema = new mongoose.Schema(
       amount: { type: Number, default: 0 },
     },
 
+    // PER-MEMBER DIVIDEND: admin changes this member's dividend for this month only.
+    // null = use the group's dividend of the month (collectionPlans.dividend).
+    dividendOverride: { type: Number, default: null },
+    dividendEditedBy: { type: String, default: "" },
+    dividendEditedAt: { type: Date, default: null },
+    dividendLog: {
+      type: [
+        {
+          from: { type: Number, default: 0 },
+          to: { type: Number, default: 0 },
+          by: { type: String, default: "" },
+          at: { type: Date, default: Date.now },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+
     // PENALTY WAIVER (admin switches the penalty OFF for this member + month).
     // Penalty already paid stays in payments; only the unpaid part is waived.
     penaltyWaived: { type: Boolean, default: false },

@@ -33,6 +33,8 @@ export const getAuctionInsights = async (req, res) => {
           groupId: 1,
           chitId: 1,
           "members.memberId": 1,
+          "members.collections.index": 1,
+          "members.collections.dividendOverride": 1,
           "collectionPlans.monthIndex": 1,
           "collectionPlans.dividend": 1,
         }
@@ -110,7 +112,16 @@ export const getAuctionInsights = async (req, res) => {
       });
 
       const perMember = (g.collectionPlans || []).reduce((s, p) => s + num(p.dividend), 0);
-      const dividendGiven = perMember * members.size;
+      // members whose dividend was changed for a month: add the difference
+      let changed = 0;
+      (g.members || []).forEach((m) =>
+        (m.collections || []).forEach((c) => {
+          if (typeof c.dividendOverride !== "number") return;
+          const plan = (g.collectionPlans || []).find((p) => Number(p.monthIndex) === Number(c.index));
+          changed += c.dividendOverride - num(plan?.dividend);
+        })
+      );
+      const dividendGiven = Math.max(perMember * members.size + changed, 0);
 
       const bidders = biddersOf.get(code) || new Set();
       let neverBid = 0;

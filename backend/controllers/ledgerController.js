@@ -3,6 +3,7 @@ import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import LedgerSetting from "../models/LedgerSetting.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
+import { memberDividend } from "../utils/memberDividend.js";
 
 /* =========================================================
    LEDGER (admin only, behind a password)
@@ -145,6 +146,7 @@ export const getLedgerSummary = async (req, res) => {
         "members.collections.index": 1,
         "members.collections.amount": 1,
         "members.collections.penaltyWaived": 1,
+        "members.collections.dividendOverride": 1,
         "members.collections.installmentAmount": 1,
         "members.collections.endDate": 1,
         "members.collections.payments.amount": 1,
@@ -182,7 +184,7 @@ export const getLedgerSummary = async (req, res) => {
         for (const col of mem.collections || []) {
           const plan = planBy[Number(col.index)] || {};
           const rawInst = num(col.installmentAmount) || num(plan.installmentAmount);
-          const inst = Math.max(rawInst - num(plan.dividend), 0); // after dividend
+          const inst = Math.max(rawInst - memberDividend(col, plan), 0); // after dividend
           const payments = col.payments || [];
 
           // collected in the selected month (every payment, with who collected it)

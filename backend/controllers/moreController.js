@@ -17,9 +17,11 @@ import AnnouncementLog from "../models/AnnouncementLog.js";
 import AnnouncementTemplate from "../models/AnnouncementTemplate.js";
 import ReminderSent from "../models/ReminderSent.js";
 import PaymentNotice from "../models/PaymentNotice.js";
+import EmployeeNotice from "../models/EmployeeNotice.js";
 import { sendPush } from "../realtime/pushNotifier.js";
 import { emitToAll } from "../realtime/socket.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
+import { memberDividend } from "../utils/memberDividend.js";
 
 /* =========================================================
    ADMIN "MORE" PAGE (12 features)  ->  /api/more/*
@@ -100,6 +102,7 @@ const loadGroups = async (fresh = false) => {
       "collectionPlans.dividend": 1,
       "collectionPlans.endDate": 1,
       "members.collections.penaltyWaived": 1,
+      "members.collections.dividendOverride": 1,
       "members.collections.amount": 1,
       "members.memberId": 1,
       "members.groupMemberId": 1,
@@ -204,7 +207,7 @@ const buildReminders = async (days) => {
         if (!endRaw || rawInst <= 0) continue;
         const end = new Date(endRaw);
 
-        const effective = Math.max(rawInst - num(plan.dividend), 0);
+        const effective = Math.max(rawInst - memberDividend(col, plan), 0);
         const instDue = Math.max(effective - instPaid(col), 0);
         const penDue = end < today ? num(penalty[Number(col.index)]?.pendingPenalty) : 0;
         const monthDue = instDue + penDue;
@@ -1195,13 +1198,33 @@ export const sendAnnouncement = async (req, res) => {
       tokens = await PushToken.find({ userid: { $in: recipients } }).lean();
     }
 
-    if (tokens.length === 0) {
+    // "All members" also goes to the employees: their bell + the phone notification bar
+    let empIds = [];
+    let empTokens = [];
+    if (audience === "all") {
+      empIds = (await Employee.find({ status: { $ne: "inactive" } }).select("emp_id").lean()).map((e) => String(e.emp_id)).filter(Boolean);
+      empTokens = empIds.length ? await PushToken.find({ userid: { $in: empIds.map((e) => `emp:${e}`) } }).lean() : [];
+    }
+
+    if (tokens.length === 0 && empIds.length === 0) {
       return res.status(400).json({ success: false, message: "No phones to send to (nobody in this audience has the app notifications on)." });
     }
     const r = await sendPush(tokens, { title, body, data: { route: "/notifications" } });
     await AnnouncementLog.create({ title, body, audience, groups: labels, members: memberCount, sent: r?.sent || 0, memberIds: recipients });
     pingBell();
-    res.json({ success: true, members: memberCount, phones: tokens.length, sent: r?.sent || 0 });
+
+    let empSent = 0;
+    if (empIds.length) {
+      try {
+        await EmployeeNotice.insertMany(empIds.map((emp_id) => ({ emp_id, kind: "announcement", title, body, route: "/employee", tone: "info" })));
+        const er = await sendPush(empTokens, { title, body, data: { route: "/employee" } });
+        empSent = er?.sent || 0;
+        emitToAll("live:changed", { topic: "employee" });
+      } catch (e) {
+        console.error("ANNOUNCE EMPLOYEES ERROR:", e?.message || e);
+      }
+    }
+    res.json({ success: true, members: memberCount, phones: tokens.length, sent: r?.sent || 0, employees: empIds.length, employeePhones: empTokens.length, employeesSent: empSent });
   } catch (err) {
     fail(res, "ANNOUNCE SEND", err);
   }

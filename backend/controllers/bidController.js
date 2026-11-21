@@ -4,6 +4,7 @@ import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import Notification from "../models/Notification.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
+import { memberDividend } from "../utils/memberDividend.js";
 /* =========================================================
    RESOLVE GROUP
    Accepts:
@@ -425,9 +426,7 @@ const plan = (group.collectionPlans || []).find(
         - Dividend counts towards the installment
         - PENALTY payments are NOT installment payments
       */
-      const planDividend = Number(
-        plan.dividend || 0
-      );
+      const planDividend = memberDividend(col, plan);
 
       const installmentPaid = (col.payments || [])
         .filter(

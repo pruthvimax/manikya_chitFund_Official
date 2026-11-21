@@ -5,6 +5,7 @@ import LeaveRequest from "../models/LeaveRequest.js";
 import MoreSetting from "../models/MoreSetting.js";
 import Notification from "../models/Notification.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
+import { memberDividend } from "../utils/memberDividend.js";
 
 /* =========================================================
    DAILY SUMMARY (WhatsApp to the admins)
@@ -75,6 +76,7 @@ export const buildSummaryText = async () => {
       "members.collections.index": 1,
       "members.collections.amount": 1,
       "members.collections.penaltyWaived": 1,
+      "members.collections.dividendOverride": 1,
       "members.collections.installmentAmount": 1,
       "members.collections.endDate": 1,
       "members.collections.payments.amount": 1,
@@ -119,7 +121,7 @@ export const buildSummaryText = async () => {
         const paid = payments
           .filter((p) => p.paymentType !== "PENALTY" && p.paymentType !== "DIVIDEND")
           .reduce((s, p) => s + num(p.amount), 0);
-        const pending = Math.max(raw - num(plan.dividend) - paid, 0) + num(penalty[Number(col.index)]?.pendingPenalty);
+        const pending = Math.max(raw - memberDividend(col, plan) - paid, 0) + num(penalty[Number(col.index)]?.pendingPenalty);
         total += pending;
         const endRaw = col.endDate || plan.endDate;
         if (endRaw && new Date(endRaw) < start && pending > 0) overdue = true;

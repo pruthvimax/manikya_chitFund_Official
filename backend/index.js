@@ -21,6 +21,7 @@ import memberHistoryRoutes from "./routes/memberHistoryRoutes.js";
 import memberInterestRoutes from "./routes/memberInterestRoutes.js";
 import memberRoutes from "./routes/memberRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import notificationBidNowRoutes from "./routes/notificationBidNowRoutes.js";
 import contactRequestRoutes from "./routes/contactRequestRoutes.js";
 import outstandingRoutes from "./routes/outstandingRoutes.js";
 import targetRoutes from "./routes/targetRoutes.js";
@@ -32,10 +33,15 @@ import http from "http";
 import { initSocket } from "./realtime/socket.js";
 import spinnerRoutes from "./routes/spinnerRoutes.js";
 import penaltyWaiverRoutes, { penaltyWaiverReportRouter } from "./routes/penaltyWaiverRoutes.js";
+import memberDividendRoutes from "./routes/memberDividendRoutes.js";
+import groupIdSettingRoutes from "./routes/groupIdSettingRoutes.js";
+import callFollowUpRoutes from "./routes/callFollowUpRoutes.js";
 import { liveBadgeMiddleware } from "./realtime/liveBadges.js";
 import { leaveAdminPing } from "./realtime/leaveAdminPing.js";
 import { startDailySummary } from "./realtime/dailySummary.js";
 import { paymentReceivedNotify } from "./realtime/paymentReceivedNotify.js";
+import { advancePlanHook } from "./realtime/advancePlanHook.js";
+import advanceRoutes from "./routes/advanceRoutes.js";
 import { startSpinReminders } from "./realtime/spinReminders.js";
 import { startAutoSpin } from "./realtime/autoSpin.js";
 import { startFollowUpReminders } from "./realtime/followUpReminders.js";
@@ -111,8 +117,12 @@ app.use("/api/vacancy", liveBadgeMiddleware("vacancy"));
 app.use("/api/contact-requests", liveBadgeMiddleware("contact"));
 // employee collected a payment -> member gets a notification (listens only, no logic change)
 app.use("/api/groups", paymentReceivedNotify);
+// admin adds / changes a month collection -> waiting advances are added (listens only, no logic change)
+app.use("/api/groups", advancePlanHook);
 app.use("/api/groups", groupRoutes);
+app.use("/api/advance", advanceRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/notifications", notificationBidNowRoutes);
 app.use("/api/contact-requests", contactRequestRoutes);
 app.use("/api/outstanding", outstandingRoutes);
 app.use("/api/leave-request", leaveRequestRoutes);
@@ -131,6 +141,9 @@ app.use("/api/daily-database", dailyDatabaseRoutes);
 app.use("/api/spinner", spinnerRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/groups", penaltyWaiverRoutes);
+app.use("/api/groups", memberDividendRoutes);
+app.use("/api/group-id-setting", groupIdSettingRoutes);
+app.use("/api/call-followup", callFollowUpRoutes);
 app.use("/api/penalty-waivers", penaltyWaiverReportRouter);
 
 // ----------------- TEST ROUTE -----------------

@@ -2,6 +2,7 @@ import Group from "../models/Group.js";
 import Member from "../models/Member.js";
 import Employee from "../models/Employee.js";
 import { computeMemberPenalty } from "../utils/penaltyCalculator.js";
+import { memberDividend } from "../utils/memberDividend.js";
 
 /* ================= COPY PLAN TO MEMBER COLLECTIONS ================= */
 export const syncCollectionPlanToMembers = async (
@@ -487,7 +488,7 @@ export const getMyChits = async (req, res) => {
             (p) => p.monthIndex === nextCollection.index
           );
 
-          dividend = plan?.dividend || 0;
+          dividend = memberDividend(nextCollection, plan);
         }
 
         const effectiveInstallment = Math.max(
@@ -577,7 +578,7 @@ export const getMyAccountCopy = async (req, res) => {
         (p) => p.monthIndex === c.index
       );
 
-      const dividend = plan?.dividend || 0;
+      const dividend = memberDividend(c, plan);
 
       // ✅ Inject dividend as virtual payment
       if (dividend > 0) {
